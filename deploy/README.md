@@ -243,7 +243,7 @@ sudo certbot renew --dry-run
 Create backup script:
 
 ```bash
-sudo nano /opt/nicefox-graphdb/scripts/backup.sh
+sudo vi /opt/nicefox-graphdb/scripts/backup.sh
 ```
 
 Add:
@@ -296,7 +296,7 @@ sudo chown graphdb:graphdb /opt/nicefox-graphdb/scripts/backup.sh
 Create cron job:
 
 ```bash
-sudo nano /etc/cron.d/nicefox-graphdb-backup
+sudo vi /etc/cron.d/nicefox-graphdb-backup
 ```
 
 Add:
@@ -321,7 +321,7 @@ sudo chmod 644 /etc/cron.d/nicefox-graphdb-backup
 Create logrotate config:
 
 ```bash
-sudo nano /etc/logrotate.d/nicefox-graphdb
+sudo vi /etc/logrotate.d/nicefox-graphdb
 ```
 
 Add:
@@ -396,7 +396,7 @@ sudo -u graphdb node /opt/nicefox-graphdb/packages/cli/dist/index.js list \
   --data /var/data/nicefox-graphdb
 
 # Create new project
-sudo -u graphdb node /opt/nicefox-graphdb/packages/cli/dist/index.js create myproject \
+sudo -u graphdb node /opt/nicefox-graphdb/packages/cli/dist/index.js create compta \
   --data /var/data/nicefox-graphdb
 ```
 

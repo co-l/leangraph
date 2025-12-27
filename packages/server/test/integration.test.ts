@@ -299,6 +299,55 @@ describe("Integration Tests", () => {
       );
       expect(result.data).toHaveLength(2); // Alice and Charlie
     });
+
+    it("filters with IS NULL", () => {
+      // Add a person with null email
+      executor.execute("CREATE (n:Person {name: 'Dave'})");
+      
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WHERE n.email IS NULL RETURN n.name")
+      );
+      // All 4 people should have null email (Alice, Bob, Charlie, Dave)
+      expect(result.data).toHaveLength(4);
+    });
+
+    it("filters with IS NOT NULL", () => {
+      // Add a person with email
+      executor.execute("CREATE (n:Person {name: 'Eve', email: 'eve@example.com'})");
+      
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WHERE n.email IS NOT NULL RETURN n.name")
+      );
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].n_name).toBe("Eve");
+    });
+
+    it("filters with parenthesized OR condition", () => {
+      // Clear and recreate test data
+      executor.execute("CREATE (n:Status {name: 'active', archived: false})");
+      executor.execute("CREATE (n:Status {name: 'pending', archived: false})");
+      executor.execute("CREATE (n:Status {name: 'deleted', archived: true})");
+      
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Status) WHERE n.archived = false AND (n.name = 'active' OR n.name = 'pending') RETURN n.name")
+      );
+      expect(result.data).toHaveLength(2);
+    });
+
+    it("filters with IS NULL in OR expression", () => {
+      executor.execute("CREATE (n:Customer {name: 'Active Co'})");
+      executor.execute("CREATE (n:Customer {name: 'Visible Inc', archived: false})");
+      executor.execute("CREATE (n:Customer {name: 'Hidden LLC', archived: true})");
+      
+      // Find customers where archived is null OR false (i.e., not archived)
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Customer) WHERE n.archived IS NULL OR n.archived = false RETURN n.name")
+      );
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map(d => d.n_name);
+      expect(names).toContain("Active Co");
+      expect(names).toContain("Visible Inc");
+    });
   });
 
   describe("Parameters", () => {

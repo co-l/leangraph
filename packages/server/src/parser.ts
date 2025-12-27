@@ -37,7 +37,7 @@ export interface ParameterRef {
 }
 
 export interface WhereCondition {
-  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith";
+  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull";
   left?: Expression;
   right?: Expression;
   operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
@@ -192,6 +192,7 @@ const KEYWORDS = new Set([
   "ENDS",
   "WITH",
   "AS",
+  "IS",
 ]);
 
 class Tokenizer {
@@ -900,11 +901,36 @@ export class Parser {
       return { type: "not", condition };
     }
 
+    return this.parsePrimaryCondition();
+  }
+
+  private parsePrimaryCondition(): WhereCondition {
+    // Handle parenthesized conditions
+    if (this.check("LPAREN")) {
+      this.advance(); // consume (
+      const condition = this.parseOrCondition(); // parse the inner condition
+      this.expect("RPAREN"); // consume )
+      return condition;
+    }
+
     return this.parseComparisonCondition();
   }
 
   private parseComparisonCondition(): WhereCondition {
     const left = this.parseExpression();
+
+    // Check for IS NULL / IS NOT NULL
+    if (this.checkKeyword("IS")) {
+      this.advance();
+      if (this.checkKeyword("NOT")) {
+        this.advance();
+        this.expect("KEYWORD", "NULL");
+        return { type: "isNotNull", left };
+      } else {
+        this.expect("KEYWORD", "NULL");
+        return { type: "isNull", left };
+      }
+    }
 
     // Check for string operations
     if (this.checkKeyword("CONTAINS")) {

@@ -685,6 +685,22 @@ export class Translator {
         };
       }
 
+      case "isNull": {
+        const left = this.translateWhereExpression(condition.left!);
+        return {
+          sql: `${left.sql} IS NULL`,
+          params: left.params,
+        };
+      }
+
+      case "isNotNull": {
+        const left = this.translateWhereExpression(condition.left!);
+        return {
+          sql: `${left.sql} IS NOT NULL`,
+          params: left.params,
+        };
+      }
+
       default:
         throw new Error(`Unknown condition type: ${condition.type}`);
     }
@@ -704,11 +720,16 @@ export class Translator {
       }
 
       case "literal": {
-        return { sql: "?", params: [expr.value] };
+        // Convert booleans to 1/0 for SQLite
+        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+        return { sql: "?", params: [value] };
       }
 
       case "parameter": {
-        const value = this.ctx.paramValues[expr.name!];
+        let value = this.ctx.paramValues[expr.name!];
+        // Convert booleans to 1/0 for SQLite
+        if (value === true) value = 1;
+        else if (value === false) value = 0;
         return { sql: "?", params: [value] };
       }
 

@@ -334,6 +334,56 @@ describe("Parser", () => {
       expect(clause.where!.right!.type).toBe("parameter");
       expect(clause.where!.right!.name).toBe("id");
     });
+
+    it("parses WHERE with IS NULL", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE n.deleted IS NULL RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("isNull");
+      expect(clause.where!.left!.type).toBe("property");
+      expect(clause.where!.left!.property).toBe("deleted");
+    });
+
+    it("parses WHERE with IS NOT NULL", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE n.email IS NOT NULL RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("isNotNull");
+      expect(clause.where!.left!.type).toBe("property");
+      expect(clause.where!.left!.property).toBe("email");
+    });
+
+    it("parses WHERE with parenthesized conditions", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE n.age > 18 AND (n.role = 'admin' OR n.role = 'mod') RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("and");
+      expect(clause.where!.conditions).toHaveLength(2);
+      // Second condition should be an OR
+      expect(clause.where!.conditions![1].type).toBe("or");
+    });
+
+    it("parses WHERE with IS NULL in OR expression", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE n.archived IS NULL OR n.archived = false RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("or");
+      expect(clause.where!.conditions).toHaveLength(2);
+      expect(clause.where!.conditions![0].type).toBe("isNull");
+      expect(clause.where!.conditions![1].type).toBe("comparison");
+    });
+
+    it("parses complex WHERE with parentheses and IS NULL", () => {
+      const query = expectSuccess(
+        "MATCH (u:User)-[:HAS]->(c:Customer) WHERE u.id = $userId AND (c.archived IS NULL OR c.archived = false) RETURN c"
+      );
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("and");
+      expect(clause.where!.conditions).toHaveLength(2);
+      // Second condition should be the parenthesized OR
+      expect(clause.where!.conditions![1].type).toBe("or");
+    });
   });
 
   describe("MERGE", () => {

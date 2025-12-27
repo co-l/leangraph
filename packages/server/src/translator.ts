@@ -218,7 +218,14 @@ export class Translator {
   }
 
   private registerRelationshipPattern(rel: RelationshipPattern): void {
-    const sourceAlias = this.registerNodePattern(rel.source);
+    // Check if source node is already registered (for chained patterns)
+    let sourceAlias: string;
+    if (rel.source.variable && this.ctx.variables.has(rel.source.variable)) {
+      sourceAlias = this.ctx.variables.get(rel.source.variable)!.alias;
+    } else {
+      sourceAlias = this.registerNodePattern(rel.source);
+    }
+
     const targetAlias = this.registerNodePattern(rel.target);
     const edgeAlias = `e${this.ctx.aliasCounter++}`;
 
@@ -227,6 +234,14 @@ export class Translator {
     }
 
     (this.ctx as any)[`pattern_${edgeAlias}`] = rel.edge;
+
+    // Store relationship patterns as an array to support multi-hop
+    if (!(this.ctx as any).relationshipPatterns) {
+      (this.ctx as any).relationshipPatterns = [];
+    }
+    (this.ctx as any).relationshipPatterns.push({ sourceAlias, targetAlias, edgeAlias, edge: rel.edge });
+
+    // Keep backwards compatibility with single pattern
     (this.ctx as any).relationshipPattern = { sourceAlias, targetAlias, edgeAlias, edge: rel.edge };
   }
 
@@ -362,51 +377,81 @@ export class Translator {
     }
 
     // Build FROM clause based on registered patterns
-    const relPattern = (this.ctx as any).relationshipPattern;
-    if (relPattern) {
-      // Relationship query
-      fromParts.push(`nodes ${relPattern.sourceAlias}`);
-      joinParts.push(`JOIN edges ${relPattern.edgeAlias} ON ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id`);
-      joinParts.push(`JOIN nodes ${relPattern.targetAlias} ON ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+    const relPatterns = (this.ctx as any).relationshipPatterns as Array<{
+      sourceAlias: string;
+      targetAlias: string;
+      edgeAlias: string;
+      edge: { type?: string; properties?: Record<string, PropertyValue> };
+    }> | undefined;
 
-      // Add edge type filter if specified
-      if (relPattern.edge.type) {
-        whereParts.push(`${relPattern.edgeAlias}.type = ?`);
-        params.push(relPattern.edge.type);
-      }
+    if (relPatterns && relPatterns.length > 0) {
+      // Track which node aliases we've already added to FROM/JOIN
+      const addedNodeAliases = new Set<string>();
 
-      // Add source node filters (label and properties)
-      const sourcePattern = (this.ctx as any)[`pattern_${relPattern.sourceAlias}`];
-      if (sourcePattern?.label) {
-        whereParts.push(`${relPattern.sourceAlias}.label = ?`);
-        params.push(sourcePattern.label);
-      }
-      if (sourcePattern?.properties) {
-        for (const [key, value] of Object.entries(sourcePattern.properties)) {
-          if (this.isParameterRef(value as PropertyValue)) {
-            whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
-            params.push(this.ctx.paramValues[(value as ParameterRef).name]);
-          } else {
-            whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
-            params.push(value);
+      // Relationship query - handle multi-hop patterns
+      for (let i = 0; i < relPatterns.length; i++) {
+        const relPattern = relPatterns[i];
+
+        if (i === 0) {
+          // First relationship: add source node to FROM
+          fromParts.push(`nodes ${relPattern.sourceAlias}`);
+          addedNodeAliases.add(relPattern.sourceAlias);
+        }
+
+        // Add edge join
+        joinParts.push(
+          `JOIN edges ${relPattern.edgeAlias} ON ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id`
+        );
+
+        // Add target node join if not already added
+        if (!addedNodeAliases.has(relPattern.targetAlias)) {
+          joinParts.push(
+            `JOIN nodes ${relPattern.targetAlias} ON ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`
+          );
+          addedNodeAliases.add(relPattern.targetAlias);
+        }
+
+        // Add edge type filter if specified
+        if (relPattern.edge.type) {
+          whereParts.push(`${relPattern.edgeAlias}.type = ?`);
+          params.push(relPattern.edge.type);
+        }
+
+        // Add source node filters (label and properties) - only for first pattern
+        if (i === 0) {
+          const sourcePattern = (this.ctx as any)[`pattern_${relPattern.sourceAlias}`];
+          if (sourcePattern?.label) {
+            whereParts.push(`${relPattern.sourceAlias}.label = ?`);
+            params.push(sourcePattern.label);
+          }
+          if (sourcePattern?.properties) {
+            for (const [key, value] of Object.entries(sourcePattern.properties)) {
+              if (this.isParameterRef(value as PropertyValue)) {
+                whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
+                params.push(this.ctx.paramValues[(value as ParameterRef).name]);
+              } else {
+                whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
+                params.push(value);
+              }
+            }
           }
         }
-      }
 
-      // Add target node filters (label and properties)
-      const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
-      if (targetPattern?.label) {
-        whereParts.push(`${relPattern.targetAlias}.label = ?`);
-        params.push(targetPattern.label);
-      }
-      if (targetPattern?.properties) {
-        for (const [key, value] of Object.entries(targetPattern.properties)) {
-          if (this.isParameterRef(value as PropertyValue)) {
-            whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
-            params.push(this.ctx.paramValues[(value as ParameterRef).name]);
-          } else {
-            whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
-            params.push(value);
+        // Add target node filters (label and properties)
+        const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
+        if (targetPattern?.label) {
+          whereParts.push(`${relPattern.targetAlias}.label = ?`);
+          params.push(targetPattern.label);
+        }
+        if (targetPattern?.properties) {
+          for (const [key, value] of Object.entries(targetPattern.properties)) {
+            if (this.isParameterRef(value as PropertyValue)) {
+              whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+              params.push(this.ctx.paramValues[(value as ParameterRef).name]);
+            } else {
+              whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+              params.push(value);
+            }
           }
         }
       }

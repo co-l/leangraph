@@ -511,11 +511,11 @@ export class Parser {
     this.expect("KEYWORD", "CREATE");
     const patterns: (NodePattern | RelationshipPattern)[] = [];
 
-    patterns.push(this.parsePattern());
+    patterns.push(...this.parsePatternChain());
 
     while (this.check("COMMA")) {
       this.advance();
-      patterns.push(this.parsePattern());
+      patterns.push(...this.parsePatternChain());
     }
 
     return { type: "CREATE", patterns };
@@ -525,11 +525,11 @@ export class Parser {
     this.expect("KEYWORD", "MATCH");
     const patterns: (NodePattern | RelationshipPattern)[] = [];
 
-    patterns.push(this.parsePattern());
+    patterns.push(...this.parsePatternChain());
 
     while (this.check("COMMA")) {
       this.advance();
-      patterns.push(this.parsePattern());
+      patterns.push(...this.parsePatternChain());
     }
 
     let where: WhereCondition | undefined;
@@ -643,6 +643,11 @@ export class Parser {
     return { type: "RETURN", items, limit };
   }
 
+  /**
+   * Parse a pattern, which can be a single node or a chain of relationships.
+   * For chained patterns like (a)-[:R1]->(b)-[:R2]->(c), this returns multiple
+   * RelationshipPattern objects via parsePatternChain.
+   */
   private parsePattern(): NodePattern | RelationshipPattern {
     const firstNode = this.parseNodePattern();
 
@@ -659,6 +664,39 @@ export class Parser {
     }
 
     return firstNode;
+  }
+
+  /**
+   * Parse a pattern chain, returning an array of patterns.
+   * Handles multi-hop patterns like (a)-[:R1]->(b)-[:R2]->(c).
+   */
+  private parsePatternChain(): (NodePattern | RelationshipPattern)[] {
+    const patterns: (NodePattern | RelationshipPattern)[] = [];
+    const firstNode = this.parseNodePattern();
+
+    // Check for relationship chain
+    if (!this.check("DASH") && !this.check("ARROW_LEFT")) {
+      // Just a single node
+      return [firstNode];
+    }
+
+    // Parse first relationship
+    let currentSource = firstNode;
+    while (this.check("DASH") || this.check("ARROW_LEFT")) {
+      const edge = this.parseEdgePattern();
+      const targetNode = this.parseNodePattern();
+
+      patterns.push({
+        source: currentSource,
+        edge,
+        target: targetNode,
+      });
+
+      // For the next hop, the source is a reference to the previous target (variable only, no label)
+      currentSource = { variable: targetNode.variable };
+    }
+
+    return patterns;
   }
 
   private parseNodePattern(): NodePattern {

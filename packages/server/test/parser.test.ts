@@ -191,6 +191,50 @@ describe("Parser", () => {
       expect(rel.edge.variable).toBe("r");
       expect(rel.edge.type).toBeUndefined();
     });
+
+    it("parses multi-hop relationship pattern", () => {
+      const query = expectSuccess(
+        "MATCH (u:User)-[:HAS_INVOICE]->(i:Invoice)-[:BILLED_TO]->(c:Customer) RETURN i, c"
+      );
+      const clause = query.clauses[0] as MatchClause;
+
+      // Should have 2 relationship patterns
+      expect(clause.patterns).toHaveLength(2);
+
+      const rel1 = clause.patterns[0] as RelationshipPattern;
+      expect(rel1.source.variable).toBe("u");
+      expect(rel1.source.label).toBe("User");
+      expect(rel1.edge.type).toBe("HAS_INVOICE");
+      expect(rel1.target.variable).toBe("i");
+      expect(rel1.target.label).toBe("Invoice");
+
+      const rel2 = clause.patterns[1] as RelationshipPattern;
+      expect(rel2.source.variable).toBe("i");
+      expect(rel2.source.label).toBeUndefined(); // References previous node
+      expect(rel2.edge.type).toBe("BILLED_TO");
+      expect(rel2.target.variable).toBe("c");
+      expect(rel2.target.label).toBe("Customer");
+    });
+
+    it("parses multi-hop with properties on nodes", () => {
+      const query = expectSuccess(
+        "MATCH (u:User {id: $userId})-[:HAS_INVOICE]->(i:Invoice)-[:BILLED_TO]->(c:Customer) RETURN i"
+      );
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.patterns).toHaveLength(2);
+      const rel1 = clause.patterns[0] as RelationshipPattern;
+      expect(rel1.source.properties).toEqual({ id: { type: "parameter", name: "userId" } });
+    });
+
+    it("parses three-hop relationship pattern", () => {
+      const query = expectSuccess(
+        "MATCH (a:A)-[:R1]->(b:B)-[:R2]->(c:C)-[:R3]->(d:D) RETURN a, d"
+      );
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.patterns).toHaveLength(3);
+    });
   });
 
   describe("WHERE", () => {

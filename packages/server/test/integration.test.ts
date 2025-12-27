@@ -565,6 +565,113 @@ describe("Integration Tests", () => {
     });
   });
 
+  describe("Multi-hop relationship patterns", () => {
+    it("matches two-hop relationship pattern", () => {
+      // Create test data: User -> Invoice -> Customer
+      executor.execute("CREATE (u:CC_User {id: 'user-1', name: 'Alice'})");
+      executor.execute("CREATE (i:CC_Invoice {id: 'inv-1', amount: 100})");
+      executor.execute("CREATE (c:CC_Customer {id: 'cust-1', name: 'Acme Corp'})");
+
+      // Create relationships manually
+      const users = db.getNodesByLabel("CC_User");
+      const invoices = db.getNodesByLabel("CC_Invoice");
+      const customers = db.getNodesByLabel("CC_Customer");
+
+      db.insertEdge("edge-1", "HAS_INVOICE", users[0].id, invoices[0].id);
+      db.insertEdge("edge-2", "BILLED_TO", invoices[0].id, customers[0].id);
+
+      // Query with multi-hop pattern
+      const result = expectSuccess(
+        executor.execute(
+          `MATCH (u:CC_User {id: $userId})-[:HAS_INVOICE]->(i:CC_Invoice)-[:BILLED_TO]->(c:CC_Customer)
+           RETURN i, c.id as customerId, c.name as customerName`,
+          { userId: "user-1" }
+        )
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].customerId).toBe("cust-1");
+      expect(result.data[0].customerName).toBe("Acme Corp");
+    });
+
+    it("matches three-hop relationship pattern", () => {
+      // Create test data: A -> B -> C -> D
+      executor.execute("CREATE (a:NodeA {id: 'a1'})");
+      executor.execute("CREATE (b:NodeB {id: 'b1'})");
+      executor.execute("CREATE (c:NodeC {id: 'c1'})");
+      executor.execute("CREATE (d:NodeD {id: 'd1'})");
+
+      const nodesA = db.getNodesByLabel("NodeA");
+      const nodesB = db.getNodesByLabel("NodeB");
+      const nodesC = db.getNodesByLabel("NodeC");
+      const nodesD = db.getNodesByLabel("NodeD");
+
+      db.insertEdge("e1", "REL1", nodesA[0].id, nodesB[0].id);
+      db.insertEdge("e2", "REL2", nodesB[0].id, nodesC[0].id);
+      db.insertEdge("e3", "REL3", nodesC[0].id, nodesD[0].id);
+
+      const result = expectSuccess(
+        executor.execute(
+          "MATCH (a:NodeA)-[:REL1]->(b:NodeB)-[:REL2]->(c:NodeC)-[:REL3]->(d:NodeD) RETURN a.id, d.id"
+        )
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].a_id).toBe("a1");
+      expect(result.data[0].d_id).toBe("d1");
+    });
+
+    it("returns empty when multi-hop path does not exist", () => {
+      // Create disconnected nodes
+      executor.execute("CREATE (u:CC_User {id: 'user-2', name: 'Bob'})");
+      executor.execute("CREATE (i:CC_Invoice {id: 'inv-2', amount: 200})");
+      // No relationships created
+
+      const result = expectSuccess(
+        executor.execute(
+          `MATCH (u:CC_User {id: $userId})-[:HAS_INVOICE]->(i:CC_Invoice)-[:BILLED_TO]->(c:CC_Customer)
+           RETURN i`,
+          { userId: "user-2" }
+        )
+      );
+
+      expect(result.data).toHaveLength(0);
+    });
+
+    it("filters correctly across multi-hop pattern", () => {
+      // Create two paths with different customers
+      executor.execute("CREATE (u:TestUser {id: 'tu1'})");
+      executor.execute("CREATE (i1:TestInvoice {id: 'ti1', status: 'paid'})");
+      executor.execute("CREATE (i2:TestInvoice {id: 'ti2', status: 'pending'})");
+      executor.execute("CREATE (c1:TestCustomer {id: 'tc1', tier: 'gold'})");
+      executor.execute("CREATE (c2:TestCustomer {id: 'tc2', tier: 'silver'})");
+
+      const users = db.getNodesByLabel("TestUser");
+      const invoices = db.getNodesByLabel("TestInvoice");
+      const customers = db.getNodesByLabel("TestCustomer");
+
+      const inv1 = invoices.find(i => i.properties.id === "ti1")!;
+      const inv2 = invoices.find(i => i.properties.id === "ti2")!;
+      const cust1 = customers.find(c => c.properties.id === "tc1")!;
+      const cust2 = customers.find(c => c.properties.id === "tc2")!;
+
+      db.insertEdge("te1", "HAS_INV", users[0].id, inv1.id);
+      db.insertEdge("te2", "HAS_INV", users[0].id, inv2.id);
+      db.insertEdge("te3", "FOR_CUST", inv1.id, cust1.id);
+      db.insertEdge("te4", "FOR_CUST", inv2.id, cust2.id);
+
+      // Filter by customer tier
+      const result = expectSuccess(
+        executor.execute(
+          "MATCH (u:TestUser)-[:HAS_INV]->(i:TestInvoice)-[:FOR_CUST]->(c:TestCustomer {tier: 'gold'}) RETURN i.id"
+        )
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].i_id).toBe("ti1");
+    });
+  });
+
   describe("Standalone RETURN", () => {
     it("returns literal number", () => {
       const result = expectSuccess(executor.execute("RETURN 1"));

@@ -218,7 +218,7 @@ export class Translator {
   }
 
   private registerRelationshipPattern(rel: RelationshipPattern): void {
-    // Check if source node is already registered (for chained patterns)
+    // Check if source node is already registered (for chained patterns or multi-MATCH)
     let sourceAlias: string;
     if (rel.source.variable && this.ctx.variables.has(rel.source.variable)) {
       sourceAlias = this.ctx.variables.get(rel.source.variable)!.alias;
@@ -226,7 +226,14 @@ export class Translator {
       sourceAlias = this.registerNodePattern(rel.source);
     }
 
-    const targetAlias = this.registerNodePattern(rel.target);
+    // Check if target node is already registered (for multi-MATCH shared variables)
+    let targetAlias: string;
+    if (rel.target.variable && this.ctx.variables.has(rel.target.variable)) {
+      targetAlias = this.ctx.variables.get(rel.target.variable)!.alias;
+    } else {
+      targetAlias = this.registerNodePattern(rel.target);
+    }
+
     const edgeAlias = `e${this.ctx.aliasCounter++}`;
 
     if (rel.edge.variable) {
@@ -387,6 +394,8 @@ export class Translator {
     if (relPatterns && relPatterns.length > 0) {
       // Track which node aliases we've already added to FROM/JOIN
       const addedNodeAliases = new Set<string>();
+      // Track which node aliases have had their filters added (to avoid duplicates)
+      const filteredNodeAliases = new Set<string>();
 
       // Relationship query - handle multi-hop patterns
       for (let i = 0; i < relPatterns.length; i++) {
@@ -396,12 +405,26 @@ export class Translator {
           // First relationship: add source node to FROM
           fromParts.push(`nodes ${relPattern.sourceAlias}`);
           addedNodeAliases.add(relPattern.sourceAlias);
+        } else if (!addedNodeAliases.has(relPattern.sourceAlias)) {
+          // For subsequent patterns, if source is not already added, we need to JOIN it
+          // This handles cases like: MATCH (a)-[]->(b) MATCH (c)-[]->(b) where c is new
+          joinParts.push(`JOIN nodes ${relPattern.sourceAlias} ON 1=1`);
+          addedNodeAliases.add(relPattern.sourceAlias);
         }
 
-        // Add edge join
-        joinParts.push(
-          `JOIN edges ${relPattern.edgeAlias} ON ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id`
-        );
+        // Add edge join - need to determine direction based on whether source/target already exist
+        if (addedNodeAliases.has(relPattern.targetAlias) && !addedNodeAliases.has(relPattern.sourceAlias)) {
+          // Target exists, source is new - this shouldn't happen after the check above
+          // but handle it anyway
+          joinParts.push(
+            `JOIN edges ${relPattern.edgeAlias} ON ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`
+          );
+        } else {
+          // Normal case: source exists (or was just added), join edge by source
+          joinParts.push(
+            `JOIN edges ${relPattern.edgeAlias} ON ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id`
+          );
+        }
 
         // Add target node join if not already added
         if (!addedNodeAliases.has(relPattern.targetAlias)) {
@@ -409,6 +432,10 @@ export class Translator {
             `JOIN nodes ${relPattern.targetAlias} ON ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`
           );
           addedNodeAliases.add(relPattern.targetAlias);
+        } else {
+          // Target was already added, but we need to ensure edge connects to it
+          // Add WHERE condition to connect edge's target to the existing node
+          whereParts.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
         }
 
         // Add edge type filter if specified
@@ -417,8 +444,8 @@ export class Translator {
           params.push(relPattern.edge.type);
         }
 
-        // Add source node filters (label and properties) - only for first pattern
-        if (i === 0) {
+        // Add source node filters (label and properties) if not already done
+        if (!filteredNodeAliases.has(relPattern.sourceAlias)) {
           const sourcePattern = (this.ctx as any)[`pattern_${relPattern.sourceAlias}`];
           if (sourcePattern?.label) {
             whereParts.push(`${relPattern.sourceAlias}.label = ?`);
@@ -435,24 +462,28 @@ export class Translator {
               }
             }
           }
+          filteredNodeAliases.add(relPattern.sourceAlias);
         }
 
-        // Add target node filters (label and properties)
-        const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
-        if (targetPattern?.label) {
-          whereParts.push(`${relPattern.targetAlias}.label = ?`);
-          params.push(targetPattern.label);
-        }
-        if (targetPattern?.properties) {
-          for (const [key, value] of Object.entries(targetPattern.properties)) {
-            if (this.isParameterRef(value as PropertyValue)) {
-              whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
-              params.push(this.ctx.paramValues[(value as ParameterRef).name]);
-            } else {
-              whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
-              params.push(value);
+        // Add target node filters (label and properties) if not already done
+        if (!filteredNodeAliases.has(relPattern.targetAlias)) {
+          const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
+          if (targetPattern?.label) {
+            whereParts.push(`${relPattern.targetAlias}.label = ?`);
+            params.push(targetPattern.label);
+          }
+          if (targetPattern?.properties) {
+            for (const [key, value] of Object.entries(targetPattern.properties)) {
+              if (this.isParameterRef(value as PropertyValue)) {
+                whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+                params.push(this.ctx.paramValues[(value as ParameterRef).name]);
+              } else {
+                whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+                params.push(value);
+              }
             }
           }
+          filteredNodeAliases.add(relPattern.targetAlias);
         }
       }
     } else {

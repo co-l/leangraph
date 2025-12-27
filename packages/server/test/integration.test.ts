@@ -672,6 +672,91 @@ describe("Integration Tests", () => {
     });
   });
 
+  describe("Multiple MATCH clauses", () => {
+    it("handles two MATCH clauses with shared variable", () => {
+      // Create test data: Report -> BankStatement <- Transaction
+      executor.execute("CREATE (r:CC_MonthlyReport {id: 'report-1', name: 'January Report'})");
+      executor.execute("CREATE (bs:CC_BankStatement {id: 'bs-1', name: 'Bank Statement 1'})");
+      executor.execute("CREATE (t:CC_Transaction {id: 'tx-1', amount: 100})");
+
+      // Create relationships
+      const reports = db.getNodesByLabel("CC_MonthlyReport");
+      const statements = db.getNodesByLabel("CC_BankStatement");
+      const transactions = db.getNodesByLabel("CC_Transaction");
+
+      db.insertEdge("e1", "HAS_BANK_STATEMENT", reports[0].id, statements[0].id);
+      db.insertEdge("e2", "PART_OF", transactions[0].id, statements[0].id);
+
+      // This is the failing query - two separate MATCH clauses
+      const result = expectSuccess(
+        executor.execute(
+          `MATCH (r:CC_MonthlyReport {id: $reportId})-[:HAS_BANK_STATEMENT]->(bs:CC_BankStatement)
+           MATCH (t:CC_Transaction)-[:PART_OF]->(bs)
+           RETURN t, bs.id as bankStatementId`,
+          { reportId: "report-1" }
+        )
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].bankStatementId).toBe("bs-1");
+      expect(result.data[0].t).toMatchObject({
+        properties: { id: "tx-1", amount: 100 }
+      });
+    });
+
+    it("handles multiple MATCH with multiple results", () => {
+      // Create test data: Report -> BankStatement, multiple Transactions -> BankStatement
+      executor.execute("CREATE (r:CC_MonthlyReport {id: 'report-2'})");
+      executor.execute("CREATE (bs:CC_BankStatement {id: 'bs-2'})");
+      executor.execute("CREATE (t1:CC_Transaction {id: 'tx-2', amount: 50})");
+      executor.execute("CREATE (t2:CC_Transaction {id: 'tx-3', amount: 75})");
+
+      const reports = db.getNodesByLabel("CC_MonthlyReport").filter(r => r.properties.id === "report-2");
+      const statements = db.getNodesByLabel("CC_BankStatement").filter(s => s.properties.id === "bs-2");
+      const transactions = db.getNodesByLabel("CC_Transaction").filter(t => ["tx-2", "tx-3"].includes(t.properties.id as string));
+
+      db.insertEdge("e3", "HAS_BANK_STATEMENT", reports[0].id, statements[0].id);
+      db.insertEdge("e4", "PART_OF", transactions[0].id, statements[0].id);
+      db.insertEdge("e5", "PART_OF", transactions[1].id, statements[0].id);
+
+      const result = expectSuccess(
+        executor.execute(
+          `MATCH (r:CC_MonthlyReport {id: $reportId})-[:HAS_BANK_STATEMENT]->(bs:CC_BankStatement)
+           MATCH (t:CC_Transaction)-[:PART_OF]->(bs)
+           RETURN t.id as txId, t.amount as amount`,
+          { reportId: "report-2" }
+        )
+      );
+
+      expect(result.data).toHaveLength(2);
+      const txIds = result.data.map(d => d.txId);
+      expect(txIds).toContain("tx-2");
+      expect(txIds).toContain("tx-3");
+    });
+
+    it("returns empty when second MATCH has no matches", () => {
+      // Create test data but no transactions
+      executor.execute("CREATE (r:CC_MonthlyReport {id: 'report-3'})");
+      executor.execute("CREATE (bs:CC_BankStatement {id: 'bs-3'})");
+
+      const reports = db.getNodesByLabel("CC_MonthlyReport").filter(r => r.properties.id === "report-3");
+      const statements = db.getNodesByLabel("CC_BankStatement").filter(s => s.properties.id === "bs-3");
+
+      db.insertEdge("e6", "HAS_BANK_STATEMENT", reports[0].id, statements[0].id);
+
+      const result = expectSuccess(
+        executor.execute(
+          `MATCH (r:CC_MonthlyReport {id: $reportId})-[:HAS_BANK_STATEMENT]->(bs:CC_BankStatement)
+           MATCH (t:CC_Transaction)-[:PART_OF]->(bs)
+           RETURN t`,
+          { reportId: "report-3" }
+        )
+      );
+
+      expect(result.data).toHaveLength(0);
+    });
+  });
+
   describe("Standalone RETURN", () => {
     it("returns literal number", () => {
       const result = expectSuccess(executor.execute("RETURN 1"));

@@ -492,6 +492,40 @@ describe("Translator", () => {
         true
       );
     });
+
+    it("handles multi-MATCH with shared variable in relationship", () => {
+      const parseResult = parse(`
+        MATCH (r:Report)-[:HAS_ITEM]->(bs:Item)
+        MATCH (t:Transaction)-[:PART_OF]->(bs)
+        RETURN t, bs.id
+      `);
+      if (!parseResult.success) throw new Error(`Parse failed: ${parseResult.error.message}`);
+
+      const translator = new Translator({ reportId: "r1" });
+      const result = translator.translate(parseResult.query);
+
+      const sql = result.statements[0].sql;
+      
+      // Should have SELECT
+      expect(sql).toContain("SELECT");
+      
+      // n0 = Report (r), n1 = Item (bs), n3 = Transaction (t)
+      // The key is that bs should use n1 (not create a new alias)
+      // and the second edge should connect to n1
+      
+      // Should have n3 for Transaction (t) - this is correct
+      expect(sql).toContain("n3");
+      
+      // Should JOIN n1 for bs from the first pattern
+      expect(sql).toContain("JOIN nodes n1");
+      
+      // The second edge (e4) should connect to n1 (the shared bs variable)
+      // Either via JOIN or WHERE clause
+      expect(sql).toContain("e4.target_id = n1.id");
+      
+      // Should NOT have n4 (which would mean bs was aliased twice)
+      expect(sql).not.toContain("n4");
+    });
   });
 
   describe("Standalone RETURN", () => {

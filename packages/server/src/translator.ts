@@ -492,8 +492,9 @@ export class Translator {
           throw new Error(`Unknown variable: ${expr.variable}`);
         }
         tables.push(varInfo.alias);
+        // Use -> operator to preserve JSON types (returns 'true'/'false' not 1/0)
         return {
-          sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+          sql: `${varInfo.alias}.properties -> '$.${expr.property}'`,
           tables,
         };
       }

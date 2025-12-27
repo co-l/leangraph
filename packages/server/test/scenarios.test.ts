@@ -499,9 +499,9 @@ describe("Real-World Scenarios", () => {
       exec("CREATE (u:User {name: 'Active', isActive: true, isAdmin: false})");
 
       const result = exec("MATCH (u:User) RETURN u.isActive, u.isAdmin");
-      // SQLite stores booleans as 1/0, so we check for truthy/falsy
-      expect(result.data[0].u_isActive).toBeTruthy();
-      expect(result.data[0].u_isAdmin).toBeFalsy();
+      // Booleans are now properly returned as true/false (not 1/0)
+      expect(result.data[0].u_isActive).toBe(true);
+      expect(result.data[0].u_isAdmin).toBe(false);
     });
 
     it("handles arrays in properties", () => {

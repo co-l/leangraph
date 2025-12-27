@@ -169,8 +169,8 @@ describe("Translator", () => {
     it("returns property access", () => {
       const result = translateCypher("MATCH (n:Person) RETURN n.name");
 
-      expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.statements[0].sql).toContain("$.name");
+      // Uses -> operator to preserve JSON types (booleans as true/false, not 1/0)
+      expect(result.statements[0].sql).toContain("-> '$.name'");
       expect(result.returnColumns).toEqual(["n_name"]);
     });
 

@@ -476,6 +476,95 @@ describe("Integration Tests", () => {
     });
   });
 
+  describe("MATCH...CREATE patterns", () => {
+    it("creates relationship from matched node to new node", () => {
+      // First create a user
+      executor.execute("CREATE (u:CC_User {id: 'user-123', name: 'Alice'})");
+
+      // Now match the user and create a relationship to a new node
+      const result = executor.execute(
+        `MATCH (u:CC_User {id: $userId})
+         CREATE (u)-[:HAS_REPORT]->(r:CC_MonthlyReport {
+           id: $reportId,
+           year: $year,
+           month: $month,
+           status: $status
+         })`,
+        {
+          userId: "user-123",
+          reportId: "report-456",
+          year: 2024,
+          month: 12,
+          status: "pending"
+        }
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify the report was created
+      const reportResult = expectSuccess(
+        executor.execute("MATCH (r:CC_MonthlyReport) RETURN r")
+      );
+      expect(reportResult.data).toHaveLength(1);
+      expect(reportResult.data[0].r).toMatchObject({
+        properties: {
+          id: "report-456",
+          year: 2024,
+          month: 12,
+          status: "pending"
+        }
+      });
+
+      // Verify the relationship was created
+      const relResult = expectSuccess(
+        executor.execute("MATCH (u:CC_User)-[:HAS_REPORT]->(r:CC_MonthlyReport) RETURN u.name, r.id")
+      );
+      expect(relResult.data).toHaveLength(1);
+      expect(relResult.data[0].u_name).toBe("Alice");
+      expect(relResult.data[0].r_id).toBe("report-456");
+    });
+
+    it("creates relationship from new node to matched node", () => {
+      // First create a company
+      executor.execute("CREATE (c:Company {id: 'company-1', name: 'Acme Corp'})");
+
+      // Match the company and create an employee that works for it
+      const result = executor.execute(
+        `MATCH (c:Company {id: $companyId})
+         CREATE (e:Employee {name: $name})-[:WORKS_FOR]->(c)`,
+        { companyId: "company-1", name: "Bob" }
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify the relationship
+      const relResult = expectSuccess(
+        executor.execute("MATCH (e:Employee)-[:WORKS_FOR]->(c:Company) RETURN e.name, c.name")
+      );
+      expect(relResult.data).toHaveLength(1);
+      expect(relResult.data[0].e_name).toBe("Bob");
+      expect(relResult.data[0].c_name).toBe("Acme Corp");
+    });
+
+    it("fails gracefully when matched node does not exist", () => {
+      // Try to create relationship from non-existent user
+      const result = executor.execute(
+        `MATCH (u:CC_User {id: $userId})
+         CREATE (u)-[:HAS_REPORT]->(r:CC_MonthlyReport {id: $reportId})`,
+        { userId: "non-existent", reportId: "report-456" }
+      );
+
+      // Should succeed but create nothing (no matched nodes)
+      expect(result.success).toBe(true);
+
+      // Verify no report was created
+      const reportResult = expectSuccess(
+        executor.execute("MATCH (r:CC_MonthlyReport) RETURN r")
+      );
+      expect(reportResult.data).toHaveLength(0);
+    });
+  });
+
   describe("Standalone RETURN", () => {
     it("returns literal number", () => {
       const result = expectSuccess(executor.execute("RETURN 1"));

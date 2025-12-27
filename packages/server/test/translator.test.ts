@@ -493,4 +493,40 @@ describe("Translator", () => {
       );
     });
   });
+
+  describe("Standalone RETURN", () => {
+    it("handles RETURN with literal number", () => {
+      const result = translateCypher("RETURN 1");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("SELECT");
+      expect(result.statements[0].params).toContain(1);
+      expect(result.returnColumns).toEqual(["expr"]);
+    });
+
+    it("handles RETURN with literal string", () => {
+      const result = translateCypher("RETURN 'hello'");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("SELECT");
+      expect(result.statements[0].params).toContain("hello");
+    });
+
+    it("handles RETURN with alias", () => {
+      const result = translateCypher("RETURN 1 AS one");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.returnColumns).toEqual(["one"]);
+    });
+
+    it("handles RETURN with multiple literals", () => {
+      const result = translateCypher("RETURN 1, 'hello', true");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].params).toContain(1);
+      expect(result.statements[0].params).toContain("hello");
+      // Boolean true is converted to 1 for SQLite compatibility
+      expect(result.statements[0].params).toEqual([1, "hello", 1]);
+    });
+  });
 });

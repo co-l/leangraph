@@ -350,9 +350,11 @@ export class Translator {
     const neededTables = new Set<string>();
 
     // Process return items
+    const exprParams: unknown[] = [];
     for (const item of clause.items) {
-      const { sql: exprSql, tables } = this.translateExpression(item.expression);
+      const { sql: exprSql, tables, params: itemParams } = this.translateExpression(item.expression);
       tables.forEach((t) => neededTables.add(t));
+      exprParams.push(...itemParams);
 
       const alias = item.alias || this.getExpressionName(item.expression);
       selectParts.push(`${exprSql} AS ${alias}`);
@@ -463,14 +465,18 @@ export class Translator {
       params.push(clause.limit);
     }
 
+    // Combine expression params with other params (expression params come first for SELECT)
+    const allParams = [...exprParams, ...params];
+
     return {
-      statements: [{ sql, params }],
+      statements: [{ sql, params: allParams }],
       returnColumns,
     };
   }
 
-  private translateExpression(expr: Expression): { sql: string; tables: string[] } {
+  private translateExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
     const tables: string[] = [];
+    const params: unknown[] = [];
 
     switch (expr.type) {
       case "variable": {
@@ -483,6 +489,7 @@ export class Translator {
         return {
           sql: `json_object('id', ${varInfo.alias}.id, 'label', ${varInfo.alias}.label, 'properties', ${varInfo.alias}.properties)`,
           tables,
+          params,
         };
       }
 
@@ -496,6 +503,7 @@ export class Translator {
         return {
           sql: `${varInfo.alias}.properties -> '$.${expr.property}'`,
           tables,
+          params,
         };
       }
 
@@ -504,9 +512,10 @@ export class Translator {
           if (expr.args && expr.args.length > 0) {
             const argExpr = this.translateExpression(expr.args[0]);
             tables.push(...argExpr.tables);
-            return { sql: `COUNT(*)`, tables };
+            params.push(...argExpr.params);
+            return { sql: `COUNT(*)`, tables, params };
           }
-          return { sql: "COUNT(*)", tables };
+          return { sql: "COUNT(*)", tables, params };
         }
         if (expr.functionName === "ID") {
           if (expr.args && expr.args.length > 0 && expr.args[0].type === "variable") {
@@ -515,18 +524,22 @@ export class Translator {
               throw new Error(`Unknown variable: ${expr.args[0].variable}`);
             }
             tables.push(varInfo.alias);
-            return { sql: `${varInfo.alias}.id`, tables };
+            return { sql: `${varInfo.alias}.id`, tables, params };
           }
         }
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 
       case "literal": {
-        return { sql: "?", tables };
+        // Convert booleans to 1/0 for SQLite
+        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+        params.push(value);
+        return { sql: "?", tables, params };
       }
 
       case "parameter": {
-        return { sql: "?", tables };
+        params.push(this.ctx.paramValues[expr.name!]);
+        return { sql: "?", tables, params };
       }
 
       default:

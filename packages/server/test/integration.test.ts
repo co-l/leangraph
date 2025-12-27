@@ -475,4 +475,50 @@ describe("Integration Tests", () => {
       }
     });
   });
+
+  describe("Standalone RETURN", () => {
+    it("returns literal number", () => {
+      const result = expectSuccess(executor.execute("RETURN 1"));
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].expr).toBe(1);
+    });
+
+    it("returns literal string", () => {
+      const result = expectSuccess(executor.execute("RETURN 'hello'"));
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].expr).toBe("hello");
+    });
+
+    it("returns literal with alias", () => {
+      const result = expectSuccess(executor.execute("RETURN 1 AS one"));
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].one).toBe(1);
+    });
+
+    it("returns multiple literals", () => {
+      const result = expectSuccess(executor.execute("RETURN 1, 'hello', true"));
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].expr).toBe(1);
+      // Note: second and third columns will have generated names
+    });
+
+    it("returns boolean literals", () => {
+      const result = expectSuccess(executor.execute("RETURN true AS t, false AS f"));
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].t).toBe(1); // SQLite stores booleans as 1/0
+      expect(result.data[0].f).toBe(0);
+    });
+
+    it("returns null literal", () => {
+      const result = expectSuccess(executor.execute("RETURN null AS n"));
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].n).toBeNull();
+    });
+  });
 });

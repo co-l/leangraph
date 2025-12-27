@@ -469,6 +469,17 @@ describe("Parser", () => {
       expectSuccess("MATCH (n) RETURN COUNT(n) AS count");
       expectSuccess("MATCH (n) RETURN n AS match"); // 'match' is a keyword
     });
+
+    it("parses standalone RETURN with literal", () => {
+      const query = expectSuccess("RETURN 1");
+      expect(query.clauses).toHaveLength(1);
+
+      const returnClause = query.clauses[0] as ReturnClause;
+      expect(returnClause.type).toBe("RETURN");
+      expect(returnClause.items).toHaveLength(1);
+      expect(returnClause.items[0].expression.type).toBe("literal");
+      expect(returnClause.items[0].expression.value).toBe(1);
+    });
   });
 
   describe("Parameters", () => {

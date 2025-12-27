@@ -154,7 +154,7 @@ export class GraphDatabase {
     const result = this.execute("SELECT * FROM nodes WHERE id = ?", [id]);
     if (result.rows.length === 0) return null;
 
-    const row = result.rows[0] as NodeRow;
+    const row = result.rows[0] as unknown as NodeRow;
     return {
       id: row.id,
       label: row.label,
@@ -169,7 +169,7 @@ export class GraphDatabase {
     const result = this.execute("SELECT * FROM edges WHERE id = ?", [id]);
     if (result.rows.length === 0) return null;
 
-    const row = result.rows[0] as EdgeRow;
+    const row = result.rows[0] as unknown as EdgeRow;
     return {
       id: row.id,
       type: row.type,
@@ -185,7 +185,7 @@ export class GraphDatabase {
   getNodesByLabel(label: string): Node[] {
     const result = this.execute("SELECT * FROM nodes WHERE label = ?", [label]);
     return result.rows.map((row) => {
-      const r = row as NodeRow;
+      const r = row as unknown as NodeRow;
       return {
         id: r.id,
         label: r.label,
@@ -200,7 +200,7 @@ export class GraphDatabase {
   getEdgesByType(type: string): Edge[] {
     const result = this.execute("SELECT * FROM edges WHERE type = ?", [type]);
     return result.rows.map((row) => {
-      const r = row as EdgeRow;
+      const r = row as unknown as EdgeRow;
       return {
         id: r.id,
         type: r.type,

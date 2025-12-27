@@ -671,10 +671,10 @@ export class Parser {
       pattern.variable = this.advance().value;
     }
 
-    // Label
+    // Label (can be identifier or keyword like "Order", "Set", etc.)
     if (this.check("COLON")) {
       this.advance();
-      pattern.label = this.expectIdentifier();
+      pattern.label = this.expectLabelOrType();
     }
 
     // Properties
@@ -709,10 +709,10 @@ export class Parser {
         edge.variable = this.advance().value;
       }
 
-      // Type
+      // Type (can be identifier or keyword)
       if (this.check("COLON")) {
         this.advance();
-        edge.type = this.expectIdentifier();
+        edge.type = this.expectLabelOrType();
       }
 
       // Properties
@@ -1032,6 +1032,20 @@ export class Parser {
     // Keywords are stored uppercase, but property keys should be lowercase
     const value = this.advance().value;
     return token.type === "KEYWORD" ? value.toLowerCase() : value;
+  }
+
+  private expectLabelOrType(): string {
+    const token = this.peek();
+    if (token.type !== "IDENTIFIER" && token.type !== "KEYWORD") {
+      throw new Error(`Expected label or type, got ${token.type} '${token.value}'`);
+    }
+    // Labels and types preserve their original case (but keywords are uppercase in token)
+    const value = this.advance().value;
+    // For labels/types, we want PascalCase typically - return as-is for identifiers
+    // For keywords used as labels (like Order), return the capitalized version
+    return token.type === "KEYWORD" 
+      ? value.charAt(0) + value.slice(1).toLowerCase() 
+      : value;
   }
 }
 

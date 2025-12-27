@@ -131,14 +131,12 @@ describe("Real-World Scenarios", () => {
       db.insertEdge("pc3", "IN_CATEGORY", prodIds["TypeScript Handbook"], catIds["Books"]);
       db.insertEdge("pc4", "IN_CATEGORY", prodIds["T-Shirt"], catIds["Clothing"]);
 
-      // Query products in Electronics category
-      // Note: Current implementation returns all Product->Category relationships
-      // TODO: Implement property filtering on target nodes in relationship patterns
+      // Query products in Electronics category (filters by target node property)
       const electronics = exec(`
-        MATCH (p:Product)-[:IN_CATEGORY]->(c:Category)
+        MATCH (p:Product)-[:IN_CATEGORY]->(c:Category {name: 'Electronics'})
         RETURN p.name, p.price
       `);
-      expect(electronics.data).toHaveLength(4); // All products with IN_CATEGORY edges
+      expect(electronics.data).toHaveLength(2);
 
       // Find expensive products (price > 100)
       const expensive = exec("MATCH (p:Product) WHERE p.price > 100 RETURN p.name, p.price");
@@ -277,14 +275,12 @@ describe("Real-World Scenarios", () => {
       db.insertEdge("a4", "ASSIGNED_TO", taskIds["Write tests"], memberIds["Bob"]);
       db.insertEdge("a5", "ASSIGNED_TO", taskIds["Write tests"], memberIds["Charlie"]);
 
-      // Find Bob's tasks
-      // Note: Current implementation doesn't filter by target node properties
-      // TODO: Implement property filtering on target nodes
+      // Find Bob's tasks (filters by target node property)
       const bobTasks = exec(`
-        MATCH (t:Task)-[:ASSIGNED_TO]->(m:TeamMember)
+        MATCH (t:Task)-[:ASSIGNED_TO]->(m:TeamMember {name: 'Bob'})
         RETURN t.title, t.status
       `);
-      expect(bobTasks.data).toHaveLength(5); // All assigned tasks
+      expect(bobTasks.data).toHaveLength(2);
 
       // Find high priority tasks
       const highPriority = exec("MATCH (t:Task) WHERE t.priority = 'high' RETURN t.title");
@@ -359,14 +355,12 @@ describe("Real-World Scenarios", () => {
       const published = exec("MATCH (a:Article) WHERE a.status = 'published' RETURN a.title");
       expect(published.data).toHaveLength(2);
 
-      // Find articles by Jane
-      // Note: Current implementation doesn't filter by source node properties in relationships
-      // TODO: Implement property filtering on source nodes
+      // Find articles by Jane (filters by source node property)
       const janeArticles = exec(`
-        MATCH (author:Author)-[:WROTE]->(article:Article)
+        MATCH (author:Author {name: 'Jane Writer'})-[:WROTE]->(article:Article)
         RETURN article.title
       `);
-      expect(janeArticles.data).toHaveLength(3); // All articles
+      expect(janeArticles.data).toHaveLength(2);
 
       // Find popular articles (views > 1000)
       const popular = exec("MATCH (a:Article) WHERE a.views > 1000 RETURN a.title, a.views");
@@ -449,6 +443,24 @@ describe("Real-World Scenarios", () => {
     });
   });
 
+  describe("Conrad", () => {
+    it('should be nice to me', () => {
+      const name = "Conrad"
+      exec(
+        // language=Cypher
+        `
+          CREATE(a:Man{name:$name})-[:IS_MARRIED_TO]->(b:Woman{name:"Maëva"})
+        `,
+        {name}
+      )
+
+      const conrad =  exec("MATCH (a:Man) RETURN a.name as name");
+
+      expect(conrad.data[0].name).toEqual(name)
+
+    })
+  })
+
   describe("Edge Cases", () => {
     it("handles empty results gracefully", () => {
       const result = exec("MATCH (n:NonExistentLabel) RETURN n");
@@ -511,6 +523,7 @@ describe("Real-World Scenarios", () => {
       exec("CREATE (n:Number {int: 0, negative: -42, float: 3.14159, large: 9999999999})");
 
       const result = exec("MATCH (n:Number) RETURN n.int, n.negative, n.float, n.large");
+
       expect(result.data[0].n_int).toBe(0);
       expect(result.data[0].n_negative).toBe(-42);
       expect(result.data[0].n_float).toBeCloseTo(3.14159);

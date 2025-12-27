@@ -373,18 +373,40 @@ export class Translator {
         params.push(relPattern.edge.type);
       }
 
-      // Add source node filters
+      // Add source node filters (label and properties)
       const sourcePattern = (this.ctx as any)[`pattern_${relPattern.sourceAlias}`];
       if (sourcePattern?.label) {
         whereParts.push(`${relPattern.sourceAlias}.label = ?`);
         params.push(sourcePattern.label);
       }
+      if (sourcePattern?.properties) {
+        for (const [key, value] of Object.entries(sourcePattern.properties)) {
+          if (this.isParameterRef(value as PropertyValue)) {
+            whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
+            params.push(this.ctx.paramValues[(value as ParameterRef).name]);
+          } else {
+            whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
+            params.push(value);
+          }
+        }
+      }
 
-      // Add target node filters
+      // Add target node filters (label and properties)
       const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
       if (targetPattern?.label) {
         whereParts.push(`${relPattern.targetAlias}.label = ?`);
         params.push(targetPattern.label);
+      }
+      if (targetPattern?.properties) {
+        for (const [key, value] of Object.entries(targetPattern.properties)) {
+          if (this.isParameterRef(value as PropertyValue)) {
+            whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+            params.push(this.ctx.paramValues[(value as ParameterRef).name]);
+          } else {
+            whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+            params.push(value);
+          }
+        }
       }
     } else {
       // Simple node query

@@ -140,6 +140,94 @@ describe("Integration Tests", () => {
         properties: { name: "Bob" },
       });
     });
+
+    it("filters by source node properties in relationships", () => {
+      // Create multiple relationships
+      executor.execute("CREATE (a:Person {name: 'Alice', role: 'admin'})-[:MANAGES]->(p:Project {name: 'Alpha'})");
+      executor.execute("CREATE (b:Person {name: 'Bob', role: 'user'})-[:MANAGES]->(q:Project {name: 'Beta'})");
+
+      // Filter by source node property
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person {role: 'admin'})-[:MANAGES]->(proj:Project) RETURN proj.name")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].proj_name).toBe("Alpha");
+    });
+
+    it("filters by target node properties in relationships", () => {
+      // Create multiple relationships
+      executor.execute("CREATE (a:Person {name: 'Alice'})-[:WORKS_ON]->(p:Project {name: 'Alpha', status: 'active'})");
+      executor.execute("CREATE (a:Person {name: 'Alice'})-[:WORKS_ON]->(q:Project {name: 'Beta', status: 'archived'})");
+
+      // We need to use raw DB to create the second edge since the translator generates new IDs
+      const alice = db.getNodesByLabel("Person").find(n => n.properties.name === "Alice");
+      const projects = db.getNodesByLabel("Project");
+
+      // Filter by target node property
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person)-[:WORKS_ON]->(proj:Project {status: 'active'}) RETURN proj.name")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].proj_name).toBe("Alpha");
+    });
+
+    it("filters by both source and target node properties", () => {
+      // Create nodes
+      executor.execute("CREATE (a:User {name: 'Alice', tier: 'gold'})");
+      executor.execute("CREATE (b:User {name: 'Bob', tier: 'silver'})");
+      executor.execute("CREATE (p1:Product {name: 'Premium Widget', category: 'premium'})");
+      executor.execute("CREATE (p2:Product {name: 'Basic Widget', category: 'basic'})");
+
+      // Get node IDs
+      const users = db.getNodesByLabel("User");
+      const products = db.getNodesByLabel("Product");
+      const alice = users.find(u => u.properties.name === "Alice")!;
+      const bob = users.find(u => u.properties.name === "Bob")!;
+      const premium = products.find(p => p.properties.name === "Premium Widget")!;
+      const basic = products.find(p => p.properties.name === "Basic Widget")!;
+
+      // Create purchase relationships
+      db.insertEdge("purchase1", "PURCHASED", alice.id, premium.id);
+      db.insertEdge("purchase2", "PURCHASED", alice.id, basic.id);
+      db.insertEdge("purchase3", "PURCHASED", bob.id, basic.id);
+
+      // Filter by both source (gold tier) and target (premium category)
+      const result = expectSuccess(
+        executor.execute("MATCH (u:User {tier: 'gold'})-[:PURCHASED]->(p:Product {category: 'premium'}) RETURN u.name, p.name")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].u_name).toBe("Alice");
+      expect(result.data[0].p_name).toBe("Premium Widget");
+    });
+
+    it("filters relationships with parameter values on endpoints", () => {
+      executor.execute("CREATE (a:Employee {name: 'Alice', dept: 'engineering'})");
+      executor.execute("CREATE (b:Employee {name: 'Bob', dept: 'sales'})");
+      executor.execute("CREATE (t:Task {title: 'Code Review'})");
+
+      const employees = db.getNodesByLabel("Employee");
+      const tasks = db.getNodesByLabel("Task");
+      const alice = employees.find(e => e.properties.name === "Alice")!;
+      const bob = employees.find(e => e.properties.name === "Bob")!;
+      const task = tasks[0];
+
+      db.insertEdge("assign1", "ASSIGNED", alice.id, task.id);
+      db.insertEdge("assign2", "ASSIGNED", bob.id, task.id);
+
+      // Use parameter for filtering
+      const result = expectSuccess(
+        executor.execute(
+          "MATCH (e:Employee {dept: $dept})-[:ASSIGNED]->(t:Task) RETURN e.name, t.title",
+          { dept: "engineering" }
+        )
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].e_name).toBe("Alice");
+    });
   });
 
   describe("WHERE clause", () => {

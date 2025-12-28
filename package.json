@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit",
+    "prepare": "[ -d .git ] && cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit || true",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

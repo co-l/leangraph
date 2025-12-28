@@ -1905,4 +1905,148 @@ describe("Integration Tests", () => {
       expect(ages).toContain(35);
     });
   });
+
+  describe("UNWIND clause", () => {
+    it("expands a literal array into rows", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND [1, 2, 3] AS x RETURN x")
+      );
+
+      expect(result.data).toHaveLength(3);
+      const values = result.data.map((r: Record<string, unknown>) => r.x);
+      expect(values).toEqual([1, 2, 3]);
+    });
+
+    it("expands a parameter array into rows", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND $items AS item RETURN item", {
+          items: ["a", "b", "c"]
+        })
+      );
+
+      expect(result.data).toHaveLength(3);
+      const values = result.data.map((r: Record<string, unknown>) => r.item);
+      expect(values).toEqual(["a", "b", "c"]);
+    });
+
+    it("expands an empty array into zero rows", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND [] AS x RETURN x")
+      );
+
+      expect(result.data).toHaveLength(0);
+    });
+
+    it("handles multiple UNWIND clauses (cartesian product)", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND [1, 2] AS x UNWIND [3, 4] AS y RETURN x, y")
+      );
+
+      expect(result.data).toHaveLength(4);
+      // Should be: (1,3), (1,4), (2,3), (2,4)
+      const pairs = result.data.map((r: Record<string, unknown>) => [r.x, r.y]);
+      expect(pairs).toContainEqual([1, 3]);
+      expect(pairs).toContainEqual([1, 4]);
+      expect(pairs).toContainEqual([2, 3]);
+      expect(pairs).toContainEqual([2, 4]);
+    });
+
+    it("combines UNWIND with MATCH", () => {
+      // Create some test nodes
+      executor.execute("CREATE (p:Person {id: '1', name: 'Alice'})");
+      executor.execute("CREATE (p:Person {id: '2', name: 'Bob'})");
+      executor.execute("CREATE (p:Person {id: '3', name: 'Charlie'})");
+
+      const result = expectSuccess(
+        executor.execute(
+          "UNWIND $ids AS id MATCH (p:Person) WHERE p.id = id RETURN p.name",
+          { ids: ["1", "3"] }
+        )
+      );
+
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map((r: Record<string, unknown>) => r.p_name);
+      expect(names).toContain("Alice");
+      expect(names).toContain("Charlie");
+      expect(names).not.toContain("Bob");
+    });
+
+    it("uses UNWIND to bulk create nodes", () => {
+      // Note: This tests that the parsed variable reference works in CREATE
+      // The actual implementation might need refinement for full support
+      const result = expectSuccess(
+        executor.execute(
+          "UNWIND $items AS item CREATE (n:Item {value: item}) RETURN n",
+          { items: ["apple", "banana", "cherry"] }
+        )
+      );
+
+      expect(result.data).toHaveLength(3);
+
+      // Verify nodes were created
+      const verifyResult = expectSuccess(
+        executor.execute("MATCH (n:Item) RETURN n.value ORDER BY n.value")
+      );
+
+      expect(verifyResult.data).toHaveLength(3);
+      expect(verifyResult.data[0].n_value).toBe("apple");
+      expect(verifyResult.data[1].n_value).toBe("banana");
+      expect(verifyResult.data[2].n_value).toBe("cherry");
+    });
+
+    it("handles UNWIND with mixed types", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND [1, 'two', true] AS x RETURN x")
+      );
+
+      expect(result.data).toHaveLength(3);
+      const values = result.data.map((r: Record<string, unknown>) => r.x);
+      expect(values).toContain(1);
+      expect(values).toContain("two");
+      // SQLite stores booleans as 1/0, so true becomes 1
+      // We should have two 1s in the array now
+      expect(values.filter(v => v === 1)).toHaveLength(2);
+    });
+
+    it("combines UNWIND with aggregation (roundtrip test)", () => {
+      // Create test data
+      executor.execute("CREATE (p:Person {name: 'Alice', skills: ['js', 'ts', 'py']})");
+      executor.execute("CREATE (p:Person {name: 'Bob', skills: ['java', 'go']})");
+
+      // UNWIND the skills array and count total skills
+      const result = expectSuccess(
+        executor.execute(`
+          MATCH (p:Person)
+          UNWIND p.skills AS skill
+          RETURN COUNT(skill) AS totalSkills
+        `)
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].totalSkills).toBe(5); // 3 + 2
+    });
+
+    it("uses UNWIND with DISTINCT", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND [1, 2, 2, 3, 3, 3] AS x RETURN DISTINCT x")
+      );
+
+      expect(result.data).toHaveLength(3);
+      const values = result.data.map((r: Record<string, unknown>) => r.x);
+      expect(values).toContain(1);
+      expect(values).toContain(2);
+      expect(values).toContain(3);
+    });
+
+    it("uses UNWIND with ORDER BY and LIMIT", () => {
+      const result = expectSuccess(
+        executor.execute("UNWIND [5, 2, 8, 1, 9] AS x RETURN x ORDER BY x DESC LIMIT 3")
+      );
+
+      expect(result.data).toHaveLength(3);
+      expect(result.data[0].x).toBe(9);
+      expect(result.data[1].x).toBe(8);
+      expect(result.data[2].x).toBe(5);
+    });
+  });
 });

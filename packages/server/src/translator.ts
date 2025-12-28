@@ -10,6 +10,7 @@ import {
   DeleteClause,
   ReturnClause,
   WithClause,
+  UnwindClause,
   NodePattern,
   RelationshipPattern,
   EdgePattern,
@@ -17,6 +18,7 @@ import {
   Expression,
   PropertyValue,
   ParameterRef,
+  VariableRef,
   SetAssignment,
   ReturnItem,
 } from "./parser.js";
@@ -96,6 +98,8 @@ export class Translator {
         return this.translateReturn(clause);
       case "WITH":
         return { statements: this.translateWith(clause) };
+      case "UNWIND":
+        return { statements: this.translateUnwind(clause) };
       default:
         throw new Error(`Unknown clause type: ${(clause as Clause).type}`);
     }
@@ -661,6 +665,28 @@ export class Translator {
       }
     }
 
+    // Add UNWIND tables using json_each
+    const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+      alias: string;
+      variable: string;
+      jsonExpr: string;
+      params: unknown[];
+    }> | undefined;
+    
+    if (unwindClauses && unwindClauses.length > 0) {
+      for (const unwindClause of unwindClauses) {
+        // Use CROSS JOIN with json_each to expand the array
+        if (fromParts.length === 0 && joinParts.length === 0) {
+          // No FROM yet, use json_each directly
+          fromParts.push(`json_each(${unwindClause.jsonExpr}) ${unwindClause.alias}`);
+        } else {
+          // Add as a cross join
+          joinParts.push(`CROSS JOIN json_each(${unwindClause.jsonExpr}) ${unwindClause.alias}`);
+        }
+        exprParams.push(...unwindClause.params);
+      }
+    }
+
     // Add WHERE conditions from MATCH
     const matchWhereClause = (this.ctx as any).whereClause;
     if (matchWhereClause) {
@@ -822,6 +848,83 @@ export class Translator {
     return [];
   }
 
+  // ============================================================================
+  // UNWIND
+  // ============================================================================
+
+  private translateUnwind(clause: UnwindClause): SqlStatement[] {
+    // UNWIND expands an array into rows using SQLite's json_each()
+    // We store the unwind info in context for use in RETURN
+    
+    const alias = `unwind${this.ctx.aliasCounter++}`;
+    
+    // Store the unwind information for later use
+    if (!(this.ctx as any).unwindClauses) {
+      (this.ctx as any).unwindClauses = [];
+    }
+    
+    // Determine the expression for json_each
+    let jsonExpr: string;
+    let params: unknown[] = [];
+    
+    if (clause.expression.type === "literal") {
+      // Literal array - serialize to JSON
+      jsonExpr = "?";
+      params.push(JSON.stringify(clause.expression.value));
+    } else if (clause.expression.type === "parameter") {
+      // Parameter - will be resolved at runtime
+      jsonExpr = "?";
+      const paramValue = this.ctx.paramValues[clause.expression.name!];
+      params.push(JSON.stringify(paramValue));
+    } else if (clause.expression.type === "variable") {
+      // Variable reference - could be from WITH/COLLECT
+      const varName = clause.expression.variable!;
+      const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+      
+      if (withAliases && withAliases.has(varName)) {
+        // It's a WITH alias - need to inline the expression
+        const originalExpr = withAliases.get(varName)!;
+        const translated = this.translateExpression(originalExpr);
+        jsonExpr = translated.sql;
+        params.push(...translated.params);
+      } else {
+        // It's a regular variable
+        const varInfo = this.ctx.variables.get(varName);
+        if (varInfo) {
+          jsonExpr = `${varInfo.alias}.properties`;
+        } else {
+          throw new Error(`Unknown variable in UNWIND: ${varName}`);
+        }
+      }
+    } else if (clause.expression.type === "property") {
+      // Property access on a variable
+      const varInfo = this.ctx.variables.get(clause.expression.variable!);
+      if (!varInfo) {
+        throw new Error(`Unknown variable: ${clause.expression.variable}`);
+      }
+      jsonExpr = `json_extract(${varInfo.alias}.properties, '$.${clause.expression.property}')`;
+    } else {
+      throw new Error(`Unsupported expression type in UNWIND: ${clause.expression.type}`);
+    }
+    
+    (this.ctx as any).unwindClauses.push({
+      alias,
+      variable: clause.alias,
+      jsonExpr,
+      params,
+    });
+    
+    // Register the unwind alias as a variable for subsequent use
+    // We use 'unwind' as the type to distinguish it from nodes/edges
+    this.ctx.variables.set(clause.alias, { type: "node", alias }); // Using 'node' as a placeholder type
+    
+    // Store special marker that this is an unwind variable
+    (this.ctx as any)[`unwind_${alias}`] = true;
+    
+    // UNWIND doesn't generate SQL directly - it sets up context for RETURN
+    return [];
+  }
+
   private translateExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
     const tables: string[] = [];
     const params: unknown[] = [];
@@ -834,6 +937,27 @@ export class Translator {
           // This variable is actually an alias from WITH - translate the underlying expression
           const originalExpr = withAliases.get(expr.variable!)!;
           return this.translateExpression(originalExpr);
+        }
+        
+        // Check if this is an UNWIND variable
+        const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+          alias: string;
+          variable: string;
+          jsonExpr: string;
+          params: unknown[];
+        }> | undefined;
+        
+        if (unwindClauses) {
+          const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
+          if (unwindClause) {
+            tables.push(unwindClause.alias);
+            // UNWIND variables access the 'value' column from json_each
+            return {
+              sql: `${unwindClause.alias}.value`,
+              tables,
+              params,
+            };
+          }
         }
         
         const varInfo = this.ctx.variables.get(expr.variable!);
@@ -1063,6 +1187,21 @@ export class Translator {
       }
 
       case "variable": {
+        // Check if this is an UNWIND variable
+        const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+          alias: string;
+          variable: string;
+          jsonExpr: string;
+          params: unknown[];
+        }> | undefined;
+        
+        if (unwindClauses) {
+          const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
+          if (unwindClause) {
+            return { sql: `${unwindClause.alias}.value` };
+          }
+        }
+        
         const varInfo = this.ctx.variables.get(expr.variable!);
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);
@@ -1122,6 +1261,22 @@ export class Translator {
           // This variable is actually an alias from WITH - translate the underlying expression
           const originalExpr = withAliases.get(expr.variable!)!;
           return this.translateWhereExpression(originalExpr);
+        }
+        
+        // Check if this is an UNWIND variable
+        const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+          alias: string;
+          variable: string;
+          jsonExpr: string;
+          params: unknown[];
+        }> | undefined;
+        
+        if (unwindClauses) {
+          const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
+          if (unwindClause) {
+            // UNWIND variables access the 'value' column from json_each
+            return { sql: `${unwindClause.alias}.value`, params: [] };
+          }
         }
         
         const varInfo = this.ctx.variables.get(expr.variable!);

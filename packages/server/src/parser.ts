@@ -23,18 +23,24 @@ export interface RelationshipPattern {
   target: NodePattern;
 }
 
+export interface ParameterRef {
+  type: "parameter";
+  name: string;
+}
+
+export interface VariableRef {
+  type: "variable";
+  name: string;
+}
+
 export type PropertyValue =
   | string
   | number
   | boolean
   | null
   | ParameterRef
+  | VariableRef
   | PropertyValue[];
-
-export interface ParameterRef {
-  type: "parameter";
-  name: string;
-}
 
 export interface WhereCondition {
   type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull";
@@ -115,6 +121,12 @@ export interface WithClause {
   where?: WhereCondition;
 }
 
+export interface UnwindClause {
+  type: "UNWIND";
+  expression: Expression;
+  alias: string;
+}
+
 export type Clause =
   | CreateClause
   | MatchClause
@@ -122,7 +134,8 @@ export type Clause =
   | SetClause
   | DeleteClause
   | ReturnClause
-  | WithClause;
+  | WithClause
+  | UnwindClause;
 
 export interface Query {
   clauses: Clause[];
@@ -209,6 +222,7 @@ const KEYWORDS = new Set([
   "IS",
   "DISTINCT",
   "OPTIONAL",
+  "UNWIND",
 ]);
 
 class Tokenizer {
@@ -523,6 +537,8 @@ export class Parser {
         return this.parseReturn();
       case "WITH":
         return this.parseWith();
+      case "UNWIND":
+        return this.parseUnwind();
       default:
         throw new Error(`Unexpected keyword '${token.value}'`);
     }
@@ -786,6 +802,48 @@ export class Parser {
     return { type: "WITH", distinct, items, orderBy, skip, limit, where };
   }
 
+  private parseUnwind(): UnwindClause {
+    this.expect("KEYWORD", "UNWIND");
+    
+    const expression = this.parseUnwindExpression();
+    
+    this.expect("KEYWORD", "AS");
+    const alias = this.expectIdentifier();
+    
+    return { type: "UNWIND", expression, alias };
+  }
+
+  private parseUnwindExpression(): Expression {
+    const token = this.peek();
+
+    // Array literal
+    if (token.type === "LBRACKET") {
+      const values = this.parseArray();
+      return { type: "literal", value: values };
+    }
+
+    // Parameter
+    if (token.type === "PARAMETER") {
+      this.advance();
+      return { type: "parameter", name: token.value };
+    }
+
+    // Variable or property access
+    if (token.type === "IDENTIFIER") {
+      const variable = this.advance().value;
+
+      if (this.check("DOT")) {
+        this.advance();
+        const property = this.expectIdentifier();
+        return { type: "property", variable, property };
+      }
+
+      return { type: "variable", variable };
+    }
+
+    throw new Error(`Expected array, parameter, or variable in UNWIND, got ${token.type} '${token.value}'`);
+  }
+
   /**
    * Parse a pattern, which can be a single node or a chain of relationships.
    * For chained patterns like (a)-[:R1]->(b)-[:R2]->(c), this returns multiple
@@ -986,6 +1044,12 @@ export class Parser {
 
     if (token.type === "LBRACKET") {
       return this.parseArray();
+    }
+
+    // Handle variable references (e.g., from UNWIND)
+    if (token.type === "IDENTIFIER") {
+      this.advance();
+      return { type: "variable", name: token.value };
     }
 
     throw new Error(`Expected property value, got ${token.type} '${token.value}'`);

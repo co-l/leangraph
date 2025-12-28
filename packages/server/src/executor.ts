@@ -11,12 +11,14 @@ import {
   SetClause,
   DeleteClause,
   ReturnClause,
+  UnwindClause,
   NodePattern,
   RelationshipPattern,
   SetAssignment,
   Expression,
   PropertyValue,
   ParameterRef,
+  VariableRef,
 } from "./parser.js";
 import { translate, TranslationResult, Translator } from "./translator.js";
 import { GraphDatabase } from "./db.js";
@@ -78,7 +80,21 @@ export class Executor {
         };
       }
 
-      // 2. Check for CREATE...RETURN pattern (needs special handling)
+      // 2. Check for UNWIND with CREATE pattern (needs special handling)
+      const unwindCreateResult = this.tryUnwindCreateExecution(parseResult.query, params);
+      if (unwindCreateResult !== null) {
+        const endTime = performance.now();
+        return {
+          success: true,
+          data: unwindCreateResult,
+          meta: {
+            count: unwindCreateResult.length,
+            time_ms: Math.round((endTime - startTime) * 100) / 100,
+          },
+        };
+      }
+
+      // 2.5. Check for CREATE...RETURN pattern (needs special handling)
       const createReturnResult = this.tryCreateReturnExecution(parseResult.query, params);
       if (createReturnResult !== null) {
         const endTime = performance.now();
@@ -160,6 +176,252 @@ export class Executor {
           message: error instanceof Error ? error.message : String(error),
         },
       };
+    }
+  }
+
+  /**
+   * Handle UNWIND with CREATE pattern
+   * UNWIND expands an array and executes CREATE for each element
+   */
+  private tryUnwindCreateExecution(
+    query: Query,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] | null {
+    const clauses = query.clauses;
+    
+    // Find UNWIND and CREATE clauses
+    const unwindClauses: UnwindClause[] = [];
+    const createClauses: CreateClause[] = [];
+    let returnClause: ReturnClause | null = null;
+    
+    for (const clause of clauses) {
+      if (clause.type === "UNWIND") {
+        unwindClauses.push(clause);
+      } else if (clause.type === "CREATE") {
+        createClauses.push(clause);
+      } else if (clause.type === "RETURN") {
+        returnClause = clause;
+      } else if (clause.type === "MATCH") {
+        // If there's a MATCH, don't handle here
+        return null;
+      }
+    }
+    
+    // Only handle if we have both UNWIND and CREATE
+    if (unwindClauses.length === 0 || createClauses.length === 0) {
+      return null;
+    }
+    
+    // For each UNWIND, expand the array and execute CREATE
+    const results: Record<string, unknown>[] = [];
+    
+    // Get the values from the UNWIND expression
+    const unwindValues = this.evaluateUnwindExpressions(unwindClauses, params);
+    
+    // Generate all combinations (cartesian product) of UNWIND values
+    const combinations = this.generateCartesianProduct(unwindValues);
+    
+    this.db.transaction(() => {
+      for (const combination of combinations) {
+        // Build a map of unwind variable -> current value
+        const unwindContext: Record<string, unknown> = {};
+        for (let i = 0; i < unwindClauses.length; i++) {
+          unwindContext[unwindClauses[i].alias] = combination[i];
+        }
+        
+        // Execute CREATE with the unwind context
+        const createdIds: Map<string, string> = new Map();
+        for (const createClause of createClauses) {
+          for (const pattern of createClause.patterns) {
+            if (this.isRelationshipPattern(pattern)) {
+              this.executeCreateRelationshipPatternWithUnwind(pattern, createdIds, params, unwindContext);
+            } else {
+              const id = crypto.randomUUID();
+              const label = pattern.label || "";
+              const props = this.resolvePropertiesWithUnwind(pattern.properties || {}, params, unwindContext);
+              
+              this.db.execute(
+                "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+                [id, label, JSON.stringify(props)]
+              );
+              
+              if (pattern.variable) {
+                createdIds.set(pattern.variable, id);
+              }
+            }
+          }
+        }
+        
+        // Handle RETURN if present
+        if (returnClause) {
+          const resultRow: Record<string, unknown> = {};
+          
+          for (const item of returnClause.items) {
+            const alias = item.alias || this.getExpressionName(item.expression);
+            
+            if (item.expression.type === "variable") {
+              const variable = item.expression.variable!;
+              const id = createdIds.get(variable);
+              
+              if (id) {
+                const nodeResult = this.db.execute(
+                  "SELECT id, label, properties FROM nodes WHERE id = ?",
+                  [id]
+                );
+                
+                if (nodeResult.rows.length > 0) {
+                  const row = nodeResult.rows[0];
+                  resultRow[alias] = {
+                    id: row.id,
+                    label: row.label,
+                    properties: typeof row.properties === "string"
+                      ? JSON.parse(row.properties)
+                      : row.properties,
+                  };
+                }
+              }
+            }
+          }
+          
+          if (Object.keys(resultRow).length > 0) {
+            results.push(resultRow);
+          }
+        }
+      }
+    });
+    
+    return results;
+  }
+
+  /**
+   * Evaluate UNWIND expressions to get the arrays to iterate over
+   */
+  private evaluateUnwindExpressions(
+    unwindClauses: UnwindClause[],
+    params: Record<string, unknown>
+  ): unknown[][] {
+    return unwindClauses.map((clause) => {
+      const expr = clause.expression;
+      
+      if (expr.type === "literal") {
+        return expr.value as unknown[];
+      } else if (expr.type === "parameter") {
+        return params[expr.name!] as unknown[];
+      }
+      
+      throw new Error(`Unsupported UNWIND expression type: ${expr.type}`);
+    });
+  }
+
+  /**
+   * Generate cartesian product of arrays
+   */
+  private generateCartesianProduct(arrays: unknown[][]): unknown[][] {
+    if (arrays.length === 0) return [[]];
+    
+    return arrays.reduce<unknown[][]>((acc, curr) => {
+      const result: unknown[][] = [];
+      for (const a of acc) {
+        for (const c of curr) {
+          result.push([...a, c]);
+        }
+      }
+      return result;
+    }, [[]]);
+  }
+
+  /**
+   * Resolve properties, including unwind variable references
+   */
+  private resolvePropertiesWithUnwind(
+    props: Record<string, unknown>,
+    params: Record<string, unknown>,
+    unwindContext: Record<string, unknown>
+  ): Record<string, unknown> {
+    const resolved: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(props)) {
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        "type" in value
+      ) {
+        if (value.type === "parameter" && "name" in value) {
+          resolved[key] = params[value.name as string];
+        } else if (value.type === "variable" && "name" in value) {
+          // This is an unwind variable reference
+          resolved[key] = unwindContext[value.name as string];
+        } else {
+          resolved[key] = value;
+        }
+      } else {
+        resolved[key] = value;
+      }
+    }
+    return resolved;
+  }
+
+  /**
+   * Execute CREATE relationship pattern with unwind context
+   */
+  private executeCreateRelationshipPatternWithUnwind(
+    rel: RelationshipPattern,
+    createdIds: Map<string, string>,
+    params: Record<string, unknown>,
+    unwindContext: Record<string, unknown>
+  ): void {
+    let sourceId: string;
+    let targetId: string;
+    
+    // Determine source node ID
+    if (rel.source.variable && createdIds.has(rel.source.variable)) {
+      sourceId = createdIds.get(rel.source.variable)!;
+    } else if (rel.source.label) {
+      sourceId = crypto.randomUUID();
+      const props = this.resolvePropertiesWithUnwind(rel.source.properties || {}, params, unwindContext);
+      this.db.execute(
+        "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+        [sourceId, rel.source.label, JSON.stringify(props)]
+      );
+      if (rel.source.variable) {
+        createdIds.set(rel.source.variable, sourceId);
+      }
+    } else {
+      throw new Error(`Cannot resolve source node: ${rel.source.variable}`);
+    }
+    
+    // Determine target node ID
+    if (rel.target.variable && createdIds.has(rel.target.variable)) {
+      targetId = createdIds.get(rel.target.variable)!;
+    } else if (rel.target.label) {
+      targetId = crypto.randomUUID();
+      const props = this.resolvePropertiesWithUnwind(rel.target.properties || {}, params, unwindContext);
+      this.db.execute(
+        "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+        [targetId, rel.target.label, JSON.stringify(props)]
+      );
+      if (rel.target.variable) {
+        createdIds.set(rel.target.variable, targetId);
+      }
+    } else {
+      throw new Error(`Cannot resolve target node: ${rel.target.variable}`);
+    }
+    
+    // Swap source/target for left-directed relationships
+    const [actualSource, actualTarget] =
+      rel.edge.direction === "left" ? [targetId, sourceId] : [sourceId, targetId];
+    
+    // Create edge
+    const edgeId = crypto.randomUUID();
+    const edgeType = rel.edge.type || "";
+    const edgeProps = this.resolvePropertiesWithUnwind(rel.edge.properties || {}, params, unwindContext);
+    
+    this.db.execute(
+      "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
+      [edgeId, edgeType, actualSource, actualTarget, JSON.stringify(edgeProps)]
+    );
+    
+    if (rel.edge.variable) {
+      createdIds.set(rel.edge.variable, edgeId);
     }
   }
 

@@ -26,7 +26,7 @@
 | `OPTIONAL MATCH` | Supported |
 | `WITH` | Supported |
 | `UNION` | Not supported |
-| `UNWIND` | Not supported |
+| `UNWIND` | Supported |
 | `CASE` | Not supported |
 | `EXISTS` | Not supported |
 | `CALL` | Not supported |

@@ -904,4 +904,77 @@ describe("Translator", () => {
       expect(result.returnColumns).toContain("name");
     });
   });
+
+  describe("UNWIND", () => {
+    it("generates cross join with json_each for literal array", () => {
+      const result = translateCypher("UNWIND [1, 2, 3] AS x RETURN x");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_each");
+      expect(result.returnColumns).toEqual(["x"]);
+    });
+
+    it("generates cross join with json_each for parameter array", () => {
+      const result = translateCypher("UNWIND $items AS item RETURN item", {
+        items: ["a", "b", "c"],
+      });
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_each");
+      expect(result.returnColumns).toEqual(["item"]);
+    });
+
+    it("handles UNWIND with MATCH", () => {
+      const result = translateCypher(
+        "UNWIND $ids AS id MATCH (n:Person) WHERE n.id = id RETURN n",
+        { ids: ["1", "2", "3"] }
+      );
+
+      expect(result.statements).toHaveLength(1);
+      // Should have json_each in the FROM/JOIN
+      expect(result.statements[0].sql).toContain("json_each");
+      expect(result.statements[0].sql).toContain("nodes");
+    });
+
+    it("handles UNWIND with empty array", () => {
+      const result = translateCypher("UNWIND [] AS x RETURN x");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_each");
+    });
+
+    it("handles multiple UNWINDs (cartesian product)", () => {
+      const result = translateCypher(
+        "UNWIND [1, 2] AS x UNWIND [3, 4] AS y RETURN x, y"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      // Should have two json_each references
+      const sql = result.statements[0].sql;
+      const jsonEachCount = (sql.match(/json_each/g) || []).length;
+      expect(jsonEachCount).toBe(2);
+      expect(result.returnColumns).toEqual(["x", "y"]);
+    });
+
+    it("passes value from UNWIND to RETURN correctly", () => {
+      const result = translateCypher("UNWIND [1, 2, 3] AS num RETURN num");
+
+      expect(result.statements).toHaveLength(1);
+      // The unwind alias should be accessible in the RETURN
+      expect(result.statements[0].sql).toContain("value");
+      expect(result.returnColumns).toEqual(["num"]);
+    });
+
+    it("handles UNWIND with COLLECT (roundtrip)", () => {
+      const result = translateCypher(`
+        MATCH (n:Person)
+        WITH COLLECT(n.name) AS names
+        UNWIND names AS name
+        RETURN name
+      `);
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_each");
+    });
+  });
 });

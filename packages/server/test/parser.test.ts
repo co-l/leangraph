@@ -1122,4 +1122,103 @@ describe("Parser", () => {
       expect(withClause.items[1].alias).toBeUndefined();
     });
   });
+
+  describe("UNWIND clause", () => {
+    it("parses simple UNWIND with literal array", () => {
+      const query = expectSuccess("UNWIND [1, 2, 3] AS x RETURN x");
+      
+      expect(query.clauses).toHaveLength(2);
+      expect(query.clauses[0].type).toBe("UNWIND");
+      
+      const unwindClause = query.clauses[0] as any;
+      expect(unwindClause.expression.type).toBe("literal");
+      expect(unwindClause.expression.value).toEqual([1, 2, 3]);
+      expect(unwindClause.alias).toBe("x");
+    });
+
+    it("parses UNWIND with string array", () => {
+      const query = expectSuccess("UNWIND ['a', 'b', 'c'] AS item RETURN item");
+      
+      const unwindClause = query.clauses[0] as any;
+      expect(unwindClause.expression.value).toEqual(['a', 'b', 'c']);
+      expect(unwindClause.alias).toBe("item");
+    });
+
+    it("parses UNWIND with parameter", () => {
+      const query = expectSuccess("UNWIND $items AS item RETURN item");
+      
+      const unwindClause = query.clauses[0] as any;
+      expect(unwindClause.expression.type).toBe("parameter");
+      expect(unwindClause.expression.name).toBe("items");
+      expect(unwindClause.alias).toBe("item");
+    });
+
+    it("parses UNWIND with variable", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH COLLECT(n.name) AS names UNWIND names AS name RETURN name");
+      
+      expect(query.clauses).toHaveLength(4);
+      expect(query.clauses[2].type).toBe("UNWIND");
+      
+      const unwindClause = query.clauses[2] as any;
+      expect(unwindClause.expression.type).toBe("variable");
+      expect(unwindClause.expression.variable).toBe("names");
+      expect(unwindClause.alias).toBe("name");
+    });
+
+    it("parses UNWIND followed by CREATE", () => {
+      const query = expectSuccess("UNWIND $items AS item CREATE (n:Node {value: item})");
+      
+      expect(query.clauses).toHaveLength(2);
+      expect(query.clauses[0].type).toBe("UNWIND");
+      expect(query.clauses[1].type).toBe("CREATE");
+    });
+
+    it("parses UNWIND followed by MATCH", () => {
+      const query = expectSuccess("UNWIND $ids AS id MATCH (n:Person {id: id}) RETURN n");
+      
+      expect(query.clauses).toHaveLength(3);
+      expect(query.clauses[0].type).toBe("UNWIND");
+      expect(query.clauses[1].type).toBe("MATCH");
+    });
+
+    it("parses UNWIND with empty array", () => {
+      const query = expectSuccess("UNWIND [] AS x RETURN x");
+      
+      const unwindClause = query.clauses[0] as any;
+      expect(unwindClause.expression.type).toBe("literal");
+      expect(unwindClause.expression.value).toEqual([]);
+    });
+
+    it("parses UNWIND with mixed type array", () => {
+      const query = expectSuccess("UNWIND [1, 'two', true, null] AS x RETURN x");
+      
+      const unwindClause = query.clauses[0] as any;
+      expect(unwindClause.expression.value).toEqual([1, 'two', true, null]);
+    });
+
+    it("parses multiple UNWIND clauses", () => {
+      const query = expectSuccess("UNWIND [1, 2] AS x UNWIND [3, 4] AS y RETURN x, y");
+      
+      expect(query.clauses).toHaveLength(3);
+      expect(query.clauses[0].type).toBe("UNWIND");
+      expect(query.clauses[1].type).toBe("UNWIND");
+      expect(query.clauses[2].type).toBe("RETURN");
+    });
+
+    it("parses lowercase unwind", () => {
+      const query = expectSuccess("unwind [1, 2, 3] as x return x");
+      
+      expect(query.clauses[0].type).toBe("UNWIND");
+    });
+
+    it("parses UNWIND with property access", () => {
+      const query = expectSuccess("MATCH (n:Person) UNWIND n.tags AS tag RETURN tag");
+      
+      expect(query.clauses).toHaveLength(3);
+      const unwindClause = query.clauses[1] as any;
+      expect(unwindClause.expression.type).toBe("property");
+      expect(unwindClause.expression.variable).toBe("n");
+      expect(unwindClause.expression.property).toBe("tags");
+    });
+  });
 });

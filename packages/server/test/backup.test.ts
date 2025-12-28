@@ -280,5 +280,111 @@ describe("BackupManager", () => {
       expect(status.totalSizeBytes).toBeGreaterThan(0);
       expect(status.projects).toContain("status");
     });
+
+    it("should return empty status when backup directory does not exist", () => {
+      const nonExistentDir = path.join(testDir, "non-existent-backups");
+      const manager = new BackupManager(nonExistentDir);
+
+      const status = manager.getBackupStatus();
+
+      expect(status.totalBackups).toBe(0);
+      expect(status.totalSizeBytes).toBe(0);
+      expect(status.projects).toEqual([]);
+    });
+  });
+
+  describe("restoreBackup", () => {
+    it("should restore a backup to a new location", async () => {
+      // Create and backup a database
+      const sourcePath = path.join(sourceDir, "restore-test.db");
+      const db = new GraphDatabase(sourcePath);
+      db.initialize();
+      db.insertNode("n1", "Person", { name: "Alice" });
+      db.insertNode("n2", "Person", { name: "Bob" });
+      db.close();
+
+      const manager = new BackupManager(backupDir);
+      const backupResult = await manager.backupDatabase(sourcePath, "restore-project");
+      expect(backupResult.success).toBe(true);
+
+      // Restore to a new location
+      const restoreDir = path.join(testDir, "restored");
+      const restorePath = path.join(restoreDir, "restored.db");
+      const backupFilename = path.basename(backupResult.backupPath!);
+
+      const restoreResult = manager.restoreBackup(backupFilename, restorePath);
+
+      expect(restoreResult.success).toBe(true);
+      expect(fs.existsSync(restorePath)).toBe(true);
+
+      // Verify restored database contains the data
+      const restoredDb = new GraphDatabase(restorePath);
+      restoredDb.initialize();
+      expect(restoredDb.countNodes()).toBe(2);
+      const alice = restoredDb.getNode("n1");
+      expect(alice?.properties.name).toBe("Alice");
+      restoredDb.close();
+    });
+
+    it("should create target directory if it does not exist", async () => {
+      const sourcePath = path.join(sourceDir, "dir-create.db");
+      const db = new GraphDatabase(sourcePath);
+      db.initialize();
+      db.close();
+
+      const manager = new BackupManager(backupDir);
+      const backupResult = await manager.backupDatabase(sourcePath, "dir-test");
+      const backupFilename = path.basename(backupResult.backupPath!);
+
+      // Restore to deeply nested directory that doesn't exist
+      const nestedPath = path.join(testDir, "deep", "nested", "dir", "restored.db");
+      const result = manager.restoreBackup(backupFilename, nestedPath);
+
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(nestedPath)).toBe(true);
+    });
+
+    it("should return error when backup file does not exist", () => {
+      const manager = new BackupManager(backupDir);
+      const restorePath = path.join(testDir, "restore-target.db");
+
+      const result = manager.restoreBackup("non-existent-backup.db", restorePath);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not found/i);
+    });
+
+    it("should overwrite existing file at target path", async () => {
+      // Create source database
+      const sourcePath = path.join(sourceDir, "overwrite.db");
+      const db = new GraphDatabase(sourcePath);
+      db.initialize();
+      db.insertNode("n1", "Person", { name: "New Data" });
+      db.close();
+
+      const manager = new BackupManager(backupDir);
+      const backupResult = await manager.backupDatabase(sourcePath, "overwrite-test");
+      const backupFilename = path.basename(backupResult.backupPath!);
+
+      // Create a file at target location
+      const targetPath = path.join(sourceDir, "existing.db");
+      const existingDb = new GraphDatabase(targetPath);
+      existingDb.initialize();
+      existingDb.insertNode("old1", "OldLabel", { name: "Old Data" });
+      existingDb.close();
+
+      // Restore should overwrite
+      const result = manager.restoreBackup(backupFilename, targetPath);
+
+      expect(result.success).toBe(true);
+
+      // Verify it has the new data, not old
+      const verifyDb = new GraphDatabase(targetPath);
+      verifyDb.initialize();
+      expect(verifyDb.countNodes()).toBe(1);
+      const node = verifyDb.getNode("n1");
+      expect(node?.properties.name).toBe("New Data");
+      verifyDb.close();
+    });
   });
 });

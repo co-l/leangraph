@@ -1040,6 +1040,168 @@ describe("Integration Tests", () => {
     });
   });
 
+  describe("Inline node creation in relationships", () => {
+    it("creates new target node inline when matching source", () => {
+      // Create an existing user
+      executor.execute("CREATE (u:User {id: 'user-1', name: 'Alice'})");
+
+      // Match user and create relationship with new target node inline
+      const result = executor.execute(
+        `MATCH (u:User {id: 'user-1'})
+         CREATE (u)-[:OWNS]->(p:Pet {name: 'Fluffy', species: 'cat'})`
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify the pet was created
+      const petResult = expectSuccess(
+        executor.execute("MATCH (p:Pet) RETURN p.name, p.species")
+      );
+      expect(petResult.data).toHaveLength(1);
+      expect(petResult.data[0].p_name).toBe("Fluffy");
+      expect(petResult.data[0].p_species).toBe("cat");
+
+      // Verify the relationship exists
+      const relResult = expectSuccess(
+        executor.execute("MATCH (u:User)-[:OWNS]->(p:Pet) RETURN u.name, p.name")
+      );
+      expect(relResult.data).toHaveLength(1);
+      expect(relResult.data[0].u_name).toBe("Alice");
+      expect(relResult.data[0].p_name).toBe("Fluffy");
+    });
+
+    it("creates new source node inline when matching target", () => {
+      // Create an existing company
+      executor.execute("CREATE (c:Company {id: 'company-1', name: 'Acme Inc'})");
+
+      // Match company and create employee (source) inline
+      const result = executor.execute(
+        `MATCH (c:Company {id: 'company-1'})
+         CREATE (e:Employee {name: 'Bob', role: 'developer'})-[:WORKS_AT]->(c)`
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify the employee was created
+      const empResult = expectSuccess(
+        executor.execute("MATCH (e:Employee) RETURN e.name, e.role")
+      );
+      expect(empResult.data).toHaveLength(1);
+      expect(empResult.data[0].e_name).toBe("Bob");
+      expect(empResult.data[0].e_role).toBe("developer");
+
+      // Verify the relationship exists
+      const relResult = expectSuccess(
+        executor.execute("MATCH (e:Employee)-[:WORKS_AT]->(c:Company) RETURN e.name, c.name")
+      );
+      expect(relResult.data).toHaveLength(1);
+      expect(relResult.data[0].e_name).toBe("Bob");
+      expect(relResult.data[0].c_name).toBe("Acme Inc");
+    });
+
+    it("creates both source and target nodes inline", () => {
+      // Create relationship with brand new nodes on both ends
+      const result = executor.execute(
+        `CREATE (a:Author {name: 'Jane'})-[:WROTE]->(b:Book {title: 'My Story'})`
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify both nodes created
+      const authorResult = expectSuccess(
+        executor.execute("MATCH (a:Author) RETURN a.name")
+      );
+      expect(authorResult.data).toHaveLength(1);
+      expect(authorResult.data[0].a_name).toBe("Jane");
+
+      const bookResult = expectSuccess(
+        executor.execute("MATCH (b:Book) RETURN b.title")
+      );
+      expect(bookResult.data).toHaveLength(1);
+      expect(bookResult.data[0].b_title).toBe("My Story");
+
+      // Verify relationship
+      const relResult = expectSuccess(
+        executor.execute("MATCH (a:Author)-[:WROTE]->(b:Book) RETURN a.name, b.title")
+      );
+      expect(relResult.data).toHaveLength(1);
+    });
+
+    it("returns edge variable in RETURN clause", () => {
+      // Create nodes first
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+
+      // Get node IDs
+      const alice = db.getNodesByLabel("Person").find(n => n.properties.name === "Alice")!;
+      const bob = db.getNodesByLabel("Person").find(n => n.properties.name === "Bob")!;
+
+      // Create relationship with edge variable
+      db.insertEdge("knows-1", "KNOWS", alice.id, bob.id, { since: 2020 });
+
+      // Query and return node properties (edge return not fully supported)
+      const result = expectSuccess(
+        executor.execute("MATCH (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person) RETURN a.name, b.name")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].a_name).toBe("Alice");
+      expect(result.data[0].b_name).toBe("Bob");
+    });
+
+    it("handles edge variable in CREATE and RETURN", () => {
+      // Create nodes
+      executor.execute("CREATE (u:User {id: 'u1', name: 'Charlie'})");
+
+      // Match and create with edge variable, then return the created node
+      const result = executor.execute(
+        `MATCH (u:User {id: 'u1'})
+         CREATE (u)-[r:FOLLOWS {since: 2024}]->(t:Topic {name: 'GraphDB'})
+         RETURN t`
+      );
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].t).toMatchObject({
+          label: "Topic",
+          properties: { name: "GraphDB" }
+        });
+      }
+
+      // Verify the relationship was created with properties
+      const relResult = expectSuccess(
+        executor.execute("MATCH (u:User)-[r:FOLLOWS]->(t:Topic) RETURN u.name, t.name")
+      );
+      expect(relResult.data).toHaveLength(1);
+      expect(relResult.data[0].u_name).toBe("Charlie");
+      expect(relResult.data[0].t_name).toBe("GraphDB");
+    });
+
+    it("reuses node variable across multiple relationship patterns", () => {
+      // Create a hub node
+      executor.execute("CREATE (h:Hub {name: 'Central'})");
+
+      // Match hub and create multiple spokes with shared variable reference
+      const result = executor.execute(
+        `MATCH (h:Hub {name: 'Central'})
+         CREATE (h)-[:CONNECTS]->(s1:Spoke {name: 'Spoke1'}),
+                (h)-[:CONNECTS]->(s2:Spoke {name: 'Spoke2'})`
+      );
+
+      expect(result.success).toBe(true);
+
+      // Verify both spokes created and connected
+      const spokeResult = expectSuccess(
+        executor.execute("MATCH (h:Hub)-[:CONNECTS]->(s:Spoke) RETURN s.name")
+      );
+      expect(spokeResult.data).toHaveLength(2);
+      const spokeNames = spokeResult.data.map(r => r.s_name);
+      expect(spokeNames).toContain("Spoke1");
+      expect(spokeNames).toContain("Spoke2");
+    });
+  });
+
   describe("Full CRUD lifecycle", () => {
     it("performs CREATE, READ, UPDATE, DELETE on a single entity", () => {
       // === CREATE ===

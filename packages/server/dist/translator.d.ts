@@ -71,6 +71,10 @@ export declare class Translator {
      * Normalize label to JSON array string for storage
      */
     private normalizeLabelToJson;
+    /**
+     * Quote an identifier for use as SQL alias (handles reserved words like FROM, TO)
+     */
+    private quoteAlias;
     private findVariablesInCondition;
     private isParameterRef;
     private serializeProperties;

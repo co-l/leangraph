@@ -95,7 +95,7 @@ export class Translator {
     if (callClause && statements.length === 0) {
       // Generate SQL for standalone CALL
       const params: unknown[] = [];
-      let sql = `SELECT DISTINCT ${callClause.columnName} AS ${callClause.returnColumn} FROM ${callClause.tableName}`;
+      let sql = `SELECT DISTINCT ${callClause.columnName} AS "${callClause.returnColumn}" FROM ${callClause.tableName}`;
       sql += ` WHERE ${callClause.columnName} IS NOT NULL AND ${callClause.columnName} <> ''`;
       
       // Add WHERE from CALL...YIELD...WHERE
@@ -571,7 +571,7 @@ export class Translator {
       exprParams.push(...itemParams);
 
       const alias = item.alias || this.getExpressionName(item.expression);
-      selectParts.push(`${exprSql} AS ${alias}`);
+      selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
       returnColumns.push(alias);
     }
 
@@ -1078,7 +1078,7 @@ export class Translator {
         params.push(...translated.params);
       }
       const alias = item.alias || this.getExpressionName(item.expression);
-      selectParts.push(`${exprSql} AS ${alias}`);
+      selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
       returnColumns.push(alias);
     }
 
@@ -3059,6 +3059,14 @@ export class Translator {
     }
     const labelArray = Array.isArray(label) ? label : [label];
     return JSON.stringify(labelArray);
+  }
+
+  /**
+   * Quote an identifier for use as SQL alias (handles reserved words like FROM, TO)
+   */
+  private quoteAlias(alias: string): string {
+    // SQLite uses double quotes for identifiers
+    return `"${alias}"`;
   }
 
   private findVariablesInCondition(condition: WhereCondition): string[] {

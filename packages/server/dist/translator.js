@@ -28,7 +28,7 @@ export class Translator {
         if (callClause && statements.length === 0) {
             // Generate SQL for standalone CALL
             const params = [];
-            let sql = `SELECT DISTINCT ${callClause.columnName} AS ${callClause.returnColumn} FROM ${callClause.tableName}`;
+            let sql = `SELECT DISTINCT ${callClause.columnName} AS "${callClause.returnColumn}" FROM ${callClause.tableName}`;
             sql += ` WHERE ${callClause.columnName} IS NOT NULL AND ${callClause.columnName} <> ''`;
             // Add WHERE from CALL...YIELD...WHERE
             if (callClause.where) {
@@ -430,7 +430,7 @@ export class Translator {
             tables.forEach((t) => neededTables.add(t));
             exprParams.push(...itemParams);
             const alias = item.alias || this.getExpressionName(item.expression);
-            selectParts.push(`${exprSql} AS ${alias}`);
+            selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
             returnColumns.push(alias);
         }
         // Build FROM clause based on registered patterns
@@ -884,7 +884,7 @@ export class Translator {
                 params.push(...translated.params);
             }
             const alias = item.alias || this.getExpressionName(item.expression);
-            selectParts.push(`${exprSql} AS ${alias}`);
+            selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
             returnColumns.push(alias);
         }
         // Build base query
@@ -2602,6 +2602,13 @@ export class Translator {
         }
         const labelArray = Array.isArray(label) ? label : [label];
         return JSON.stringify(labelArray);
+    }
+    /**
+     * Quote an identifier for use as SQL alias (handles reserved words like FROM, TO)
+     */
+    quoteAlias(alias) {
+        // SQLite uses double quotes for identifiers
+        return `"${alias}"`;
     }
     findVariablesInCondition(condition) {
         const vars = [];

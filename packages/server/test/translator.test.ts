@@ -265,7 +265,7 @@ describe("Translator", () => {
         "MATCH (n:Person) RETURN n.name AS personName"
       );
 
-      expect(result.statements[0].sql).toContain("AS personName");
+      expect(result.statements[0].sql).toContain('AS "personName"');
       expect(result.returnColumns).toEqual(["personName"]);
     });
 
@@ -822,7 +822,7 @@ describe("Translator", () => {
     it("handles aggregation function with alias", () => {
       const result = translateCypher("MATCH (n:Order) RETURN SUM(n.amount) AS total");
 
-      expect(result.statements[0].sql).toContain("AS total");
+      expect(result.statements[0].sql).toContain('AS "total"');
       expect(result.returnColumns).toEqual(["total"]);
     });
 
@@ -1324,7 +1324,7 @@ describe("Translator", () => {
     it("handles toUpper with alias", () => {
       const result = translateCypher("MATCH (n:Person) RETURN toUpper(n.name) AS upperName");
 
-      expect(result.statements[0].sql).toContain("AS upperName");
+      expect(result.statements[0].sql).toContain('AS "upperName"');
       expect(result.returnColumns).toEqual(["upperName"]);
     });
 

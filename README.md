@@ -24,7 +24,7 @@
 | `SKIP` | Supported |
 | `DISTINCT` | Supported |
 | `OPTIONAL MATCH` | Supported |
-| `WITH` | Not supported |
+| `WITH` | Supported |
 | `UNION` | Not supported |
 | `UNWIND` | Not supported |
 | `CASE` | Not supported |

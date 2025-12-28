@@ -817,4 +817,91 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("LIMIT");
     });
   });
+
+  describe("WITH clause", () => {
+    it("translates simple WITH as subquery", () => {
+      const result = translateCypher("MATCH (n:Person) WITH n RETURN n");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("SELECT");
+      expect(result.statements[0].sql).toContain("FROM nodes");
+    });
+
+    it("translates WITH with property access and alias", () => {
+      const result = translateCypher("MATCH (n:Person) WITH n.name AS name RETURN name");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("SELECT");
+      expect(result.returnColumns).toContain("name");
+    });
+
+    it("translates WITH DISTINCT", () => {
+      const result = translateCypher("MATCH (n:Person) WITH DISTINCT n.city AS city RETURN city");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("SELECT DISTINCT");
+    });
+
+    it("translates WITH LIMIT", () => {
+      const result = translateCypher("MATCH (n:Person) WITH n LIMIT 10 RETURN n");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("LIMIT");
+    });
+
+    it("translates WITH ORDER BY", () => {
+      const result = translateCypher("MATCH (n:Person) WITH n ORDER BY n.name RETURN n");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("ORDER BY");
+    });
+
+    it("translates WITH followed by MATCH (query chaining)", () => {
+      const result = translateCypher(`
+        MATCH (n:Person)
+        WITH n
+        MATCH (n)-[:KNOWS]->(m:Person)
+        RETURN n, m
+      `);
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("SELECT");
+      expect(sql).toContain("JOIN");
+    });
+
+    it("translates WITH aggregation", () => {
+      const result = translateCypher("MATCH (n:Person) WITH COUNT(n) AS total RETURN total");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("COUNT(");
+      expect(result.returnColumns).toContain("total");
+    });
+
+    it("translates WITH WHERE", () => {
+      const result = translateCypher(`
+        MATCH (n:Person)
+        WITH n, n.age AS age
+        WHERE age > 25
+        RETURN n
+      `);
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("SELECT");
+      expect(sql).toContain("WHERE");
+    });
+
+    it("translates multiple WITH clauses", () => {
+      const result = translateCypher(`
+        MATCH (n:Person)
+        WITH n.name AS name
+        WITH name
+        RETURN name
+      `);
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.returnColumns).toContain("name");
+    });
+  });
 });

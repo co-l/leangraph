@@ -105,13 +105,24 @@ export interface ReturnClause {
   limit?: number;
 }
 
+export interface WithClause {
+  type: "WITH";
+  distinct?: boolean;
+  items: ReturnItem[];
+  orderBy?: { expression: Expression; direction: "ASC" | "DESC" }[];
+  skip?: number;
+  limit?: number;
+  where?: WhereCondition;
+}
+
 export type Clause =
   | CreateClause
   | MatchClause
   | MergeClause
   | SetClause
   | DeleteClause
-  | ReturnClause;
+  | ReturnClause
+  | WithClause;
 
 export interface Query {
   clauses: Clause[];
@@ -510,6 +521,8 @@ export class Parser {
         return this.parseDelete();
       case "RETURN":
         return this.parseReturn();
+      case "WITH":
+        return this.parseWith();
       default:
         throw new Error(`Unexpected keyword '${token.value}'`);
     }
@@ -694,6 +707,83 @@ export class Parser {
     }
 
     return { type: "RETURN", distinct, items, orderBy, skip, limit };
+  }
+
+  private parseWith(): WithClause {
+    this.expect("KEYWORD", "WITH");
+    
+    // Check for DISTINCT after WITH
+    let distinct: boolean | undefined;
+    if (this.checkKeyword("DISTINCT")) {
+      this.advance();
+      distinct = true;
+    }
+
+    const items: ReturnItem[] = [];
+
+    do {
+      if (items.length > 0) {
+        this.expect("COMMA");
+      }
+
+      const expression = this.parseExpression();
+      let alias: string | undefined;
+
+      if (this.checkKeyword("AS")) {
+        this.advance();
+        alias = this.expectIdentifierOrKeyword();
+      }
+
+      items.push({ expression, alias });
+    } while (this.check("COMMA"));
+
+    // Parse ORDER BY
+    let orderBy: { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;
+    if (this.checkKeyword("ORDER")) {
+      this.advance();
+      this.expect("KEYWORD", "BY");
+      orderBy = [];
+
+      do {
+        if (orderBy.length > 0) {
+          this.expect("COMMA");
+        }
+        const expression = this.parseExpression();
+        let direction: "ASC" | "DESC" = "ASC"; // Default to ASC
+        if (this.checkKeyword("ASC")) {
+          this.advance();
+        } else if (this.checkKeyword("DESC")) {
+          this.advance();
+          direction = "DESC";
+        }
+        orderBy.push({ expression, direction });
+      } while (this.check("COMMA"));
+    }
+
+    // Parse SKIP
+    let skip: number | undefined;
+    if (this.checkKeyword("SKIP")) {
+      this.advance();
+      const skipToken = this.expect("NUMBER");
+      skip = parseInt(skipToken.value, 10);
+    }
+
+    // Parse LIMIT
+    let limit: number | undefined;
+    if (this.checkKeyword("LIMIT")) {
+      this.advance();
+      const limitToken = this.expect("NUMBER");
+      limit = parseInt(limitToken.value, 10);
+    }
+
+    // Parse optional WHERE clause after WITH items
+    let where: WhereCondition | undefined;
+    if (this.checkKeyword("WHERE")) {
+      this.advance();
+      where = this.parseWhereCondition();
+    }
+
+    return { type: "WITH", distinct, items, orderBy, skip, limit, where };
   }
 
   /**

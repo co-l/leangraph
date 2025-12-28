@@ -8,6 +8,7 @@ import {
   SetClause,
   DeleteClause,
   ReturnClause,
+  WithClause,
   NodePattern,
   RelationshipPattern,
 } from "../src/parser";
@@ -976,6 +977,149 @@ describe("Parser", () => {
       const node = clause.patterns[0] as NodePattern;
 
       expect(node.properties!.name).toBe("Alice");
+    });
+  });
+
+  describe("WITH clause", () => {
+    it("parses simple WITH clause with variable", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n RETURN n");
+      
+      expect(query.clauses).toHaveLength(3);
+      expect(query.clauses[0].type).toBe("MATCH");
+      expect(query.clauses[1].type).toBe("WITH");
+      expect(query.clauses[2].type).toBe("RETURN");
+    });
+
+    it("parses WITH clause with property access", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n.name AS name RETURN name");
+      
+      expect(query.clauses).toHaveLength(3);
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.items).toHaveLength(1);
+      expect(withClause.items[0].expression.type).toBe("property");
+      expect(withClause.items[0].alias).toBe("name");
+    });
+
+    it("parses WITH clause with multiple items", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n.name AS name, n.age AS age RETURN name, age");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.items).toHaveLength(2);
+      expect(withClause.items[0].alias).toBe("name");
+      expect(withClause.items[1].alias).toBe("age");
+    });
+
+    it("parses WITH clause with aggregation function", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH COUNT(n) AS total RETURN total");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.items).toHaveLength(1);
+      expect(withClause.items[0].expression.type).toBe("function");
+      expect(withClause.items[0].expression.functionName).toBe("COUNT");
+      expect(withClause.items[0].alias).toBe("total");
+    });
+
+    it("parses WITH DISTINCT", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH DISTINCT n.city AS city RETURN city");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.distinct).toBe(true);
+      expect(withClause.items[0].alias).toBe("city");
+    });
+
+    it("parses WITH clause with ORDER BY", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n ORDER BY n.name RETURN n");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.orderBy).toBeDefined();
+      expect(withClause.orderBy).toHaveLength(1);
+      expect(withClause.orderBy![0].direction).toBe("ASC");
+    });
+
+    it("parses WITH clause with LIMIT", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n LIMIT 10 RETURN n");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.limit).toBe(10);
+    });
+
+    it("parses WITH clause with SKIP", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n SKIP 5 RETURN n");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.skip).toBe(5);
+    });
+
+    it("parses WITH clause with ORDER BY, SKIP, and LIMIT", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n ORDER BY n.name SKIP 5 LIMIT 10 RETURN n");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.orderBy).toHaveLength(1);
+      expect(withClause.skip).toBe(5);
+      expect(withClause.limit).toBe(10);
+    });
+
+    it("parses WITH followed by MATCH (query chaining)", () => {
+      const query = expectSuccess(`
+        MATCH (n:Person)
+        WITH n
+        MATCH (n)-[:KNOWS]->(m:Person)
+        RETURN n, m
+      `);
+      
+      expect(query.clauses).toHaveLength(4);
+      expect(query.clauses[0].type).toBe("MATCH");
+      expect(query.clauses[1].type).toBe("WITH");
+      expect(query.clauses[2].type).toBe("MATCH");
+      expect(query.clauses[3].type).toBe("RETURN");
+    });
+
+    it("parses multiple WITH clauses", () => {
+      const query = expectSuccess(`
+        MATCH (n:Person)
+        WITH n.name AS name
+        WITH name
+        RETURN name
+      `);
+      
+      expect(query.clauses).toHaveLength(4);
+      expect(query.clauses[1].type).toBe("WITH");
+      expect(query.clauses[2].type).toBe("WITH");
+    });
+
+    it("parses WITH clause with WHERE after", () => {
+      const query = expectSuccess(`
+        MATCH (n:Person)
+        WITH n, n.age AS age
+        WHERE age > 25
+        RETURN n
+      `);
+      
+      expect(query.clauses).toHaveLength(3);
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.where).toBeDefined();
+      expect(withClause.where!.type).toBe("comparison");
+    });
+
+    it("parses lowercase with clause", () => {
+      const query = expectSuccess("match (n:Person) with n return n");
+      
+      expect(query.clauses[1].type).toBe("WITH");
+    });
+
+    it("parses WITH clause without alias (variable passthrough)", () => {
+      const query = expectSuccess("MATCH (n:Person) WITH n, n.name RETURN n");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.items).toHaveLength(2);
+      expect(withClause.items[0].alias).toBeUndefined();
+      expect(withClause.items[1].alias).toBeUndefined();
     });
   });
 });

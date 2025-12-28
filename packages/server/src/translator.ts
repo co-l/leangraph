@@ -9,6 +9,7 @@ import {
   SetClause,
   DeleteClause,
   ReturnClause,
+  WithClause,
   NodePattern,
   RelationshipPattern,
   EdgePattern,
@@ -41,6 +42,8 @@ export interface TranslationContext {
   paramValues: Record<string, unknown>;
   // Counter for generating unique aliases
   aliasCounter: number;
+  // WITH clause info for query chaining
+  withClauses?: WithClause[];
 }
 
 // ============================================================================
@@ -91,6 +94,8 @@ export class Translator {
         return { statements: this.translateDelete(clause) };
       case "RETURN":
         return this.translateReturn(clause);
+      case "WITH":
+        return { statements: this.translateWith(clause) };
       default:
         throw new Error(`Unknown clause type: ${(clause as Clause).type}`);
     }
@@ -394,6 +399,13 @@ export class Translator {
     const joinParams: unknown[] = []; // Parameters for JOIN ON clauses
     const whereParts: string[] = [];
     const whereParams: unknown[] = []; // Parameters for WHERE clause
+    
+    // Apply WITH modifiers if present
+    const withDistinct = (this.ctx as any).withDistinct as boolean | undefined;
+    const withOrderBy = (this.ctx as any).withOrderBy as { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;
+    const withSkip = (this.ctx as any).withSkip as number | undefined;
+    const withLimit = (this.ctx as any).withLimit as number | undefined;
+    const withWhere = (this.ctx as any).withWhere as WhereCondition | undefined;
 
     // Track which tables we need
     const neededTables = new Set<string>();
@@ -681,9 +693,17 @@ export class Translator {
         }
       }
     }
+    
+    // Add WHERE conditions from WITH clause
+    if (withWhere) {
+      const { sql: whereSql, params: conditionParams } = this.translateWhere(withWhere);
+      whereParts.push(whereSql);
+      whereParams.push(...conditionParams);
+    }
 
     // Build final SQL
-    const distinctKeyword = clause.distinct ? "DISTINCT " : "";
+    // Apply DISTINCT from either the RETURN clause or preceding WITH
+    const distinctKeyword = (clause.distinct || withDistinct) ? "DISTINCT " : "";
     let sql = `SELECT ${distinctKeyword}${selectParts.join(", ")}`;
 
     if (fromParts.length > 0) {
@@ -698,29 +718,32 @@ export class Translator {
       sql += ` WHERE ${whereParts.join(" AND ")}`;
     }
 
-    // Add ORDER BY clause
-    if (clause.orderBy && clause.orderBy.length > 0) {
-      const orderParts = clause.orderBy.map(({ expression, direction }) => {
+    // Add ORDER BY clause - use WITH orderBy if RETURN doesn't have one
+    const effectiveOrderBy = clause.orderBy && clause.orderBy.length > 0 ? clause.orderBy : withOrderBy;
+    if (effectiveOrderBy && effectiveOrderBy.length > 0) {
+      const orderParts = effectiveOrderBy.map(({ expression, direction }) => {
         const { sql: exprSql } = this.translateOrderByExpression(expression);
         return `${exprSql} ${direction}`;
       });
       sql += ` ORDER BY ${orderParts.join(", ")}`;
     }
 
-    // Add LIMIT and OFFSET (SKIP)
-    // SQLite requires LIMIT before OFFSET
-    if (clause.limit !== undefined || clause.skip !== undefined) {
-      if (clause.limit !== undefined) {
+    // Add LIMIT and OFFSET (SKIP) - combine WITH and RETURN values
+    const effectiveLimit = clause.limit !== undefined ? clause.limit : withLimit;
+    const effectiveSkip = clause.skip !== undefined ? clause.skip : withSkip;
+    
+    if (effectiveLimit !== undefined || effectiveSkip !== undefined) {
+      if (effectiveLimit !== undefined) {
         sql += ` LIMIT ?`;
-        whereParams.push(clause.limit);
-      } else if (clause.skip !== undefined) {
+        whereParams.push(effectiveLimit);
+      } else if (effectiveSkip !== undefined) {
         // SKIP without LIMIT - need a large limit for SQLite
         sql += ` LIMIT -1`;
       }
 
-      if (clause.skip !== undefined) {
+      if (effectiveSkip !== undefined) {
         sql += ` OFFSET ?`;
-        whereParams.push(clause.skip);
+        whereParams.push(effectiveSkip);
       }
     }
 
@@ -733,12 +756,86 @@ export class Translator {
     };
   }
 
+  // ============================================================================
+  // WITH
+  // ============================================================================
+
+  private translateWith(clause: WithClause): SqlStatement[] {
+    // WITH clause stores its info in context for subsequent clauses
+    // It creates a new "scope" by updating variable mappings
+    
+    if (!this.ctx.withClauses) {
+      this.ctx.withClauses = [];
+    }
+    this.ctx.withClauses.push(clause);
+    
+    // Store where clause for later use
+    if (clause.where) {
+      (this.ctx as any).withWhere = clause.where;
+    }
+    
+    // Store ORDER BY, SKIP, LIMIT for later use  
+    if (clause.orderBy) {
+      (this.ctx as any).withOrderBy = clause.orderBy;
+    }
+    if (clause.skip !== undefined) {
+      (this.ctx as any).withSkip = clause.skip;
+    }
+    if (clause.limit !== undefined) {
+      (this.ctx as any).withLimit = clause.limit;
+    }
+    if (clause.distinct) {
+      (this.ctx as any).withDistinct = true;
+    }
+    
+    // Update variable mappings for WITH items
+    // Variables without aliases keep their current mappings
+    // Variables with aliases create new mappings based on expression type
+    for (const item of clause.items) {
+      const alias = item.alias;
+      
+      if (item.expression.type === "variable") {
+        // Variable passthrough - keep or create mapping
+        const originalVar = item.expression.variable!;
+        const originalInfo = this.ctx.variables.get(originalVar);
+        if (originalInfo && alias) {
+          this.ctx.variables.set(alias, originalInfo);
+        }
+      } else if (item.expression.type === "property" && alias) {
+        // Property access with alias - this creates a "virtual" variable
+        // We'll track this separately for the return phase
+        if (!(this.ctx as any).withAliases) {
+          (this.ctx as any).withAliases = new Map();
+        }
+        (this.ctx as any).withAliases.set(alias, item.expression);
+      } else if (item.expression.type === "function" && alias) {
+        // Function with alias - track for return phase
+        if (!(this.ctx as any).withAliases) {
+          (this.ctx as any).withAliases = new Map();
+        }
+        (this.ctx as any).withAliases.set(alias, item.expression);
+      }
+    }
+    
+    // WITH doesn't generate SQL statements directly - 
+    // the SQL is generated by the final RETURN clause
+    return [];
+  }
+
   private translateExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
     const tables: string[] = [];
     const params: unknown[] = [];
 
     switch (expr.type) {
       case "variable": {
+        // First check if this is a WITH alias
+        const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+        if (withAliases && withAliases.has(expr.variable!)) {
+          // This variable is actually an alias from WITH - translate the underlying expression
+          const originalExpr = withAliases.get(expr.variable!)!;
+          return this.translateExpression(originalExpr);
+        }
+        
         const varInfo = this.ctx.variables.get(expr.variable!);
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);
@@ -1019,6 +1116,14 @@ export class Translator {
       }
 
       case "variable": {
+        // First check if this is a WITH alias
+        const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+        if (withAliases && withAliases.has(expr.variable!)) {
+          // This variable is actually an alias from WITH - translate the underlying expression
+          const originalExpr = withAliases.get(expr.variable!)!;
+          return this.translateWhereExpression(originalExpr);
+        }
+        
         const varInfo = this.ctx.variables.get(expr.variable!);
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);

@@ -1764,4 +1764,145 @@ describe("Integration Tests", () => {
       expect(result.data[0].total).toBe(500);
     });
   });
+
+  describe("WITH clause", () => {
+    beforeEach(() => {
+      // Create test data
+      executor.execute("CREATE (p:Person {name: 'Alice', age: 30, city: 'NYC'})");
+      executor.execute("CREATE (p:Person {name: 'Bob', age: 25, city: 'LA'})");
+      executor.execute("CREATE (p:Person {name: 'Charlie', age: 35, city: 'NYC'})");
+      executor.execute("CREATE (p:Person {name: 'Diana', age: 28, city: 'Chicago'})");
+    });
+
+    it("passes variables through WITH", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH n RETURN n.name")
+      );
+
+      expect(result.data).toHaveLength(4);
+      const names = result.data.map((r: Record<string, unknown>) => r.n_name);
+      expect(names).toContain("Alice");
+      expect(names).toContain("Bob");
+    });
+
+    it("projects properties with alias", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person {name: 'Alice'}) WITH n.name AS name RETURN name")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].name).toBe("Alice");
+    });
+
+    it("applies LIMIT in WITH", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH n LIMIT 2 RETURN n.name")
+      );
+
+      expect(result.data).toHaveLength(2);
+    });
+
+    it("applies ORDER BY in WITH", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH n ORDER BY n.age DESC RETURN n.name, n.age")
+      );
+
+      expect(result.data).toHaveLength(4);
+      expect(result.data[0].n_age).toBe(35); // Charlie
+      expect(result.data[3].n_age).toBe(25); // Bob
+    });
+
+    it("applies ORDER BY and LIMIT in WITH", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH n ORDER BY n.age LIMIT 2 RETURN n.name, n.age")
+      );
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].n_age).toBe(25); // Bob (youngest)
+      expect(result.data[1].n_age).toBe(28); // Diana (second youngest)
+    });
+
+    it("applies WITH DISTINCT", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH DISTINCT n.city AS city RETURN city")
+      );
+
+      expect(result.data).toHaveLength(3); // NYC, LA, Chicago
+      const cities = result.data.map((r: Record<string, unknown>) => r.city);
+      expect(cities).toContain("NYC");
+      expect(cities).toContain("LA");
+      expect(cities).toContain("Chicago");
+    });
+
+    it("applies WHERE after WITH", () => {
+      const result = expectSuccess(
+        executor.execute(`
+          MATCH (n:Person)
+          WITH n, n.age AS age
+          WHERE age > 27
+          RETURN n.name, age
+        `)
+      );
+
+      expect(result.data.length).toBeGreaterThan(0);
+      result.data.forEach((row: Record<string, unknown>) => {
+        expect(row.age).toBeGreaterThan(27);
+      });
+    });
+
+    it("uses aggregation in WITH", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH COUNT(n) AS total RETURN total")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].total).toBe(4);
+    });
+
+    it("chains WITH followed by MATCH", () => {
+      // Create some relationships
+      const alice = db.getNodesByLabel("Person").find(n => n.properties.name === "Alice")!;
+      const bob = db.getNodesByLabel("Person").find(n => n.properties.name === "Bob")!;
+      db.insertEdge("e1", "KNOWS", alice.id, bob.id);
+
+      const result = expectSuccess(
+        executor.execute(`
+          MATCH (n:Person {name: 'Alice'})
+          WITH n
+          MATCH (n)-[:KNOWS]->(m:Person)
+          RETURN n.name, m.name
+        `)
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].n_name).toBe("Alice");
+      expect(result.data[0].m_name).toBe("Bob");
+    });
+
+    it("handles multiple items in WITH", () => {
+      const result = expectSuccess(
+        executor.execute(`
+          MATCH (n:Person {name: 'Alice'})
+          WITH n.name AS name, n.age AS age
+          RETURN name, age
+        `)
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].name).toBe("Alice");
+      expect(result.data[0].age).toBe(30);
+    });
+
+    it("combines WITH ORDER BY with SKIP", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WITH n ORDER BY n.age SKIP 2 RETURN n.name, n.age")
+      );
+
+      expect(result.data).toHaveLength(2);
+      // After skipping 2 youngest (Bob 25, Diana 28), should have Alice 30 and Charlie 35
+      const ages = result.data.map((r: Record<string, unknown>) => r.n_age);
+      expect(ages).toContain(30);
+      expect(ages).toContain(35);
+    });
+  });
 });

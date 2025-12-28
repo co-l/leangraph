@@ -51,14 +51,30 @@ export interface WhereCondition {
   condition?: WhereCondition;
 }
 
+export interface CaseWhen {
+  condition: WhereCondition;
+  result: Expression;
+}
+
+export interface CaseExpression {
+  type: "case";
+  expression?: Expression; // For simple form: CASE expr WHEN val THEN ...
+  whens: CaseWhen[];
+  elseExpr?: Expression;
+}
+
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case";
   variable?: string;
   property?: string;
   value?: PropertyValue;
   name?: string;
   functionName?: string;
   args?: Expression[];
+  // CASE expression fields
+  expression?: Expression;
+  whens?: CaseWhen[];
+  elseExpr?: Expression;
 }
 
 export interface ReturnItem {
@@ -223,6 +239,11 @@ const KEYWORDS = new Set([
   "DISTINCT",
   "OPTIONAL",
   "UNWIND",
+  "CASE",
+  "WHEN",
+  "THEN",
+  "ELSE",
+  "END",
 ]);
 
 class Tokenizer {
@@ -1182,6 +1203,11 @@ export class Parser {
   private parseExpression(): Expression {
     const token = this.peek();
 
+    // CASE expression
+    if (this.checkKeyword("CASE")) {
+      return this.parseCaseExpression();
+    }
+
     // Function call: COUNT(x), id(x)
     if (token.type === "KEYWORD" || token.type === "IDENTIFIER") {
       const nextToken = this.tokens[this.pos + 1];
@@ -1250,6 +1276,65 @@ export class Parser {
     }
 
     throw new Error(`Expected expression, got ${token.type} '${token.value}'`);
+  }
+
+  private parseCaseExpression(): Expression {
+    this.expect("KEYWORD", "CASE");
+    
+    // Check for simple form: CASE expr WHEN val THEN ...
+    // vs searched form: CASE WHEN condition THEN ...
+    let caseExpr: Expression | undefined;
+    
+    // If the next token is not WHEN, it's a simple form with an expression
+    if (!this.checkKeyword("WHEN")) {
+      caseExpr = this.parseExpression();
+    }
+    
+    const whens: CaseWhen[] = [];
+    
+    // Parse WHEN ... THEN ... clauses
+    while (this.checkKeyword("WHEN")) {
+      this.advance(); // consume WHEN
+      
+      let condition: WhereCondition;
+      
+      if (caseExpr) {
+        // Simple form: CASE expr WHEN value THEN ...
+        // The value is compared for equality with caseExpr
+        const whenValue = this.parseExpression();
+        // Create an equality comparison condition
+        condition = {
+          type: "comparison",
+          left: caseExpr,
+          right: whenValue,
+          operator: "="
+        };
+      } else {
+        // Searched form: CASE WHEN condition THEN ...
+        condition = this.parseWhereCondition();
+      }
+      
+      this.expect("KEYWORD", "THEN");
+      const result = this.parseExpression();
+      
+      whens.push({ condition, result });
+    }
+    
+    // Parse optional ELSE
+    let elseExpr: Expression | undefined;
+    if (this.checkKeyword("ELSE")) {
+      this.advance();
+      elseExpr = this.parseExpression();
+    }
+    
+    this.expect("KEYWORD", "END");
+    
+    return {
+      type: "case",
+      expression: caseExpr,
+      whens,
+      elseExpr,
+    };
   }
 
   // Token helpers

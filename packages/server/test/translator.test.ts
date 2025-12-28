@@ -905,6 +905,101 @@ describe("Translator", () => {
     });
   });
 
+  describe("CASE expressions", () => {
+    it("generates CASE WHEN THEN ELSE END in SQL", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE WHEN n.age > 18 THEN 'adult' ELSE 'minor' END"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("CASE");
+      expect(sql).toContain("WHEN");
+      expect(sql).toContain("THEN");
+      expect(sql).toContain("ELSE");
+      expect(sql).toContain("END");
+    });
+
+    it("generates CASE with multiple WHEN clauses", () => {
+      const result = translateCypher(`
+        MATCH (n:Person) RETURN 
+        CASE 
+          WHEN n.age < 13 THEN 'child'
+          WHEN n.age < 20 THEN 'teen'
+          ELSE 'adult'
+        END
+      `);
+
+      const sql = result.statements[0].sql;
+      expect((sql.match(/WHEN/g) || []).length).toBe(2);
+      expect((sql.match(/THEN/g) || []).length).toBe(2);
+    });
+
+    it("generates CASE without ELSE", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE WHEN n.active = true THEN 'active' END"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("CASE");
+      expect(sql).toContain("WHEN");
+      expect(sql).not.toContain("ELSE");
+      expect(sql).toContain("END");
+    });
+
+    it("handles CASE with alias", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE WHEN n.age > 18 THEN 'adult' ELSE 'minor' END AS category"
+      );
+
+      expect(result.returnColumns).toEqual(["category"]);
+    });
+
+    it("generates simple form CASE (with expression)", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE n.status WHEN 'A' THEN 'Active' WHEN 'I' THEN 'Inactive' ELSE 'Unknown' END"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("CASE");
+      expect(sql).toContain("WHEN");
+      expect((sql.match(/WHEN/g) || []).length).toBe(2);
+    });
+
+    it("handles CASE with property access in THEN", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE WHEN n.active = true THEN n.name ELSE 'N/A' END"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("CASE");
+      // THEN should reference a property
+      expect(sql).toContain("$.name");
+    });
+
+    it("handles CASE with numeric values", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE WHEN n.score > 90 THEN 1 WHEN n.score > 70 THEN 2 ELSE 3 END"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("CASE");
+      expect(result.statements[0].params).toContain(1);
+      expect(result.statements[0].params).toContain(2);
+      expect(result.statements[0].params).toContain(3);
+    });
+
+    it("handles CASE with nested AND conditions", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN CASE WHEN n.age > 18 AND n.active = true THEN 'active adult' ELSE 'other' END"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("CASE");
+      expect(sql).toContain("AND");
+    });
+  });
+
   describe("UNWIND", () => {
     it("generates cross join with json_each for literal array", () => {
       const result = translateCypher("UNWIND [1, 2, 3] AS x RETURN x");

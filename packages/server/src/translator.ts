@@ -21,6 +21,7 @@ import {
   VariableRef,
   SetAssignment,
   ReturnItem,
+  CaseWhen,
 } from "./parser.js";
 
 // ============================================================================
@@ -1086,9 +1087,46 @@ export class Translator {
         return { sql: "?", tables, params };
       }
 
+      case "case": {
+        return this.translateCaseExpression(expr);
+      }
+
       default:
         throw new Error(`Unknown expression type: ${expr.type}`);
     }
+  }
+
+  private translateCaseExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    let sql = "CASE";
+    
+    // Process each WHEN clause
+    for (const when of expr.whens || []) {
+      // Translate the condition
+      const { sql: condSql, params: condParams } = this.translateWhere(when.condition);
+      params.push(...condParams);
+      
+      // Translate the result expression
+      const { sql: resultSql, tables: resultTables, params: resultParams } = this.translateExpression(when.result);
+      tables.push(...resultTables);
+      params.push(...resultParams);
+      
+      sql += ` WHEN ${condSql} THEN ${resultSql}`;
+    }
+    
+    // Add ELSE clause if present
+    if (expr.elseExpr) {
+      const { sql: elseSql, tables: elseTables, params: elseParams } = this.translateExpression(expr.elseExpr);
+      tables.push(...elseTables);
+      params.push(...elseParams);
+      sql += ` ELSE ${elseSql}`;
+    }
+    
+    sql += " END";
+    
+    return { sql, tables, params };
   }
 
   private translateWhere(condition: WhereCondition): { sql: string; params: unknown[] } {

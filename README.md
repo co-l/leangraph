@@ -27,7 +27,7 @@
 | `WITH` | Supported |
 | `UNION` | Not supported |
 | `UNWIND` | Supported |
-| `CASE` | Not supported |
+| `CASE` | Supported |
 | `EXISTS` | Not supported |
 | `CALL` | Not supported |
 | `SUM` / `AVG` / `MIN` / `MAX` / `COLLECT` | Supported |

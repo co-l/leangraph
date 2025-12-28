@@ -1540,6 +1540,153 @@ export class Translator {
           throw new Error("keys requires a variable argument");
         }
 
+        // TAIL: get all but first element of array
+        if (expr.functionName === "TAIL") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            // Use json_remove to remove first element ($[0])
+            return { sql: `json_remove(${argResult.sql}, '$[0]')`, tables, params };
+          }
+          throw new Error("tail requires an argument");
+        }
+
+        // RANGE: generate a list of numbers
+        if (expr.functionName === "RANGE") {
+          if (expr.args && expr.args.length >= 2) {
+            const startResult = this.translateFunctionArg(expr.args[0]);
+            const endResult = this.translateFunctionArg(expr.args[1]);
+            params.push(...startResult.params, ...endResult.params);
+            
+            // Check for optional step parameter
+            let stepValue = "1";
+            if (expr.args.length >= 3) {
+              const stepResult = this.translateFunctionArg(expr.args[2]);
+              params.push(...stepResult.params);
+              stepValue = stepResult.sql;
+            }
+            
+            // Use recursive CTE to generate range
+            // This is a subquery that generates the array
+            return { 
+              sql: `(WITH RECURSIVE r(n) AS (
+  VALUES(${startResult.sql})
+  UNION ALL
+  SELECT n + ${stepValue} FROM r WHERE n + ${stepValue} <= ${endResult.sql}
+) SELECT json_group_array(n) FROM r)`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("range requires at least 2 arguments");
+        }
+
+        // SPLIT: split string by delimiter into array
+        if (expr.functionName === "SPLIT") {
+          if (expr.args && expr.args.length === 2) {
+            const strResult = this.translateFunctionArg(expr.args[0]);
+            const delimResult = this.translateFunctionArg(expr.args[1]);
+            tables.push(...strResult.tables, ...delimResult.tables);
+            params.push(...strResult.params, ...delimResult.params);
+            // SQLite doesn't have native split, use recursive CTE with instr
+            // This creates a JSON array from splitting the string
+            return { 
+              sql: `(WITH RECURSIVE split(str, rest, pos) AS (
+  VALUES('', ${strResult.sql} || ${delimResult.sql}, 0)
+  UNION ALL
+  SELECT
+    CASE WHEN instr(rest, ${delimResult.sql}) > 0 
+         THEN substr(rest, 1, instr(rest, ${delimResult.sql}) - 1)
+         ELSE rest 
+    END,
+    CASE WHEN instr(rest, ${delimResult.sql}) > 0 
+         THEN substr(rest, instr(rest, ${delimResult.sql}) + length(${delimResult.sql}))
+         ELSE '' 
+    END,
+    pos + 1
+  FROM split WHERE rest != ''
+) SELECT json_group_array(str) FROM split WHERE pos > 0)`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("split requires 2 arguments");
+        }
+
+        // ============================================================================
+        // Node/Relationship functions
+        // ============================================================================
+
+        // LABELS: get node labels (returns array with single label)
+        if (expr.functionName === "LABELS") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              if (varInfo.type !== "node") {
+                throw new Error("labels() requires a node variable");
+              }
+              tables.push(varInfo.alias);
+              // Return a JSON array containing the single label
+              return { 
+                sql: `json_array(${varInfo.alias}.label)`, 
+                tables, 
+                params 
+              };
+            }
+          }
+          throw new Error("labels requires a node variable argument");
+        }
+
+        // TYPE: get relationship type
+        if (expr.functionName === "TYPE") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              if (varInfo.type !== "edge") {
+                throw new Error("type() requires a relationship variable");
+              }
+              tables.push(varInfo.alias);
+              // Return the type column from edges table
+              return { 
+                sql: `${varInfo.alias}.type`, 
+                tables, 
+                params 
+              };
+            }
+          }
+          throw new Error("type requires a relationship variable argument");
+        }
+
+        // PROPERTIES: get all properties as a map
+        if (expr.functionName === "PROPERTIES") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              // Return the properties JSON column directly
+              return { 
+                sql: `${varInfo.alias}.properties`, 
+                tables, 
+                params 
+              };
+            }
+          }
+          throw new Error("properties requires a variable argument");
+        }
+
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 

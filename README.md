@@ -54,18 +54,18 @@
 | `substring(s, start, len)` | Supported | Extract substring |
 | `replace(s, from, to)` | Supported | Replace occurrences |
 | `toString(x)` | Supported | Convert to string |
-| `split(s, delim)` | Not supported | Split string into list |
+| `split(s, delim)` | Supported | Split string into list |
 | **List** | | |
 | `size(list)` | Supported | Length of list |
 | `head(list)` | Supported | First element |
 | `last(list)` | Supported | Last element |
 | `keys(x)` | Supported | Get property keys |
-| `tail(list)` | Not supported | All but first element |
-| `range(start, end)` | Not supported | Generate number list |
+| `tail(list)` | Supported | All but first element |
+| `range(start, end)` | Supported | Generate number list |
 | **Node/Relationship** | | |
-| `labels(n)` | Not supported | Get node labels |
-| `type(r)` | Not supported | Get relationship type |
-| `properties(x)` | Not supported | Get all properties as map |
+| `labels(n)` | Supported | Get node labels |
+| `type(r)` | Supported | Get relationship type |
+| `properties(x)` | Supported | Get all properties as map |
 | **Math** | | |
 | `abs(x)` | Supported | Absolute value |
 | `ceil(x)` | Supported | Round up |

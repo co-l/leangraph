@@ -1403,5 +1403,78 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toMatch(/json_group_array|json_each/);
       expect(result.returnColumns).toEqual(["keys"]);
     });
+
+    it("generates tail() for all but first element", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN tail(n.tags)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses json_remove with $[0] to remove first element
+      expect(result.statements[0].sql).toMatch(/json_remove|json/i);
+      expect(result.returnColumns).toEqual(["tail"]);
+    });
+
+    it("generates range() for number list", () => {
+      const result = translateCypher("RETURN range(1, 5)");
+
+      expect(result.statements).toHaveLength(1);
+      // range(1,5) should generate [1,2,3,4,5] using recursive CTE or json
+      expect(result.statements[0].sql).toMatch(/WITH RECURSIVE|json/i);
+      expect(result.returnColumns).toEqual(["range"]);
+    });
+
+    it("generates range() with step", () => {
+      const result = translateCypher("RETURN range(0, 10, 2)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toMatch(/WITH RECURSIVE|json/i);
+      expect(result.returnColumns).toEqual(["range"]);
+    });
+
+    it("generates split() for string to list", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN split(n.fullName, ' ')");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite doesn't have native split, we'll need a custom approach
+      expect(result.statements[0].sql).toMatch(/json|split/i);
+      expect(result.returnColumns).toEqual(["split"]);
+    });
+  });
+
+  describe("Node/Relationship functions", () => {
+    it("generates labels() for node labels", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN labels(n)");
+
+      expect(result.statements).toHaveLength(1);
+      // Returns array with the single label from the label column
+      expect(result.statements[0].sql).toMatch(/json_array|label/i);
+      expect(result.returnColumns).toEqual(["labels"]);
+    });
+
+    it("generates type() for relationship type", () => {
+      const result = translateCypher("MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN type(r)");
+
+      expect(result.statements).toHaveLength(1);
+      // Returns the type column from edges table
+      expect(result.statements[0].sql).toContain(".type");
+      expect(result.returnColumns).toEqual(["type"]);
+    });
+
+    it("generates properties() for node properties", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN properties(n)");
+
+      expect(result.statements).toHaveLength(1);
+      // Returns the properties JSON column
+      expect(result.statements[0].sql).toMatch(/properties|json/i);
+      expect(result.returnColumns).toEqual(["properties"]);
+    });
+
+    it("generates properties() for relationship properties", () => {
+      const result = translateCypher("MATCH (a:Person)-[r:KNOWS]->(b:Person) RETURN properties(r)");
+
+      expect(result.statements).toHaveLength(1);
+      // Returns the properties JSON column from edges
+      expect(result.statements[0].sql).toMatch(/properties/);
+      expect(result.returnColumns).toEqual(["properties"]);
+    });
   });
 });

@@ -15,6 +15,8 @@ export interface EdgePattern {
   type?: string;
   properties?: Record<string, PropertyValue>;
   direction: "left" | "right" | "none";
+  minHops?: number;
+  maxHops?: number;
 }
 
 export interface RelationshipPattern {
@@ -43,12 +45,14 @@ export type PropertyValue =
   | PropertyValue[];
 
 export interface WhereCondition {
-  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull";
+  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists";
   left?: Expression;
   right?: Expression;
   operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
   conditions?: WhereCondition[];
   condition?: WhereCondition;
+  // For EXISTS pattern
+  pattern?: NodePattern | RelationshipPattern;
 }
 
 export interface CaseWhen {
@@ -143,6 +147,13 @@ export interface UnwindClause {
   alias: string;
 }
 
+export interface UnionClause {
+  type: "UNION";
+  all: boolean;
+  left: Query;
+  right: Query;
+}
+
 export type Clause =
   | CreateClause
   | MatchClause
@@ -151,7 +162,8 @@ export type Clause =
   | DeleteClause
   | ReturnClause
   | WithClause
-  | UnwindClause;
+  | UnwindClause
+  | UnionClause;
 
 export interface Query {
   clauses: Clause[];
@@ -244,6 +256,9 @@ const KEYWORDS = new Set([
   "THEN",
   "ELSE",
   "END",
+  "EXISTS",
+  "UNION",
+  "ALL",
 ]);
 
 class Tokenizer {
@@ -490,20 +505,13 @@ export class Parser {
       this.tokens = tokenizer.tokenize();
       this.pos = 0;
 
-      const clauses: Clause[] = [];
+      const query = this.parseQuery();
 
-      while (!this.isAtEnd()) {
-        const clause = this.parseClause();
-        if (clause) {
-          clauses.push(clause);
-        }
-      }
-
-      if (clauses.length === 0) {
+      if (query.clauses.length === 0) {
         return this.error("Empty query");
       }
 
-      return { success: true, query: { clauses } };
+      return { success: true, query };
     } catch (e) {
       const currentToken = this.tokens[this.pos] || this.tokens[this.tokens.length - 1];
       return {
@@ -516,6 +524,44 @@ export class Parser {
         },
       };
     }
+  }
+
+  private parseQuery(): Query {
+    // Parse clauses until we hit UNION or end
+    const clauses: Clause[] = [];
+
+    while (!this.isAtEnd() && !this.checkKeyword("UNION")) {
+      const clause = this.parseClause();
+      if (clause) {
+        clauses.push(clause);
+      }
+    }
+
+    // Check for UNION
+    if (this.checkKeyword("UNION")) {
+      this.advance(); // consume UNION
+      
+      // Check for ALL
+      const all = this.checkKeyword("ALL");
+      if (all) {
+        this.advance();
+      }
+
+      // Parse the right side of the UNION
+      const rightQuery = this.parseQuery();
+
+      // Create a UNION clause that wraps both queries
+      const unionClause: UnionClause = {
+        type: "UNION",
+        all,
+        left: { clauses },
+        right: rightQuery,
+      };
+
+      return { clauses: [unionClause] };
+    }
+
+    return { clauses };
   }
 
   private error(message: string): ParseResult {
@@ -975,6 +1021,12 @@ export class Parser {
         edge.type = this.expectLabelOrType();
       }
 
+      // Variable-length pattern: *[min]..[max] or *n or *
+      if (this.check("STAR")) {
+        this.advance();
+        this.parseVariableLengthSpec(edge);
+      }
+
       // Properties
       if (this.check("LBRACE")) {
         edge.properties = this.parseProperties();
@@ -996,6 +1048,62 @@ export class Parser {
     }
 
     return edge;
+  }
+
+  private parseVariableLengthSpec(edge: EdgePattern): void {
+    // Patterns:
+    // *       -> min=1, max=undefined (any length >= 1)
+    // *2      -> min=2, max=2 (fixed length)
+    // *1..3   -> min=1, max=3 (range)
+    // *2..    -> min=2, max=undefined (min only)
+    // *..3    -> min=1, max=3 (max only)
+    // *0..3   -> min=0, max=3 (can include zero-length)
+
+    // Check for just * with no numbers or dots
+    if (!this.check("NUMBER") && !this.check("DOT")) {
+      edge.minHops = 1;
+      edge.maxHops = undefined;
+      return;
+    }
+
+    // Check for ..N pattern (*..3)
+    if (this.check("DOT")) {
+      this.advance(); // first dot
+      this.expect("DOT"); // second dot
+      if (this.check("NUMBER")) {
+        edge.minHops = 1;
+        edge.maxHops = parseInt(this.advance().value, 10);
+      }
+      return;
+    }
+
+    // Parse first number
+    const firstNum = parseInt(this.expect("NUMBER").value, 10);
+
+    // Check if this is a range or fixed
+    if (this.check("DOT")) {
+      this.advance(); // first dot
+      
+      // Need to check if next is DOT or if dots were consecutive
+      if (this.check("DOT")) {
+        this.advance(); // second dot
+      }
+      // If we just advanced past a DOT and the tokenizer gave us separate dots,
+      // we need to handle this. Let's check the current token
+      
+      edge.minHops = firstNum;
+
+      // Check for second number
+      if (this.check("NUMBER")) {
+        edge.maxHops = parseInt(this.advance().value, 10);
+      } else {
+        edge.maxHops = undefined; // unbounded
+      }
+    } else {
+      // Fixed length
+      edge.minHops = firstNum;
+      edge.maxHops = firstNum;
+    }
   }
 
   private parseProperties(): Record<string, PropertyValue> {
@@ -1132,6 +1240,11 @@ export class Parser {
   }
 
   private parsePrimaryCondition(): WhereCondition {
+    // Handle EXISTS pattern
+    if (this.checkKeyword("EXISTS")) {
+      return this.parseExistsCondition();
+    }
+
     // Handle parenthesized conditions
     if (this.check("LPAREN")) {
       this.advance(); // consume (
@@ -1141,6 +1254,19 @@ export class Parser {
     }
 
     return this.parseComparisonCondition();
+  }
+
+  private parseExistsCondition(): WhereCondition {
+    this.expect("KEYWORD", "EXISTS");
+    this.expect("LPAREN"); // outer (
+
+    // Parse the pattern inside EXISTS((pattern))
+    const patterns = this.parsePatternChain();
+    const pattern = patterns.length === 1 ? patterns[0] : patterns[0]; // Use first pattern for now
+
+    this.expect("RPAREN"); // outer )
+
+    return { type: "exists", pattern };
   }
 
   private parseComparisonCondition(): WhereCondition {

@@ -11,6 +11,7 @@ import {
   ReturnClause,
   WithClause,
   UnwindClause,
+  UnionClause,
   NodePattern,
   RelationshipPattern,
   EdgePattern,
@@ -22,6 +23,7 @@ import {
   SetAssignment,
   ReturnItem,
   CaseWhen,
+  parse,
 } from "./parser.js";
 
 // ============================================================================
@@ -101,6 +103,8 @@ export class Translator {
         return { statements: this.translateWith(clause) };
       case "UNWIND":
         return { statements: this.translateUnwind(clause) };
+      case "UNION":
+        return this.translateUnion(clause as UnionClause);
       default:
         throw new Error(`Unknown clause type: ${(clause as Clause).type}`);
     }
@@ -274,6 +278,10 @@ export class Translator {
     if (!(this.ctx as any).relationshipPatterns) {
       (this.ctx as any).relationshipPatterns = [];
     }
+    
+    // Check if this is a variable-length pattern
+    const isVariableLength = rel.edge.minHops !== undefined || rel.edge.maxHops !== undefined;
+    
     (this.ctx as any).relationshipPatterns.push({ 
       sourceAlias, 
       targetAlias, 
@@ -281,7 +289,10 @@ export class Translator {
       edge: rel.edge, 
       optional,
       sourceIsNew,
-      targetIsNew
+      targetIsNew,
+      isVariableLength,
+      minHops: rel.edge.minHops,
+      maxHops: rel.edge.maxHops,
     });
 
     // Keep backwards compatibility with single pattern
@@ -432,11 +443,22 @@ export class Translator {
       sourceAlias: string;
       targetAlias: string;
       edgeAlias: string;
-      edge: { type?: string; properties?: Record<string, PropertyValue> };
+      edge: { type?: string; properties?: Record<string, PropertyValue>; minHops?: number; maxHops?: number };
       optional?: boolean;
       sourceIsNew?: boolean;
       targetIsNew?: boolean;
+      isVariableLength?: boolean;
+      minHops?: number;
+      maxHops?: number;
     }> | undefined;
+
+    // Check if any pattern is variable-length
+    const hasVariableLengthPattern = relPatterns?.some(p => p.isVariableLength);
+    
+    if (hasVariableLengthPattern && relPatterns) {
+      // Use recursive CTE for variable-length paths
+      return this.translateVariableLengthPath(clause, relPatterns, selectParts, returnColumns, exprParams, whereParams);
+    }
 
     if (relPatterns && relPatterns.length > 0) {
       // Track which node aliases we've already added to FROM/JOIN
@@ -853,6 +875,214 @@ export class Translator {
   // UNWIND
   // ============================================================================
 
+  // ============================================================================
+  // Variable-length paths
+  // ============================================================================
+
+  private translateVariableLengthPath(
+    clause: ReturnClause,
+    relPatterns: Array<{
+      sourceAlias: string;
+      targetAlias: string;
+      edgeAlias: string;
+      edge: { type?: string; properties?: Record<string, PropertyValue>; minHops?: number; maxHops?: number };
+      optional?: boolean;
+      sourceIsNew?: boolean;
+      targetIsNew?: boolean;
+      isVariableLength?: boolean;
+      minHops?: number;
+      maxHops?: number;
+    }>,
+    selectParts: string[],
+    returnColumns: string[],
+    exprParams: unknown[],
+    whereParams: unknown[]
+  ): { statements: SqlStatement[]; returnColumns: string[] } {
+    // For variable-length paths, we use SQLite's recursive CTEs
+    // Pattern: WITH RECURSIVE path(start_id, end_id, depth) AS (
+    //   SELECT source_id, target_id, 1 FROM edges WHERE ...
+    //   UNION ALL
+    //   SELECT p.start_id, e.target_id, p.depth + 1
+    //   FROM path p JOIN edges e ON p.end_id = e.source_id
+    //   WHERE p.depth < max_depth
+    // )
+    // SELECT ... FROM nodes n0, path, nodes n1 WHERE n0.id = path.start_id AND n1.id = path.end_id ...
+
+    const varLengthPattern = relPatterns.find(p => p.isVariableLength);
+    if (!varLengthPattern) {
+      throw new Error("No variable-length pattern found");
+    }
+
+    const minHops = varLengthPattern.minHops ?? 1;
+    // For unbounded paths (*), use a reasonable default max
+    // For fixed length (*2), maxHops equals minHops
+    const maxHops = varLengthPattern.maxHops ?? 10;
+    const edgeType = varLengthPattern.edge.type;
+    const sourceAlias = varLengthPattern.sourceAlias;
+    const targetAlias = varLengthPattern.targetAlias;
+
+    const allParams: unknown[] = [...exprParams];
+
+    // Build the recursive CTE
+    const pathCteName = `path_${this.ctx.aliasCounter++}`;
+    
+    // Base condition for edges
+    let edgeCondition = "1=1";
+    if (edgeType) {
+      edgeCondition = "type = ?";
+      allParams.push(edgeType);
+    }
+
+    // Build the CTE
+    // The depth represents the number of edges traversed
+    // For *2, we want exactly 2 edges, so depth should stop at maxHops
+    // The condition is p.depth < maxHops to allow one more recursion step
+    const cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth) AS (
+  SELECT source_id, target_id, 1 FROM edges WHERE ${edgeCondition}
+  UNION ALL
+  SELECT p.start_id, e.target_id, p.depth + 1
+  FROM ${pathCteName} p
+  JOIN edges e ON p.end_id = e.source_id
+  WHERE p.depth < ?${edgeType ? " AND e.type = ?" : ""}
+)`;
+
+    // For maxHops=2, we need depth to reach 2, so recursion limit should be maxHops
+    allParams.push(maxHops);
+    if (edgeType) {
+      allParams.push(edgeType);
+    }
+
+    // Build WHERE conditions
+    const whereParts: string[] = [];
+    
+    // Connect source node to path start
+    whereParts.push(`${sourceAlias}.id = ${pathCteName}.start_id`);
+    // Connect target node to path end
+    whereParts.push(`${targetAlias}.id = ${pathCteName}.end_id`);
+    // Apply min depth constraint
+    if (minHops > 1) {
+      whereParts.push(`${pathCteName}.depth >= ?`);
+      allParams.push(minHops);
+    }
+
+    // Add source/target label filters
+    const sourcePattern = (this.ctx as any)[`pattern_${sourceAlias}`];
+    if (sourcePattern?.label) {
+      whereParts.push(`${sourceAlias}.label = ?`);
+      allParams.push(sourcePattern.label);
+    }
+    if (sourcePattern?.properties) {
+      for (const [key, value] of Object.entries(sourcePattern.properties)) {
+        if (this.isParameterRef(value as PropertyValue)) {
+          whereParts.push(`json_extract(${sourceAlias}.properties, '$.${key}') = ?`);
+          allParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+        } else {
+          whereParts.push(`json_extract(${sourceAlias}.properties, '$.${key}') = ?`);
+          allParams.push(value);
+        }
+      }
+    }
+
+    const targetPattern = (this.ctx as any)[`pattern_${targetAlias}`];
+    if (targetPattern?.label) {
+      whereParts.push(`${targetAlias}.label = ?`);
+      allParams.push(targetPattern.label);
+    }
+    if (targetPattern?.properties) {
+      for (const [key, value] of Object.entries(targetPattern.properties)) {
+        if (this.isParameterRef(value as PropertyValue)) {
+          whereParts.push(`json_extract(${targetAlias}.properties, '$.${key}') = ?`);
+          allParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+        } else {
+          whereParts.push(`json_extract(${targetAlias}.properties, '$.${key}') = ?`);
+          allParams.push(value);
+        }
+      }
+    }
+
+    // Add WHERE clause from MATCH if present
+    const matchWhereClause = (this.ctx as any).whereClause;
+    if (matchWhereClause) {
+      const { sql: whereSql, params: conditionParams } = this.translateWhere(matchWhereClause);
+      whereParts.push(whereSql);
+      allParams.push(...conditionParams);
+    }
+
+    // Build final SQL
+    const distinctKeyword = clause.distinct ? "DISTINCT " : "";
+    let sql = `${cte}\nSELECT ${distinctKeyword}${selectParts.join(", ")}`;
+    sql += ` FROM nodes ${sourceAlias}, ${pathCteName}, nodes ${targetAlias}`;
+    
+    if (whereParts.length > 0) {
+      sql += ` WHERE ${whereParts.join(" AND ")}`;
+    }
+
+    // Add ORDER BY if present
+    if (clause.orderBy && clause.orderBy.length > 0) {
+      const orderParts = clause.orderBy.map(({ expression, direction }) => {
+        const { sql: exprSql } = this.translateOrderByExpression(expression);
+        return `${exprSql} ${direction}`;
+      });
+      sql += ` ORDER BY ${orderParts.join(", ")}`;
+    }
+
+    // Add LIMIT and SKIP
+    if (clause.limit !== undefined || clause.skip !== undefined) {
+      if (clause.limit !== undefined) {
+        sql += ` LIMIT ?`;
+        allParams.push(clause.limit);
+      } else if (clause.skip !== undefined) {
+        sql += ` LIMIT -1`;
+      }
+
+      if (clause.skip !== undefined) {
+        sql += ` OFFSET ?`;
+        allParams.push(clause.skip);
+      }
+    }
+
+    return {
+      statements: [{ sql, params: allParams }],
+      returnColumns,
+    };
+  }
+
+  // ============================================================================
+  // UNION
+  // ============================================================================
+
+  private translateUnion(clause: UnionClause): { statements: SqlStatement[]; returnColumns: string[] } {
+    // Translate left query (create a fresh translator to avoid context contamination)
+    const leftTranslator = new Translator(this.ctx.paramValues);
+    const leftResult = leftTranslator.translate(clause.left);
+    
+    // Translate right query
+    const rightTranslator = new Translator(this.ctx.paramValues);
+    const rightResult = rightTranslator.translate(clause.right);
+    
+    // Get the SQL from both sides (should be SELECT statements)
+    const leftSql = leftResult.statements.map(s => s.sql).join("; ");
+    const rightSql = rightResult.statements.map(s => s.sql).join("; ");
+    
+    // Combine params from both sides
+    const allParams = [
+      ...leftResult.statements.flatMap(s => s.params),
+      ...rightResult.statements.flatMap(s => s.params),
+    ];
+    
+    // Build UNION SQL
+    const unionKeyword = clause.all ? "UNION ALL" : "UNION";
+    const sql = `${leftSql} ${unionKeyword} ${rightSql}`;
+    
+    // Return columns come from the left query
+    const returnColumns = leftResult.returnColumns || [];
+    
+    return {
+      statements: [{ sql, params: allParams }],
+      returnColumns,
+    };
+  }
+
   private translateUnwind(clause: UnwindClause): SqlStatement[] {
     // UNWIND expands an array into rows using SQLite's json_each()
     // We store the unwind info in context for use in RETURN
@@ -1207,9 +1437,84 @@ export class Translator {
         };
       }
 
+      case "exists": {
+        return this.translateExistsCondition(condition);
+      }
+
       default:
         throw new Error(`Unknown condition type: ${condition.type}`);
     }
+  }
+
+  private translateExistsCondition(condition: WhereCondition): { sql: string; params: unknown[] } {
+    const pattern = condition.pattern;
+    if (!pattern) {
+      throw new Error("EXISTS condition must have a pattern");
+    }
+
+    const params: unknown[] = [];
+    let sql: string;
+
+    if (this.isRelationshipPattern(pattern)) {
+      // EXISTS with relationship pattern: EXISTS((n)-[:TYPE]->(m))
+      // Generate: EXISTS (SELECT 1 FROM edges e WHERE e.source_id = n.id AND e.type = ? AND ...)
+      const rel = pattern as RelationshipPattern;
+      
+      // Get the source variable's alias from context
+      const sourceVar = rel.source.variable;
+      const sourceInfo = sourceVar ? this.ctx.variables.get(sourceVar) : null;
+      
+      if (!sourceInfo) {
+        throw new Error(`EXISTS pattern references unknown variable: ${sourceVar}`);
+      }
+      
+      const edgeAlias = `exists_e${this.ctx.aliasCounter++}`;
+      const targetAlias = `exists_n${this.ctx.aliasCounter++}`;
+      
+      const conditions: string[] = [];
+      
+      // Connect edge to source node
+      if (rel.edge.direction === "left") {
+        conditions.push(`${edgeAlias}.target_id = ${sourceInfo.alias}.id`);
+      } else {
+        conditions.push(`${edgeAlias}.source_id = ${sourceInfo.alias}.id`);
+      }
+      
+      // Filter by edge type if specified
+      if (rel.edge.type) {
+        conditions.push(`${edgeAlias}.type = ?`);
+        params.push(rel.edge.type);
+      }
+      
+      // Check if target has a label - need to join to nodes table
+      let fromClause = `edges ${edgeAlias}`;
+      if (rel.target.label) {
+        if (rel.edge.direction === "left") {
+          fromClause += ` JOIN nodes ${targetAlias} ON ${edgeAlias}.source_id = ${targetAlias}.id`;
+        } else {
+          fromClause += ` JOIN nodes ${targetAlias} ON ${edgeAlias}.target_id = ${targetAlias}.id`;
+        }
+        conditions.push(`${targetAlias}.label = ?`);
+        params.push(rel.target.label);
+      }
+      
+      sql = `EXISTS (SELECT 1 FROM ${fromClause} WHERE ${conditions.join(" AND ")})`;
+    } else {
+      // EXISTS with node-only pattern: EXISTS((n))
+      // This is less common but valid - check if the node variable exists
+      const node = pattern as NodePattern;
+      const nodeVar = node.variable;
+      const nodeInfo = nodeVar ? this.ctx.variables.get(nodeVar) : null;
+      
+      if (!nodeInfo) {
+        throw new Error(`EXISTS pattern references unknown variable: ${nodeVar}`);
+      }
+      
+      // Node exists if it has an id (always true for matched nodes)
+      sql = `${nodeInfo.alias}.id IS NOT NULL`;
+    }
+
+    return { sql, params };
   }
 
   private translateOrderByExpression(expr: Expression): { sql: string } {

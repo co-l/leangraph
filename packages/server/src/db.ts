@@ -98,9 +98,11 @@ export class GraphDatabase {
     this.ensureInitialized();
 
     const stmt = this.db.prepare(sql);
-    const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
+    const trimmedSql = sql.trim().toUpperCase();
+    // Check if it's a query (SELECT or WITH for CTEs)
+    const isQuery = trimmedSql.startsWith("SELECT") || trimmedSql.startsWith("WITH");
 
-    if (isSelect) {
+    if (isQuery) {
       const rows = stmt.all(...params) as Record<string, unknown>[];
       return { rows, changes: 0, lastInsertRowid: 0 };
     } else {

@@ -1906,6 +1906,301 @@ describe("Integration Tests", () => {
     });
   });
 
+  describe("Variable-length paths", () => {
+    it("finds paths of fixed length", () => {
+      // Create a chain: A -> B -> C
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Person {name: 'Charlie'})");
+      
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      executor.execute(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      
+      // Find paths of length 2 from Alice
+      const result = expectSuccess(
+        executor.execute("MATCH (a:Person {name: 'Alice'})-[*2]->(c:Person) RETURN c.name")
+      );
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].c_name).toBe("Charlie");
+    });
+
+    it("finds paths within a range", () => {
+      // Create a chain: A -> B -> C -> D
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Person {name: 'Charlie'})");
+      executor.execute("CREATE (d:Person {name: 'Diana'})");
+      
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      executor.execute(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      executor.execute(`
+        MATCH (c:Person {name: 'Charlie'}), (d:Person {name: 'Diana'})
+        CREATE (c)-[:KNOWS]->(d)
+      `);
+      
+      // Find paths of length 1-2 from Alice
+      const result = expectSuccess(
+        executor.execute("MATCH (a:Person {name: 'Alice'})-[*1..2]->(target:Person) RETURN target.name ORDER BY target.name")
+      );
+      
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map((r: Record<string, unknown>) => r.target_name);
+      expect(names).toContain("Bob");     // 1 hop
+      expect(names).toContain("Charlie"); // 2 hops
+    });
+
+    it("finds paths with specific edge type", () => {
+      // Create nodes with different relationship types
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Person {name: 'Charlie'})");
+      
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      executor.execute(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:WORKS_WITH]->(c)
+      `);
+      
+      // Find only KNOWS paths (should not reach Charlie)
+      const result = expectSuccess(
+        executor.execute("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(target:Person) RETURN target.name")
+      );
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].target_name).toBe("Bob");
+    });
+
+    it("finds any length path with *", () => {
+      // Create a longer chain
+      executor.execute("CREATE (a:Person {name: 'A'})");
+      executor.execute("CREATE (b:Person {name: 'B'})");
+      executor.execute("CREATE (c:Person {name: 'C'})");
+      executor.execute("CREATE (d:Person {name: 'D'})");
+      
+      executor.execute(`
+        MATCH (a:Person {name: 'A'}), (b:Person {name: 'B'})
+        CREATE (a)-[:NEXT]->(b)
+      `);
+      executor.execute(`
+        MATCH (b:Person {name: 'B'}), (c:Person {name: 'C'})
+        CREATE (b)-[:NEXT]->(c)
+      `);
+      executor.execute(`
+        MATCH (c:Person {name: 'C'}), (d:Person {name: 'D'})
+        CREATE (c)-[:NEXT]->(d)
+      `);
+      
+      // Find all reachable nodes from A
+      const result = expectSuccess(
+        executor.execute("MATCH (a:Person {name: 'A'})-[*]->(target:Person) RETURN target.name ORDER BY target.name")
+      );
+      
+      expect(result.data).toHaveLength(3); // B, C, D
+      const names = result.data.map((r: Record<string, unknown>) => r.target_name);
+      expect(names).toContain("B");
+      expect(names).toContain("C");
+      expect(names).toContain("D");
+    });
+  });
+
+  describe("UNION clause", () => {
+    it("combines results from two queries", () => {
+      // Create different node types
+      executor.execute("CREATE (p:Person {name: 'Alice'})");
+      executor.execute("CREATE (p:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Company {name: 'Acme'})");
+      executor.execute("CREATE (c:Company {name: 'TechCorp'})");
+      
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN p.name AS name UNION MATCH (c:Company) RETURN c.name AS name")
+      );
+      
+      expect(result.data).toHaveLength(4);
+      const names = result.data.map((r: Record<string, unknown>) => r.name);
+      expect(names).toContain("Alice");
+      expect(names).toContain("Bob");
+      expect(names).toContain("Acme");
+      expect(names).toContain("TechCorp");
+    });
+
+    it("removes duplicates with UNION (not UNION ALL)", () => {
+      // Create nodes with duplicate names
+      executor.execute("CREATE (p:Person {name: 'Alice'})");
+      executor.execute("CREATE (c:Company {name: 'Alice'})"); // Same name as Person
+      
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN p.name AS name UNION MATCH (c:Company) RETURN c.name AS name")
+      );
+      
+      expect(result.data).toHaveLength(1); // UNION removes duplicates
+      expect(result.data[0].name).toBe("Alice");
+    });
+
+    it("keeps duplicates with UNION ALL", () => {
+      // Create nodes with duplicate names
+      executor.execute("CREATE (p:Person {name: 'Alice'})");
+      executor.execute("CREATE (c:Company {name: 'Alice'})"); // Same name as Person
+      
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN p.name AS name UNION ALL MATCH (c:Company) RETURN c.name AS name")
+      );
+      
+      expect(result.data).toHaveLength(2); // UNION ALL keeps duplicates
+      expect(result.data[0].name).toBe("Alice");
+      expect(result.data[1].name).toBe("Alice");
+    });
+
+    it("combines three queries with multiple UNIONs", () => {
+      executor.execute("CREATE (p:Person {name: 'Alice'})");
+      executor.execute("CREATE (c:Company {name: 'Acme'})");
+      executor.execute("CREATE (pr:Product {name: 'Widget'})");
+      
+      const result = expectSuccess(
+        executor.execute(
+          "MATCH (p:Person) RETURN p.name AS name UNION MATCH (c:Company) RETURN c.name AS name UNION MATCH (pr:Product) RETURN pr.name AS name"
+        )
+      );
+      
+      expect(result.data).toHaveLength(3);
+      const names = result.data.map((r: Record<string, unknown>) => r.name);
+      expect(names).toContain("Alice");
+      expect(names).toContain("Acme");
+      expect(names).toContain("Widget");
+    });
+
+    it("works with WHERE clauses in each branch", () => {
+      executor.execute("CREATE (p:Person {name: 'Alice', age: 30})");
+      executor.execute("CREATE (p:Person {name: 'Bob', age: 15})");
+      executor.execute("CREATE (c:Company {name: 'Acme', size: 100})");
+      executor.execute("CREATE (c:Company {name: 'TechCorp', size: 5})");
+      
+      const result = expectSuccess(
+        executor.execute(
+          "MATCH (p:Person) WHERE p.age > 18 RETURN p.name AS name UNION MATCH (c:Company) WHERE c.size > 50 RETURN c.name AS name"
+        )
+      );
+      
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map((r: Record<string, unknown>) => r.name);
+      expect(names).toContain("Alice");
+      expect(names).toContain("Acme");
+    });
+  });
+
+  describe("EXISTS clause", () => {
+    it("filters nodes that have a relationship", () => {
+      // Create nodes
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Person {name: 'Charlie'})");
+      
+      // Create relationships for some
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      
+      // Query nodes that have KNOWS relationships
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->()) RETURN n.name")
+      );
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].n_name).toBe("Alice");
+    });
+
+    it("filters nodes that do not have a relationship with NOT EXISTS", () => {
+      // Create nodes
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Person {name: 'Charlie'})");
+      
+      // Create relationships for some
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      
+      // Query nodes that do NOT have outgoing KNOWS relationships
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WHERE NOT EXISTS((n)-[:KNOWS]->()) RETURN n.name ORDER BY n.name")
+      );
+      
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map((r: Record<string, unknown>) => r.n_name);
+      expect(names).toContain("Bob");
+      expect(names).toContain("Charlie");
+    });
+
+    it("filters with EXISTS combined with other conditions", () => {
+      // Create nodes
+      executor.execute("CREATE (a:Person {name: 'Alice', age: 30})");
+      executor.execute("CREATE (b:Person {name: 'Bob', age: 25})");
+      executor.execute("CREATE (c:Person {name: 'Charlie', age: 35})");
+      
+      // Create relationships
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      executor.execute(`
+        MATCH (c:Person {name: 'Charlie'}), (a:Person {name: 'Alice'})
+        CREATE (c)-[:KNOWS]->(a)
+      `);
+      
+      // Query: age > 25 AND has KNOWS relationship
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WHERE n.age > 25 AND EXISTS((n)-[:KNOWS]->()) RETURN n.name ORDER BY n.name")
+      );
+      
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map((r: Record<string, unknown>) => r.n_name);
+      expect(names).toContain("Alice");
+      expect(names).toContain("Charlie");
+    });
+
+    it("filters with EXISTS targeting specific label", () => {
+      // Create nodes
+      executor.execute("CREATE (a:Person {name: 'Alice'})");
+      executor.execute("CREATE (b:Person {name: 'Bob'})");
+      executor.execute("CREATE (c:Company {name: 'Acme'})");
+      
+      // Create relationships
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      executor.execute(`
+        MATCH (a:Person {name: 'Alice'}), (c:Company {name: 'Acme'})
+        CREATE (a)-[:WORKS_AT]->(c)
+      `);
+      
+      // Query: people who know other people (not companies)
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->(:Person)) RETURN n.name")
+      );
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].n_name).toBe("Alice");
+    });
+  });
+
   describe("UNWIND clause", () => {
     it("expands a literal array into rows", () => {
       const result = expectSuccess(

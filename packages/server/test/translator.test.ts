@@ -1000,6 +1000,163 @@ describe("Translator", () => {
     });
   });
 
+  describe("Variable-length paths", () => {
+    it("generates recursive CTE for fixed length path", () => {
+      const result = translateCypher(
+        "MATCH (a:Person)-[*2]->(b:Person) RETURN a, b"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      // Should use recursive CTE for variable-length paths
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("WITH RECURSIVE");
+    });
+
+    it("generates recursive CTE for range path", () => {
+      const result = translateCypher(
+        "MATCH (a:Person)-[*1..3]->(b:Person) RETURN a, b"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("WITH RECURSIVE");
+    });
+
+    it("generates recursive CTE with edge type filter", () => {
+      const result = translateCypher(
+        "MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) RETURN a, b"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("WITH RECURSIVE");
+      expect(sql).toContain("type = ?");
+      expect(result.statements[0].params).toContain("KNOWS");
+    });
+
+    it("generates recursive CTE for unbounded path", () => {
+      const result = translateCypher(
+        "MATCH (a:Person)-[*]->(b:Person) RETURN a, b"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("WITH RECURSIVE");
+    });
+  });
+
+  describe("UNION", () => {
+    it("generates UNION for two queries", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN n.name UNION MATCH (c:Company) RETURN c.name"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("UNION");
+      expect(result.statements[0].sql).not.toContain("UNION ALL");
+    });
+
+    it("generates UNION ALL", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN n.name UNION ALL MATCH (c:Company) RETURN c.name"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("UNION ALL");
+    });
+
+    it("generates UNION with multiple queries", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN n.name UNION MATCH (c:Company) RETURN c.name UNION MATCH (p:Product) RETURN p.name"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should have two UNIONs
+      expect((sql.match(/UNION/g) || []).length).toBe(2);
+    });
+
+    it("generates UNION with proper column aliases", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) RETURN n.name AS name UNION MATCH (c:Company) RETURN c.name AS name"
+      );
+
+      expect(result.returnColumns).toEqual(["name"]);
+    });
+
+    it("generates UNION with WHERE clauses", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.age > 18 RETURN n.name UNION MATCH (c:Company) WHERE c.size > 10 RETURN c.name"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("UNION");
+      expect(sql).toContain("WHERE");
+    });
+  });
+
+  describe("EXISTS", () => {
+    it("generates EXISTS subquery for relationship pattern", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->(:Person)) RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("EXISTS");
+      expect(result.statements[0].sql).toContain("SELECT 1");
+    });
+
+    it("generates NOT EXISTS subquery", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE NOT EXISTS((n)-[:KNOWS]->(:Person)) RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("NOT");
+      expect(result.statements[0].sql).toContain("EXISTS");
+    });
+
+    it("generates EXISTS with edge type filter", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->()) RETURN n"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("EXISTS");
+      expect(sql).toContain("type = ?");
+      expect(result.statements[0].params).toContain("KNOWS");
+    });
+
+    it("generates EXISTS with target label filter", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->(m:Person)) RETURN n"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("EXISTS");
+      expect(sql).toContain("label = ?");
+    });
+
+    it("combines EXISTS with AND condition", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.age > 18 AND EXISTS((n)-[:KNOWS]->()) RETURN n"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("AND");
+      expect(sql).toContain("EXISTS");
+    });
+
+    it("combines EXISTS with OR condition", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->()) OR n.age < 18 RETURN n"
+      );
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("OR");
+      expect(sql).toContain("EXISTS");
+    });
+  });
+
   describe("UNWIND", () => {
     it("generates cross join with json_each for literal array", () => {
       const result = translateCypher("UNWIND [1, 2, 3] AS x RETURN x");

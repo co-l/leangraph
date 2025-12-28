@@ -1222,6 +1222,207 @@ describe("Parser", () => {
     });
   });
 
+  describe("Variable-length paths", () => {
+    it("parses path with fixed length", () => {
+      const query = expectSuccess("MATCH (a)-[*2]->(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.minHops).toBe(2);
+      expect(rel.edge.maxHops).toBe(2);
+    });
+
+    it("parses path with min and max hops", () => {
+      const query = expectSuccess("MATCH (a)-[*1..3]->(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.minHops).toBe(1);
+      expect(rel.edge.maxHops).toBe(3);
+    });
+
+    it("parses path with min hops only (*2..)", () => {
+      const query = expectSuccess("MATCH (a)-[*2..]->(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.minHops).toBe(2);
+      expect(rel.edge.maxHops).toBeUndefined();
+    });
+
+    it("parses path with max hops only (*..3)", () => {
+      const query = expectSuccess("MATCH (a)-[*..3]->(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.minHops).toBe(1);
+      expect(rel.edge.maxHops).toBe(3);
+    });
+
+    it("parses path with any length (*)", () => {
+      const query = expectSuccess("MATCH (a)-[*]->(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.minHops).toBe(1);
+      expect(rel.edge.maxHops).toBeUndefined();
+    });
+
+    it("parses path with type and variable length", () => {
+      const query = expectSuccess("MATCH (a)-[r:KNOWS*1..3]->(b) RETURN r");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.variable).toBe("r");
+      expect(rel.edge.type).toBe("KNOWS");
+      expect(rel.edge.minHops).toBe(1);
+      expect(rel.edge.maxHops).toBe(3);
+    });
+
+    it("parses path with zero min hops (*0..3)", () => {
+      const query = expectSuccess("MATCH (a)-[*0..3]->(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.minHops).toBe(0);
+      expect(rel.edge.maxHops).toBe(3);
+    });
+
+    it("parses path with left direction and variable length", () => {
+      const query = expectSuccess("MATCH (a)<-[*1..2]-(b) RETURN a, b");
+      const clause = query.clauses[0] as MatchClause;
+      const rel = clause.patterns[0] as RelationshipPattern;
+
+      expect(rel.edge.direction).toBe("left");
+      expect(rel.edge.minHops).toBe(1);
+      expect(rel.edge.maxHops).toBe(2);
+    });
+  });
+
+  describe("UNION clause", () => {
+    it("parses simple UNION of two queries", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n.name UNION MATCH (c:Company) RETURN c.name");
+      
+      expect(query.clauses).toHaveLength(1);
+      expect(query.clauses[0].type).toBe("UNION");
+      
+      const unionClause = query.clauses[0] as any;
+      expect(unionClause.left.clauses).toHaveLength(2);
+      expect(unionClause.right.clauses).toHaveLength(2);
+    });
+
+    it("parses UNION ALL", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n.name UNION ALL MATCH (c:Company) RETURN c.name");
+      
+      const unionClause = query.clauses[0] as any;
+      expect(unionClause.type).toBe("UNION");
+      expect(unionClause.all).toBe(true);
+    });
+
+    it("parses multiple UNIONs", () => {
+      const query = expectSuccess(
+        "MATCH (n:Person) RETURN n.name UNION MATCH (c:Company) RETURN c.name UNION MATCH (p:Product) RETURN p.name"
+      );
+      
+      // Should be nested: ((Person UNION Company) UNION Product)
+      expect(query.clauses).toHaveLength(1);
+      expect(query.clauses[0].type).toBe("UNION");
+    });
+
+    it("parses UNION with aliases", () => {
+      const query = expectSuccess(
+        "MATCH (n:Person) RETURN n.name AS name UNION MATCH (c:Company) RETURN c.name AS name"
+      );
+      
+      expect(query.clauses[0].type).toBe("UNION");
+    });
+
+    it("parses UNION with WHERE clauses", () => {
+      const query = expectSuccess(
+        "MATCH (n:Person) WHERE n.age > 18 RETURN n.name UNION MATCH (c:Company) WHERE c.size > 10 RETURN c.name"
+      );
+      
+      expect(query.clauses[0].type).toBe("UNION");
+    });
+
+    it("parses lowercase union", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n.name union MATCH (c:Company) RETURN c.name");
+      
+      expect(query.clauses[0].type).toBe("UNION");
+    });
+
+    it("parses lowercase union all", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n.name union all MATCH (c:Company) RETURN c.name");
+      
+      const unionClause = query.clauses[0] as any;
+      expect(unionClause.type).toBe("UNION");
+      expect(unionClause.all).toBe(true);
+    });
+  });
+
+  describe("EXISTS clause", () => {
+    it("parses EXISTS in WHERE clause with pattern", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->(:Person)) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe("exists");
+    });
+
+    it("parses NOT EXISTS in WHERE clause", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE NOT EXISTS((n)-[:KNOWS]->(:Person)) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where).toBeDefined();
+      expect(clause.where!.type).toBe("not");
+      expect(clause.where!.condition!.type).toBe("exists");
+    });
+
+    it("parses EXISTS with node-only pattern", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE EXISTS((n)) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("exists");
+    });
+
+    it("parses EXISTS with labeled target", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE EXISTS((n)-[:FRIENDS_WITH]->(m:Person)) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("exists");
+    });
+
+    it("parses EXISTS with relationship type only", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->()) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("exists");
+    });
+
+    it("parses EXISTS combined with AND", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE n.age > 18 AND EXISTS((n)-[:KNOWS]->()) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("and");
+      expect(clause.where!.conditions![1].type).toBe("exists");
+    });
+
+    it("parses EXISTS combined with OR", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE EXISTS((n)-[:KNOWS]->()) OR n.age < 18 RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("or");
+      expect(clause.where!.conditions![0].type).toBe("exists");
+    });
+
+    it("parses lowercase exists", () => {
+      const query = expectSuccess("MATCH (n:Person) WHERE exists((n)-[:KNOWS]->()) RETURN n");
+      const clause = query.clauses[0] as MatchClause;
+
+      expect(clause.where!.type).toBe("exists");
+    });
+  });
+
   describe("UNWIND clause", () => {
     it("parses simple UNWIND with literal array", () => {
       const query = expectSuccess("UNWIND [1, 2, 3] AS x RETURN x");

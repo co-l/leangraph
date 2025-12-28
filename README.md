@@ -25,10 +25,10 @@
 | `DISTINCT` | Supported |
 | `OPTIONAL MATCH` | Supported |
 | `WITH` | Supported |
-| `UNION` | Not supported |
+| `UNION` / `UNION ALL` | Supported |
 | `UNWIND` | Supported |
 | `CASE` | Supported |
-| `EXISTS` | Not supported |
+| `EXISTS` | Supported |
 | `CALL` | Not supported |
 | `SUM` / `AVG` / `MIN` / `MAX` / `COLLECT` | Supported |
-| Variable-length paths (`*1..3`) | Not supported |
+| Variable-length paths (`*1..3`) | Supported |

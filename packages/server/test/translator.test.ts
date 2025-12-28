@@ -737,4 +737,84 @@ describe("Translator", () => {
       expect(result.statements[0].params).toEqual([1, "hello", 1]);
     });
   });
+
+  describe("Aggregation functions", () => {
+    it("generates SUM for property", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN SUM(n.amount)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("SUM(");
+      expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.statements[0].sql).toContain("$.amount");
+      expect(result.returnColumns).toEqual(["sum"]);
+    });
+
+    it("generates AVG for property", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN AVG(n.amount)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("AVG(");
+      expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.returnColumns).toEqual(["avg"]);
+    });
+
+    it("generates MIN for property", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN MIN(n.amount)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("MIN(");
+      expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.returnColumns).toEqual(["min"]);
+    });
+
+    it("generates MAX for property", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN MAX(n.amount)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("MAX(");
+      expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.returnColumns).toEqual(["max"]);
+    });
+
+    it("generates COLLECT with json_group_array for property", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN COLLECT(n.name)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses json_group_array for COLLECT
+      expect(result.statements[0].sql).toContain("json_group_array(");
+      expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.returnColumns).toEqual(["collect"]);
+    });
+
+    it("generates COLLECT with json_group_array for variable", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN COLLECT(n)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_group_array(");
+      expect(result.returnColumns).toEqual(["collect"]);
+    });
+
+    it("handles aggregation function with alias", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN SUM(n.amount) AS total");
+
+      expect(result.statements[0].sql).toContain("AS total");
+      expect(result.returnColumns).toEqual(["total"]);
+    });
+
+    it("handles multiple aggregation functions", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN SUM(n.amount) AS total, AVG(n.amount) AS average, COUNT(n) AS count");
+
+      expect(result.statements[0].sql).toContain("SUM(");
+      expect(result.statements[0].sql).toContain("AVG(");
+      expect(result.statements[0].sql).toContain("COUNT(");
+      expect(result.returnColumns).toEqual(["total", "average", "count"]);
+    });
+
+    it("handles aggregation with LIMIT", () => {
+      const result = translateCypher("MATCH (n:Order) RETURN SUM(n.amount) AS total LIMIT 1");
+
+      expect(result.statements[0].sql).toContain("SUM(");
+      expect(result.statements[0].sql).toContain("LIMIT");
+    });
+  });
 });

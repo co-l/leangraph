@@ -735,6 +735,82 @@ describe("Parser", () => {
       expect(returnClause.items[0].expression.functionName).toBe("ID");
       expect(returnClause.items[0].expression.args).toHaveLength(1);
     });
+
+    it("parses SUM function with property", () => {
+      const query = expectSuccess("MATCH (n:Order) RETURN SUM(n.amount)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("function");
+      expect(returnClause.items[0].expression.functionName).toBe("SUM");
+      expect(returnClause.items[0].expression.args).toHaveLength(1);
+      expect(returnClause.items[0].expression.args![0].type).toBe("property");
+    });
+
+    it("parses AVG function with property", () => {
+      const query = expectSuccess("MATCH (n:Order) RETURN AVG(n.amount)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("function");
+      expect(returnClause.items[0].expression.functionName).toBe("AVG");
+      expect(returnClause.items[0].expression.args).toHaveLength(1);
+    });
+
+    it("parses MIN function with property", () => {
+      const query = expectSuccess("MATCH (n:Order) RETURN MIN(n.amount)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("function");
+      expect(returnClause.items[0].expression.functionName).toBe("MIN");
+      expect(returnClause.items[0].expression.args).toHaveLength(1);
+    });
+
+    it("parses MAX function with property", () => {
+      const query = expectSuccess("MATCH (n:Order) RETURN MAX(n.amount)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("function");
+      expect(returnClause.items[0].expression.functionName).toBe("MAX");
+      expect(returnClause.items[0].expression.args).toHaveLength(1);
+    });
+
+    it("parses COLLECT function with variable", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN COLLECT(n)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("function");
+      expect(returnClause.items[0].expression.functionName).toBe("COLLECT");
+      expect(returnClause.items[0].expression.args).toHaveLength(1);
+    });
+
+    it("parses COLLECT function with property", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN COLLECT(n.name)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("function");
+      expect(returnClause.items[0].expression.functionName).toBe("COLLECT");
+      expect(returnClause.items[0].expression.args![0].type).toBe("property");
+    });
+
+    it("parses aggregation functions with aliases", () => {
+      const query = expectSuccess("MATCH (n:Order) RETURN SUM(n.amount) AS total, AVG(n.amount) AS average");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items).toHaveLength(2);
+      expect(returnClause.items[0].alias).toBe("total");
+      expect(returnClause.items[1].alias).toBe("average");
+    });
+
+    it("parses lowercase aggregation function names", () => {
+      const query = expectSuccess("MATCH (n:Order) RETURN sum(n.amount), avg(n.amount), min(n.amount), max(n.amount), collect(n.id)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items).toHaveLength(5);
+      expect(returnClause.items[0].expression.functionName).toBe("SUM");
+      expect(returnClause.items[1].expression.functionName).toBe("AVG");
+      expect(returnClause.items[2].expression.functionName).toBe("MIN");
+      expect(returnClause.items[3].expression.functionName).toBe("MAX");
+      expect(returnClause.items[4].expression.functionName).toBe("COLLECT");
+    });
   });
 
   describe("Error handling", () => {

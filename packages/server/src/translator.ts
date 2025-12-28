@@ -786,6 +786,70 @@ export class Translator {
             return { sql: `${varInfo.alias}.id`, tables, params };
           }
         }
+        // Aggregation functions: SUM, AVG, MIN, MAX
+        if (expr.functionName === "SUM" || expr.functionName === "AVG" || 
+            expr.functionName === "MIN" || expr.functionName === "MAX") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "property") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              // Use json_extract for numeric properties in aggregations
+              return {
+                sql: `${expr.functionName}(json_extract(${varInfo.alias}.properties, '$.${arg.property}'))`,
+                tables,
+                params,
+              };
+            } else if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              // For variable, aggregate the id
+              return {
+                sql: `${expr.functionName}(${varInfo.alias}.id)`,
+                tables,
+                params,
+              };
+            }
+          }
+          throw new Error(`${expr.functionName} requires a property or variable argument`);
+        }
+        // COLLECT: gather values into an array using SQLite's json_group_array
+        if (expr.functionName === "COLLECT") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "property") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              return {
+                sql: `json_group_array(json_extract(${varInfo.alias}.properties, '$.${arg.property}'))`,
+                tables,
+                params,
+              };
+            } else if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              // For full variable, collect as JSON objects
+              return {
+                sql: `json_group_array(json_object('id', ${varInfo.alias}.id, 'label', ${varInfo.alias}.label, 'properties', ${varInfo.alias}.properties))`,
+                tables,
+                params,
+              };
+            }
+          }
+          throw new Error(`COLLECT requires a property or variable argument`);
+        }
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 

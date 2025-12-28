@@ -1645,4 +1645,123 @@ describe("Integration Tests", () => {
       expect(result.data).toHaveLength(3);
     });
   });
+
+  describe("Aggregation functions", () => {
+    beforeEach(() => {
+      // Create test orders with amounts
+      executor.execute("CREATE (o:Order {id: 'o1', amount: 100, status: 'completed'})");
+      executor.execute("CREATE (o:Order {id: 'o2', amount: 200, status: 'completed'})");
+      executor.execute("CREATE (o:Order {id: 'o3', amount: 150, status: 'pending'})");
+      executor.execute("CREATE (o:Order {id: 'o4', amount: 50, status: 'completed'})");
+    });
+
+    it("calculates SUM of a property", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) RETURN SUM(o.amount) AS total")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].total).toBe(500); // 100 + 200 + 150 + 50
+    });
+
+    it("calculates AVG of a property", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) RETURN AVG(o.amount) AS average")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].average).toBe(125); // 500 / 4
+    });
+
+    it("calculates MIN of a property", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) RETURN MIN(o.amount) AS minimum")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].minimum).toBe(50);
+    });
+
+    it("calculates MAX of a property", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) RETURN MAX(o.amount) AS maximum")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].maximum).toBe(200);
+    });
+
+    it("collects property values into an array", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) RETURN COLLECT(o.id) AS orderIds")
+      );
+
+      expect(result.data).toHaveLength(1);
+      const orderIds = result.data[0].orderIds as string[];
+      expect(orderIds).toHaveLength(4);
+      expect(orderIds).toContain("o1");
+      expect(orderIds).toContain("o2");
+      expect(orderIds).toContain("o3");
+      expect(orderIds).toContain("o4");
+    });
+
+    it("combines multiple aggregation functions", () => {
+      const result = expectSuccess(
+        executor.execute(`
+          MATCH (o:Order)
+          RETURN COUNT(o) AS count,
+                 SUM(o.amount) AS total,
+                 AVG(o.amount) AS avg,
+                 MIN(o.amount) AS min,
+                 MAX(o.amount) AS max
+        `)
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].count).toBe(4);
+      expect(result.data[0].total).toBe(500);
+      expect(result.data[0].avg).toBe(125);
+      expect(result.data[0].min).toBe(50);
+      expect(result.data[0].max).toBe(200);
+    });
+
+    it("filters before aggregation with WHERE", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) WHERE o.status = 'completed' RETURN SUM(o.amount) AS total")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].total).toBe(350); // 100 + 200 + 50
+    });
+
+    it("handles aggregation on empty result set", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order {status: 'cancelled'}) RETURN SUM(o.amount) AS total")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].total).toBeNull(); // SUM of nothing is NULL
+    });
+
+    it("collects full nodes into an array", () => {
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) WHERE o.status = 'pending' RETURN COLLECT(o) AS orders")
+      );
+
+      expect(result.data).toHaveLength(1);
+      const orders = result.data[0].orders as Array<{id: string; label: string; properties: Record<string, unknown>}>;
+      expect(orders).toHaveLength(1);
+      expect(orders[0].properties.id).toBe("o3");
+    });
+
+    it("handles aggregation with LIMIT", () => {
+      // LIMIT on aggregation should return single row
+      const result = expectSuccess(
+        executor.execute("MATCH (o:Order) RETURN SUM(o.amount) AS total LIMIT 1")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].total).toBe(500);
+    });
+  });
 });

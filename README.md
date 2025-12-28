@@ -30,5 +30,5 @@
 | `CASE` | Not supported |
 | `EXISTS` | Not supported |
 | `CALL` | Not supported |
-| `SUM` / `AVG` / `MIN` / `MAX` / `COLLECT` | Not supported |
+| `SUM` / `AVG` / `MIN` / `MAX` / `COLLECT` | Supported |
 | Variable-length paths (`*1..3`) | Not supported |

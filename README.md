@@ -1,6 +1,87 @@
 # NiceFox GraphDB
 
-> **Warning**: This project is under active development and not yet production-ready.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/nicefox-graphdb.svg)](https://www.npmjs.com/package/nicefox-graphdb)
+
+A lightweight, self-hosted graph database with Cypher query support, powered by SQLite.
+
+## Why NiceFox?
+
+| Feature | NiceFox GraphDB | Neo4j |
+|---------|-----------------|-------|
+| **Deployment** | Single binary, zero config | Complex setup, JVM required |
+| **Backup** | Just copy the SQLite file | Enterprise license required |
+| **Resource usage** | ~50MB RAM | 1GB+ RAM minimum |
+| **Cypher support** | Core subset | Full |
+| **Cost** | Free, MIT license | Free tier limited |
+
+NiceFox is ideal for:
+- Applications that need graph queries without the ops burden
+- Projects that outgrow JSON but don't need a full graph database
+- Self-hosted deployments where simplicity matters
+- Testing and development with in-memory databases
+
+## Quick Start
+
+### Install
+
+```bash
+npm install nicefox-graphdb
+```
+
+### Client Usage
+
+```typescript
+import { NiceFoxGraphDB } from 'nicefox-graphdb';
+
+const db = new NiceFoxGraphDB({
+  url: 'http://localhost:3000',
+  project: 'myapp',
+  env: 'production',
+  apiKey: process.env.GRAPHDB_API_KEY
+});
+
+// Create nodes
+await db.execute(`
+  CREATE (alice:User {id: 'alice', name: 'Alice'}),
+         (bob:User {id: 'bob', name: 'Bob'})
+`);
+
+// Create relationships
+await db.execute(`
+  MATCH (a:User {id: 'alice'}), (b:User {id: 'bob'})
+  CREATE (a)-[:FOLLOWS]->(b)
+`);
+
+// Query with parameters
+const followers = await db.query(
+  `MATCH (u:User)-[:FOLLOWS]->(target:User {id: $id}) RETURN u`,
+  { id: 'bob' }
+);
+```
+
+### Run the Server
+
+```bash
+# Start server (data stored in ./data)
+npx nicefox-graphdb serve --data ./data
+
+# Create a project
+npx nicefox-graphdb create myapp --data ./data
+```
+
+### Testing with In-Memory Database
+
+```typescript
+import { createTestClient } from 'nicefox-graphdb';
+
+const client = await createTestClient();
+
+await client.execute('CREATE (n:Test {name: "hello"})');
+const results = await client.query('MATCH (n:Test) RETURN n');
+
+client.close();
+```
 
 ## Cypher Support
 
@@ -36,68 +117,68 @@
 
 ### Operators
 
-| Operator | Status | Description |
-|----------|--------|-------------|
-| `=`, `<>`, `<`, `>`, `<=`, `>=` | Supported | Comparison operators |
-| `+`, `-`, `*`, `/`, `%` | Supported | Arithmetic operators |
+| Operator | Description |
+|----------|-------------|
+| `=`, `<>`, `<`, `>`, `<=`, `>=` | Comparison |
+| `+`, `-`, `*`, `/`, `%` | Arithmetic |
 
 ### Functions
 
-| Function | Status | Description |
-|----------|--------|-------------|
-| **Aggregation** | | |
-| `COUNT(x)` | Supported | Count results |
-| `SUM(x.prop)` | Supported | Sum numeric values |
-| `AVG(x.prop)` | Supported | Average of numeric values |
-| `MIN(x.prop)` | Supported | Minimum value |
-| `MAX(x.prop)` | Supported | Maximum value |
-| `COLLECT(x)` | Supported | Collect values into a list |
-| **Scalar** | | |
-| `ID(x)` | Supported | Get node/edge ID |
-| `coalesce(a, b, ...)` | Supported | Return first non-null value |
-| **String** | | |
-| `toUpper(s)` | Supported | Convert to uppercase |
-| `toLower(s)` | Supported | Convert to lowercase |
-| `trim(s)` | Supported | Remove leading/trailing whitespace |
-| `substring(s, start, len)` | Supported | Extract substring |
-| `replace(s, from, to)` | Supported | Replace occurrences |
-| `toString(x)` | Supported | Convert to string |
-| `split(s, delim)` | Supported | Split string into list |
-| **List** | | |
-| `size(list)` | Supported | Length of list |
-| `head(list)` | Supported | First element |
-| `last(list)` | Supported | Last element |
-| `keys(x)` | Supported | Get property keys |
-| `tail(list)` | Supported | All but first element |
-| `range(start, end)` | Supported | Generate number list |
-| **Node/Relationship** | | |
-| `labels(n)` | Supported | Get node labels |
-| `type(r)` | Supported | Get relationship type |
-| `properties(x)` | Supported | Get all properties as map |
-| **Math** | | |
-| `abs(x)` | Supported | Absolute value |
-| `ceil(x)` | Supported | Round up |
-| `floor(x)` | Supported | Round down |
-| `round(x)` | Supported | Round to nearest integer |
-| `rand()` | Supported | Random float 0-1 |
-| `sqrt(x)` | Supported | Square root (requires SQLite math extension) |
-| **Date/Time** | | |
-| `date()` | Supported | Current date or parse date string |
-| `datetime()` | Supported | Current datetime or parse datetime string |
-| `timestamp()` | Supported | Unix timestamp (milliseconds) |
+**Aggregation**: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `COLLECT`
 
-## Next Implementation Priorities
+**Scalar**: `ID`, `coalesce`
 
-The following features are planned for implementation (use TDD):
+**String**: `toUpper`, `toLower`, `trim`, `substring`, `replace`, `toString`, `split`
 
-### 1. Path expressions
+**List**: `size`, `head`, `last`, `tail`, `keys`, `range`
+
+**Node/Relationship**: `labels`, `type`, `properties`
+
+**Math**: `abs`, `ceil`, `floor`, `round`, `rand`, `sqrt`
+
+**Date/Time**: `date`, `datetime`, `timestamp`
+
+### Procedures
+
 ```cypher
-MATCH p = (a:Person)-[:KNOWS*]->(b:Person) RETURN p
-RETURN length(p) AS pathLength
+CALL db.labels() YIELD label RETURN label
+CALL db.relationshipTypes() YIELD type RETURN type
+CALL db.propertyKeys() YIELD key RETURN key
 ```
 
-### 2. Additional list functions
-```cypher
-RETURN [x IN range(1, 10) WHERE x % 2 = 0] AS evens
-RETURN [x IN list | x * 2] AS doubled
+## CLI Reference
+
+```bash
+# Server
+nicefox-graphdb serve [--port 3000] [--data /path/to/data]
+
+# Project management
+nicefox-graphdb create <project>     # Create new project with API keys
+nicefox-graphdb delete <project>     # Delete project
+nicefox-graphdb list                 # List all projects
+
+# Environment management
+nicefox-graphdb clone <project>      # Copy production to test
+nicefox-graphdb wipe <project>       # Clear test database
+
+# Backup
+nicefox-graphdb backup [--output ./backups]
+
+# API keys
+nicefox-graphdb apikey add <project> [--env production|test]
+nicefox-graphdb apikey list
+nicefox-graphdb apikey remove <prefix>
+
+# Direct queries
+nicefox-graphdb query <env> <project> "MATCH (n) RETURN n LIMIT 10"
 ```
+
+## Documentation
+
+- [Quick Start Guide](docs/QUICKSTART.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+
+## License
+
+[MIT](LICENSE) - Conrad Lelubre

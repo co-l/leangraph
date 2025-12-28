@@ -11,6 +11,7 @@ const KEYWORDS = new Set([
     "AND",
     "OR",
     "NOT",
+    "IN",
     "LIMIT",
     "SKIP",
     "ORDER",
@@ -39,6 +40,8 @@ const KEYWORDS = new Set([
     "EXISTS",
     "UNION",
     "ALL",
+    "CALL",
+    "YIELD",
 ]);
 class Tokenizer {
     input;
@@ -139,6 +142,9 @@ class Tokenizer {
             ",": "COMMA",
             ".": "DOT",
             "-": "DASH",
+            "+": "PLUS",
+            "/": "SLASH",
+            "%": "PERCENT",
             "=": "EQUALS",
             "<": "LT",
             ">": "GT",
@@ -351,6 +357,8 @@ export class Parser {
                 return this.parseWith();
             case "UNWIND":
                 return this.parseUnwind();
+            case "CALL":
+                return this.parseCall();
             default:
                 throw new Error(`Unexpected keyword '${token.value}'`);
         }
@@ -596,6 +604,48 @@ export class Parser {
             return { type: "variable", variable };
         }
         throw new Error(`Expected array, parameter, or variable in UNWIND, got ${token.type} '${token.value}'`);
+    }
+    parseCall() {
+        this.expect("KEYWORD", "CALL");
+        // Parse procedure name (e.g., "db.labels" or "db.relationshipTypes")
+        // Procedure names can have dots, so we parse identifier.identifier...
+        let procedureName = this.expectIdentifier();
+        while (this.check("DOT")) {
+            this.advance();
+            procedureName += "." + this.expectIdentifier();
+        }
+        // Parse arguments in parentheses
+        this.expect("LPAREN");
+        const args = [];
+        if (!this.check("RPAREN")) {
+            do {
+                if (args.length > 0) {
+                    this.expect("COMMA");
+                }
+                args.push(this.parseExpression());
+            } while (this.check("COMMA"));
+        }
+        this.expect("RPAREN");
+        // Parse optional YIELD clause
+        let yields;
+        let where;
+        if (this.checkKeyword("YIELD")) {
+            this.advance();
+            yields = [];
+            // Parse yielded field names (can be identifiers or keywords like 'count')
+            do {
+                if (yields.length > 0) {
+                    this.expect("COMMA");
+                }
+                yields.push(this.expectIdentifierOrKeyword());
+            } while (this.check("COMMA"));
+            // Parse optional WHERE after YIELD
+            if (this.checkKeyword("WHERE")) {
+                this.advance();
+                where = this.parseWhereCondition();
+            }
+        }
+        return { type: "CALL", procedure: procedureName, args, yields, where };
     }
     /**
      * Parse a pattern, which can be a single node or a chain of relationships.
@@ -924,6 +974,13 @@ export class Parser {
             const right = this.parseExpression();
             return { type: "endsWith", left, right };
         }
+        // Check for IN operator
+        if (this.checkKeyword("IN")) {
+            this.advance();
+            // IN can be followed by a list literal [...] or a parameter $param
+            const listExpr = this.parseInListExpression();
+            return { type: "in", left, list: listExpr };
+        }
         // Comparison operators
         const opToken = this.peek();
         let operator;
@@ -946,8 +1003,71 @@ export class Parser {
         }
         throw new Error(`Expected comparison operator, got ${opToken.type}`);
     }
-    parseExpression() {
+    parseInListExpression() {
         const token = this.peek();
+        // Array literal [...]
+        if (token.type === "LBRACKET") {
+            const values = this.parseArray();
+            return { type: "literal", value: values };
+        }
+        // Parameter $param
+        if (token.type === "PARAMETER") {
+            this.advance();
+            return { type: "parameter", name: token.value };
+        }
+        // Variable reference
+        if (token.type === "IDENTIFIER") {
+            const variable = this.advance().value;
+            if (this.check("DOT")) {
+                this.advance();
+                const property = this.expectIdentifier();
+                return { type: "property", variable, property };
+            }
+            return { type: "variable", variable };
+        }
+        throw new Error(`Expected array, parameter, or variable in IN clause, got ${token.type} '${token.value}'`);
+    }
+    parseExpression() {
+        return this.parseAdditiveExpression();
+    }
+    // Handle + and - (lower precedence)
+    parseAdditiveExpression() {
+        let left = this.parseMultiplicativeExpression();
+        while (this.check("PLUS") || this.check("DASH")) {
+            const operatorToken = this.advance();
+            const operator = operatorToken.type === "PLUS" ? "+" : "-";
+            const right = this.parseMultiplicativeExpression();
+            left = { type: "binary", operator: operator, left, right };
+        }
+        return left;
+    }
+    // Handle *, /, % (higher precedence)
+    parseMultiplicativeExpression() {
+        let left = this.parsePrimaryExpression();
+        while (this.check("STAR") || this.check("SLASH") || this.check("PERCENT")) {
+            const operatorToken = this.advance();
+            let operator;
+            if (operatorToken.type === "STAR")
+                operator = "*";
+            else if (operatorToken.type === "SLASH")
+                operator = "/";
+            else
+                operator = "%";
+            const right = this.parsePrimaryExpression();
+            left = { type: "binary", operator, left, right };
+        }
+        return left;
+    }
+    // Parse primary expressions (atoms)
+    parsePrimaryExpression() {
+        const token = this.peek();
+        // Parenthesized expression for grouping
+        if (token.type === "LPAREN") {
+            this.advance(); // consume (
+            const expr = this.parseExpression();
+            this.expect("RPAREN");
+            return expr;
+        }
         // CASE expression
         if (this.checkKeyword("CASE")) {
             return this.parseCaseExpression();
@@ -1004,7 +1124,8 @@ export class Parser {
             const variable = this.advance().value;
             if (this.check("DOT")) {
                 this.advance();
-                const property = this.expectIdentifier();
+                // Property names can also be keywords (like 'count', 'order', etc.)
+                const property = this.expectIdentifierOrKeyword();
                 return { type: "property", variable, property };
             }
             return { type: "variable", variable };

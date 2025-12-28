@@ -23,6 +23,22 @@ export class Translator {
                 returnColumns = result.returnColumns;
             }
         }
+        // Handle standalone CALL (no RETURN clause following)
+        const callClause = this.ctx.callClause;
+        if (callClause && statements.length === 0) {
+            // Generate SQL for standalone CALL
+            const params = [];
+            let sql = `SELECT DISTINCT ${callClause.columnName} AS ${callClause.returnColumn} FROM ${callClause.tableName}`;
+            sql += ` WHERE ${callClause.columnName} IS NOT NULL AND ${callClause.columnName} <> ''`;
+            // Add WHERE from CALL...YIELD...WHERE
+            if (callClause.where) {
+                const whereResult = this.translateCallWhere(callClause.where, callClause.returnColumn);
+                sql += ` AND (${whereResult.sql})`;
+                params.push(...whereResult.params);
+            }
+            statements.push({ sql, params });
+            returnColumns = [callClause.returnColumn];
+        }
         return { statements, returnColumns };
     }
     translateClause(clause) {
@@ -47,6 +63,8 @@ export class Translator {
                 return { statements: this.translateUnwind(clause) };
             case "UNION":
                 return this.translateUnion(clause);
+            case "CALL":
+                return this.translateCall(clause);
             default:
                 throw new Error(`Unknown clause type: ${clause.type}`);
         }
@@ -306,6 +324,11 @@ export class Translator {
     // RETURN
     // ============================================================================
     translateReturn(clause) {
+        // Check if this is a RETURN after CALL
+        const callClause = this.ctx.callClause;
+        if (callClause) {
+            return this.translateReturnFromCall(clause, callClause);
+        }
         const selectParts = [];
         const returnColumns = [];
         const fromParts = [];
@@ -725,6 +748,86 @@ export class Translator {
     // UNWIND
     // ============================================================================
     // ============================================================================
+    // CALL procedure RETURN handling
+    // ============================================================================
+    translateReturnFromCall(clause, callClause) {
+        const params = [];
+        const returnColumns = [];
+        // Build SELECT parts
+        const selectParts = [];
+        for (const item of clause.items) {
+            // For CALL, variables reference the yield column
+            let exprSql;
+            if (item.expression.type === "variable") {
+                // Check if this variable is a yield variable
+                const yieldRef = this.ctx[`call_yield_${item.expression.variable}`];
+                if (yieldRef) {
+                    exprSql = yieldRef;
+                }
+                else {
+                    throw new Error(`Unknown variable: ${item.expression.variable}`);
+                }
+            }
+            else {
+                const translated = this.translateExpression(item.expression);
+                exprSql = translated.sql;
+                params.push(...translated.params);
+            }
+            const alias = item.alias || this.getExpressionName(item.expression);
+            selectParts.push(`${exprSql} AS ${alias}`);
+            returnColumns.push(alias);
+        }
+        // Build base query
+        let sql = `SELECT DISTINCT ${selectParts.join(", ")} FROM ${callClause.tableName}`;
+        // Add WHERE conditions
+        const whereParts = [];
+        // Base condition: exclude null/empty values
+        whereParts.push(`${callClause.columnName} IS NOT NULL`);
+        whereParts.push(`${callClause.columnName} <> ''`);
+        // Add WHERE from CALL...YIELD...WHERE
+        if (callClause.where) {
+            const whereResult = this.translateCallWhere(callClause.where, callClause.returnColumn);
+            whereParts.push(whereResult.sql);
+            params.push(...whereResult.params);
+        }
+        sql += ` WHERE ${whereParts.join(" AND ")}`;
+        // Handle ORDER BY
+        if (clause.orderBy && clause.orderBy.length > 0) {
+            const orderParts = [];
+            for (const order of clause.orderBy) {
+                let orderSql;
+                if (order.expression.type === "variable") {
+                    const yieldRef = this.ctx[`call_yield_${order.expression.variable}`];
+                    if (yieldRef) {
+                        orderSql = yieldRef;
+                    }
+                    else {
+                        throw new Error(`Unknown variable: ${order.expression.variable}`);
+                    }
+                }
+                else {
+                    const translated = this.translateExpression(order.expression);
+                    orderSql = translated.sql;
+                    params.push(...translated.params);
+                }
+                orderParts.push(`${orderSql} ${order.direction}`);
+            }
+            sql += ` ORDER BY ${orderParts.join(", ")}`;
+        }
+        // Handle SKIP
+        if (clause.skip !== undefined) {
+            sql += ` OFFSET ${clause.skip}`;
+        }
+        // Handle LIMIT
+        if (clause.limit !== undefined) {
+            sql += ` LIMIT ${clause.limit}`;
+        }
+        return {
+            statements: [{ sql, params }],
+            returnColumns,
+        };
+    }
+    // ============================================================================
     // Variable-length paths
     // ============================================================================
     translateVariableLengthPath(clause, relPatterns, selectParts, returnColumns, exprParams, whereParams) {
@@ -958,6 +1061,144 @@ export class Translator {
         // UNWIND doesn't generate SQL directly - it sets up context for RETURN
         return [];
     }
+    translateCall(clause) {
+        // CALL procedures for database introspection
+        // Supported procedures:
+        // - db.labels() - returns all distinct node labels
+        // - db.relationshipTypes() - returns all distinct relationship types
+        const procedure = clause.procedure.toLowerCase();
+        let tableName;
+        let columnName;
+        let returnColumn;
+        const params = [];
+        switch (procedure) {
+            case "db.labels":
+                // Get distinct labels from nodes table
+                tableName = "nodes";
+                columnName = "label";
+                returnColumn = "label";
+                break;
+            case "db.relationshiptypes":
+                // Get distinct types from edges table
+                tableName = "edges";
+                columnName = "type";
+                returnColumn = "type";
+                break;
+            default:
+                throw new Error(`Unknown procedure: ${clause.procedure}`);
+        }
+        // Store call info in context for use in subsequent RETURN
+        this.ctx.callClause = {
+            procedure: clause.procedure,
+            yields: clause.yields || [returnColumn],
+            returnColumn,
+            tableName,
+            columnName,
+            where: clause.where,
+        };
+        // Register yield variables for subsequent clauses
+        if (clause.yields) {
+            for (const yieldVar of clause.yields) {
+                // Use a special marker to track CALL yield variables
+                this.ctx[`call_yield_${yieldVar}`] = returnColumn;
+            }
+        }
+        else {
+            // Default yield variable matches the return column
+            this.ctx[`call_yield_${returnColumn}`] = returnColumn;
+        }
+        // Don't generate SQL here - let translateReturn handle it if there's a RETURN clause
+        // Only generate standalone SQL if there's no RETURN clause following
+        return {
+            statements: [],
+            returnColumns: [returnColumn],
+        };
+    }
+    translateCallWhere(condition, yieldColumn) {
+        const params = [];
+        switch (condition.type) {
+            case "comparison": {
+                // Handle comparisons like "label <> 'SystemNode'"
+                let leftSql;
+                if (condition.left?.type === "variable" && condition.left.variable === yieldColumn) {
+                    leftSql = yieldColumn;
+                }
+                else if (condition.left) {
+                    const leftResult = this.translateExpressionForCall(condition.left, yieldColumn);
+                    leftSql = leftResult.sql;
+                    params.push(...leftResult.params);
+                }
+                else {
+                    throw new Error("Missing left side of comparison");
+                }
+                let rightSql;
+                if (condition.right) {
+                    const rightResult = this.translateExpressionForCall(condition.right, yieldColumn);
+                    rightSql = rightResult.sql;
+                    params.push(...rightResult.params);
+                }
+                else {
+                    throw new Error("Missing right side of comparison");
+                }
+                return { sql: `${leftSql} ${condition.operator} ${rightSql}`, params };
+            }
+            case "and": {
+                const parts = condition.conditions.map(c => this.translateCallWhere(c, yieldColumn));
+                const sql = parts.map(p => `(${p.sql})`).join(" AND ");
+                for (const p of parts)
+                    params.push(...p.params);
+                return { sql, params };
+            }
+            case "or": {
+                const parts = condition.conditions.map(c => this.translateCallWhere(c, yieldColumn));
+                const sql = parts.map(p => `(${p.sql})`).join(" OR ");
+                for (const p of parts)
+                    params.push(...p.params);
+                return { sql, params };
+            }
+            case "not": {
+                const inner = this.translateCallWhere(condition.condition, yieldColumn);
+                return { sql: `NOT (${inner.sql})`, params: inner.params };
+            }
+            default:
+                throw new Error(`Unsupported condition type in CALL WHERE: ${condition.type}`);
+        }
+    }
+    translateExpressionForCall(expr, yieldColumn) {
+        const params = [];
+        switch (expr.type) {
+            case "variable":
+                // If the variable matches the yield column, use the column name directly
+                if (expr.variable === yieldColumn) {
+                    return { sql: yieldColumn, params };
+                }
+                // Check if it's a yield variable
+                const yieldRef = this.ctx[`call_yield_${expr.variable}`];
+                if (yieldRef) {
+                    return { sql: yieldRef, params };
+                }
+                throw new Error(`Unknown variable in CALL WHERE: ${expr.variable}`);
+            case "literal":
+                if (typeof expr.value === "string") {
+                    return { sql: "?", params: [expr.value] };
+                }
+                if (typeof expr.value === "number") {
+                    return { sql: "?", params: [expr.value] };
+                }
+                if (typeof expr.value === "boolean") {
+                    return { sql: expr.value ? "1" : "0", params };
+                }
+                if (expr.value === null) {
+                    return { sql: "NULL", params };
+                }
+                throw new Error(`Unsupported literal type in CALL WHERE: ${typeof expr.value}`);
+            case "parameter":
+                const paramValue = this.ctx.paramValues[expr.name];
+                return { sql: "?", params: [paramValue] };
+            default:
+                throw new Error(`Unsupported expression type in CALL WHERE: ${expr.type}`);
+        }
+    }
     translateExpression(expr) {
         const tables = [];
         const params = [];
@@ -969,6 +1210,12 @@ export class Translator {
                     // This variable is actually an alias from WITH - translate the underlying expression
                     const originalExpr = withAliases.get(expr.variable);
                     return this.translateExpression(originalExpr);
+                }
+                // Check if this is a CALL yield variable
+                const callYieldRef = this.ctx[`call_yield_${expr.variable}`];
+                if (callYieldRef) {
+                    // This variable comes from a CALL...YIELD clause
+                    return { sql: callYieldRef, tables, params };
                 }
                 // Check if this is an UNWIND variable
                 const unwindClauses = this.ctx.unwindClauses;
@@ -1095,6 +1342,392 @@ export class Translator {
                     }
                     throw new Error(`COLLECT requires a property or variable argument`);
                 }
+                // ============================================================================
+                // String functions
+                // ============================================================================
+                // TOUPPER: convert string to uppercase
+                if (expr.functionName === "TOUPPER") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `UPPER(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("toUpper requires an argument");
+                }
+                // TOLOWER: convert string to lowercase
+                if (expr.functionName === "TOLOWER") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `LOWER(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("toLower requires an argument");
+                }
+                // TRIM: remove leading/trailing whitespace
+                if (expr.functionName === "TRIM") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `TRIM(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("trim requires an argument");
+                }
+                // SUBSTRING: extract substring (Cypher uses 0-based indexing, SQLite uses 1-based)
+                if (expr.functionName === "SUBSTRING") {
+                    if (expr.args && expr.args.length >= 2) {
+                        const strResult = this.translateFunctionArg(expr.args[0]);
+                        const startResult = this.translateFunctionArg(expr.args[1]);
+                        tables.push(...strResult.tables, ...startResult.tables);
+                        params.push(...strResult.params, ...startResult.params);
+                        if (expr.args.length >= 3) {
+                            const lenResult = this.translateFunctionArg(expr.args[2]);
+                            tables.push(...lenResult.tables);
+                            params.push(...lenResult.params);
+                            // Cypher uses 0-based, SQLite uses 1-based indexing
+                            return { sql: `SUBSTR(${strResult.sql}, ${startResult.sql} + 1, ${lenResult.sql})`, tables, params };
+                        }
+                        return { sql: `SUBSTR(${strResult.sql}, ${startResult.sql} + 1)`, tables, params };
+                    }
+                    throw new Error("substring requires at least 2 arguments");
+                }
+                // REPLACE: replace occurrences of a string
+                if (expr.functionName === "REPLACE") {
+                    if (expr.args && expr.args.length === 3) {
+                        const strResult = this.translateFunctionArg(expr.args[0]);
+                        const fromResult = this.translateFunctionArg(expr.args[1]);
+                        const toResult = this.translateFunctionArg(expr.args[2]);
+                        tables.push(...strResult.tables, ...fromResult.tables, ...toResult.tables);
+                        params.push(...strResult.params, ...fromResult.params, ...toResult.params);
+                        return { sql: `REPLACE(${strResult.sql}, ${fromResult.sql}, ${toResult.sql})`, tables, params };
+                    }
+                    throw new Error("replace requires 3 arguments");
+                }
+                // TOSTRING: convert value to string
+                if (expr.functionName === "TOSTRING") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `CAST(${argResult.sql} AS TEXT)`, tables, params };
+                    }
+                    throw new Error("toString requires an argument");
+                }
+                // ============================================================================
+                // Null/scalar functions
+                // ============================================================================
+                // COALESCE: return first non-null value
+                if (expr.functionName === "COALESCE") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResults = expr.args.map(arg => this.translateFunctionArg(arg));
+                        for (const r of argResults) {
+                            tables.push(...r.tables);
+                            params.push(...r.params);
+                        }
+                        const argsSql = argResults.map(r => r.sql).join(", ");
+                        return { sql: `COALESCE(${argsSql})`, tables, params };
+                    }
+                    throw new Error("coalesce requires at least one argument");
+                }
+                // ============================================================================
+                // Math functions
+                // ============================================================================
+                // ABS: absolute value
+                if (expr.functionName === "ABS") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `ABS(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("abs requires an argument");
+                }
+                // ROUND: round to nearest integer
+                if (expr.functionName === "ROUND") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `ROUND(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("round requires an argument");
+                }
+                // FLOOR: round down to integer
+                if (expr.functionName === "FLOOR") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // SQLite doesn't have FLOOR, use CAST for positive numbers or CASE for proper floor
+                        return { sql: `CAST(${argResult.sql} AS INTEGER)`, tables, params };
+                    }
+                    throw new Error("floor requires an argument");
+                }
+                // CEIL: round up to integer
+                if (expr.functionName === "CEIL") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // SQLite doesn't have CEIL, simulate with CASE
+                        return {
+                            sql: `CASE WHEN ${argResult.sql} = CAST(${argResult.sql} AS INTEGER) THEN CAST(${argResult.sql} AS INTEGER) ELSE CAST(${argResult.sql} AS INTEGER) + 1 END`,
+                            tables,
+                            params
+                        };
+                    }
+                    throw new Error("ceil requires an argument");
+                }
+                // SQRT: square root
+                if (expr.functionName === "SQRT") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // SQLite doesn't have native SQRT, use pow(x, 0.5) via math extension or custom
+                        // In standard SQLite we can use: exp(0.5 * ln(x)) but that also requires extension
+                        // Fall back to placeholder that works if math functions are loaded
+                        return { sql: `SQRT(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("sqrt requires an argument");
+                }
+                // RAND: random float between 0 and 1
+                if (expr.functionName === "RAND") {
+                    // SQLite's RANDOM() returns integer between -9223372036854775808 and 9223372036854775807
+                    // Convert to 0-1 range: (RANDOM() + 9223372036854775808) / 18446744073709551615.0
+                    return {
+                        sql: `((RANDOM() + 9223372036854775808) / 18446744073709551615.0)`,
+                        tables,
+                        params
+                    };
+                }
+                // ============================================================================
+                // List functions
+                // ============================================================================
+                // SIZE: get length of array
+                if (expr.functionName === "SIZE") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `json_array_length(${argResult.sql})`, tables, params };
+                    }
+                    throw new Error("size requires an argument");
+                }
+                // HEAD: get first element of array
+                if (expr.functionName === "HEAD") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `json_extract(${argResult.sql}, '$[0]')`, tables, params };
+                    }
+                    throw new Error("head requires an argument");
+                }
+                // LAST: get last element of array
+                if (expr.functionName === "LAST") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // SQLite: json_extract with [json_array_length - 1] or $[#-1] syntax
+                        return { sql: `json_extract(${argResult.sql}, '$[#-1]')`, tables, params };
+                    }
+                    throw new Error("last requires an argument");
+                }
+                // KEYS: get property keys of a node
+                if (expr.functionName === "KEYS") {
+                    if (expr.args && expr.args.length > 0) {
+                        const arg = expr.args[0];
+                        if (arg.type === "variable") {
+                            const varInfo = this.ctx.variables.get(arg.variable);
+                            if (!varInfo) {
+                                throw new Error(`Unknown variable: ${arg.variable}`);
+                            }
+                            tables.push(varInfo.alias);
+                            // Use json_each to get keys, then aggregate them
+                            return {
+                                sql: `(SELECT json_group_array(key) FROM json_each(${varInfo.alias}.properties))`,
+                                tables,
+                                params
+                            };
+                        }
+                    }
+                    throw new Error("keys requires a variable argument");
+                }
+                // TAIL: get all but first element of array
+                if (expr.functionName === "TAIL") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // Use json_remove to remove first element ($[0])
+                        return { sql: `json_remove(${argResult.sql}, '$[0]')`, tables, params };
+                    }
+                    throw new Error("tail requires an argument");
+                }
+                // RANGE: generate a list of numbers
+                if (expr.functionName === "RANGE") {
+                    if (expr.args && expr.args.length >= 2) {
+                        const startResult = this.translateFunctionArg(expr.args[0]);
+                        const endResult = this.translateFunctionArg(expr.args[1]);
+                        params.push(...startResult.params, ...endResult.params);
+                        // Check for optional step parameter
+                        let stepValue = "1";
+                        if (expr.args.length >= 3) {
+                            const stepResult = this.translateFunctionArg(expr.args[2]);
+                            params.push(...stepResult.params);
+                            stepValue = stepResult.sql;
+                        }
+                        // Use recursive CTE to generate range
+                        // This is a subquery that generates the array
+                        return {
+                            sql: `(WITH RECURSIVE r(n) AS (
+  VALUES(${startResult.sql})
+  UNION ALL
+  SELECT n + ${stepValue} FROM r WHERE n + ${stepValue} <= ${endResult.sql}
+) SELECT json_group_array(n) FROM r)`,
+                            tables,
+                            params
+                        };
+                    }
+                    throw new Error("range requires at least 2 arguments");
+                }
+                // SPLIT: split string by delimiter into array
+                if (expr.functionName === "SPLIT") {
+                    if (expr.args && expr.args.length === 2) {
+                        const strResult = this.translateFunctionArg(expr.args[0]);
+                        const delimResult = this.translateFunctionArg(expr.args[1]);
+                        tables.push(...strResult.tables, ...delimResult.tables);
+                        params.push(...strResult.params, ...delimResult.params);
+                        // SQLite doesn't have native split, use recursive CTE with instr
+                        // This creates a JSON array from splitting the string
+                        return {
+                            sql: `(WITH RECURSIVE split(str, rest, pos) AS (
+  VALUES('', ${strResult.sql} || ${delimResult.sql}, 0)
+  UNION ALL
+  SELECT
+    CASE WHEN instr(rest, ${delimResult.sql}) > 0 
+         THEN substr(rest, 1, instr(rest, ${delimResult.sql}) - 1)
+         ELSE rest 
+    END,
+    CASE WHEN instr(rest, ${delimResult.sql}) > 0 
+         THEN substr(rest, instr(rest, ${delimResult.sql}) + length(${delimResult.sql}))
+         ELSE '' 
+    END,
+    pos + 1
+  FROM split WHERE rest != ''
+) SELECT json_group_array(str) FROM split WHERE pos > 0)`,
+                            tables,
+                            params
+                        };
+                    }
+                    throw new Error("split requires 2 arguments");
+                }
+                // ============================================================================
+                // Node/Relationship functions
+                // ============================================================================
+                // LABELS: get node labels (returns array with single label)
+                if (expr.functionName === "LABELS") {
+                    if (expr.args && expr.args.length > 0) {
+                        const arg = expr.args[0];
+                        if (arg.type === "variable") {
+                            const varInfo = this.ctx.variables.get(arg.variable);
+                            if (!varInfo) {
+                                throw new Error(`Unknown variable: ${arg.variable}`);
+                            }
+                            if (varInfo.type !== "node") {
+                                throw new Error("labels() requires a node variable");
+                            }
+                            tables.push(varInfo.alias);
+                            // Return a JSON array containing the single label
+                            return {
+                                sql: `json_array(${varInfo.alias}.label)`,
+                                tables,
+                                params
+                            };
+                        }
+                    }
+                    throw new Error("labels requires a node variable argument");
+                }
+                // TYPE: get relationship type
+                if (expr.functionName === "TYPE") {
+                    if (expr.args && expr.args.length > 0) {
+                        const arg = expr.args[0];
+                        if (arg.type === "variable") {
+                            const varInfo = this.ctx.variables.get(arg.variable);
+                            if (!varInfo) {
+                                throw new Error(`Unknown variable: ${arg.variable}`);
+                            }
+                            if (varInfo.type !== "edge") {
+                                throw new Error("type() requires a relationship variable");
+                            }
+                            tables.push(varInfo.alias);
+                            // Return the type column from edges table
+                            return {
+                                sql: `${varInfo.alias}.type`,
+                                tables,
+                                params
+                            };
+                        }
+                    }
+                    throw new Error("type requires a relationship variable argument");
+                }
+                // PROPERTIES: get all properties as a map
+                if (expr.functionName === "PROPERTIES") {
+                    if (expr.args && expr.args.length > 0) {
+                        const arg = expr.args[0];
+                        if (arg.type === "variable") {
+                            const varInfo = this.ctx.variables.get(arg.variable);
+                            if (!varInfo) {
+                                throw new Error(`Unknown variable: ${arg.variable}`);
+                            }
+                            tables.push(varInfo.alias);
+                            // Return the properties JSON column directly
+                            return {
+                                sql: `${varInfo.alias}.properties`,
+                                tables,
+                                params
+                            };
+                        }
+                    }
+                    throw new Error("properties requires a variable argument");
+                }
+                // ============================================================================
+                // Date/Time functions
+                // ============================================================================
+                // DATE: get current date or parse date string
+                if (expr.functionName === "DATE") {
+                    if (expr.args && expr.args.length > 0) {
+                        // date('2024-01-15') - parse date string
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `DATE(${argResult.sql})`, tables, params };
+                    }
+                    // date() - current date
+                    return { sql: `DATE('now')`, tables, params };
+                }
+                // DATETIME: get current datetime or parse datetime string
+                if (expr.functionName === "DATETIME") {
+                    if (expr.args && expr.args.length > 0) {
+                        // datetime('2024-01-15T12:30:00') - parse datetime string
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        return { sql: `DATETIME(${argResult.sql})`, tables, params };
+                    }
+                    // datetime() - current datetime
+                    return { sql: `DATETIME('now')`, tables, params };
+                }
+                // TIMESTAMP: get unix timestamp in milliseconds
+                if (expr.functionName === "TIMESTAMP") {
+                    // Cypher returns milliseconds since epoch
+                    // SQLite: strftime('%s', 'now') returns seconds, multiply by 1000
+                    return { sql: `(CAST(strftime('%s', 'now') AS INTEGER) * 1000)`, tables, params };
+                }
                 throw new Error(`Unknown function: ${expr.functionName}`);
             }
             case "literal": {
@@ -1109,6 +1742,9 @@ export class Translator {
             }
             case "case": {
                 return this.translateCaseExpression(expr);
+            }
+            case "binary": {
+                return this.translateBinaryExpression(expr);
             }
             default:
                 throw new Error(`Unknown expression type: ${expr.type}`);
@@ -1138,6 +1774,33 @@ export class Translator {
         }
         sql += " END";
         return { sql, tables, params };
+    }
+    translateBinaryExpression(expr) {
+        const tables = [];
+        const params = [];
+        const leftResult = this.translateExpression(expr.left);
+        const rightResult = this.translateExpression(expr.right);
+        tables.push(...leftResult.tables, ...rightResult.tables);
+        params.push(...leftResult.params, ...rightResult.params);
+        // For property access in arithmetic, we need to use json_extract to get the numeric value
+        const leftSql = this.wrapForArithmetic(expr.left, leftResult.sql);
+        const rightSql = this.wrapForArithmetic(expr.right, rightResult.sql);
+        return {
+            sql: `(${leftSql} ${expr.operator} ${rightSql})`,
+            tables,
+            params,
+        };
+    }
+    wrapForArithmetic(expr, sql) {
+        // For property access, the -> operator returns JSON, we need to extract as a number
+        if (expr.type === "property") {
+            // Replace -> with json_extract for numeric operations
+            const varInfo = this.ctx.variables.get(expr.variable);
+            if (varInfo) {
+                return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+            }
+        }
+        return sql;
     }
     translateWhere(condition) {
         switch (condition.type) {
@@ -1211,6 +1874,9 @@ export class Translator {
             case "exists": {
                 return this.translateExistsCondition(condition);
             }
+            case "in": {
+                return this.translateInCondition(condition);
+            }
             default:
                 throw new Error(`Unknown condition type: ${condition.type}`);
         }
@@ -1274,6 +1940,54 @@ export class Translator {
             sql = `${nodeInfo.alias}.id IS NOT NULL`;
         }
         return { sql, params };
+    }
+    translateInCondition(condition) {
+        const left = this.translateWhereExpression(condition.left);
+        const params = [...left.params];
+        const listExpr = condition.list;
+        if (!listExpr) {
+            throw new Error("IN condition must have a list expression");
+        }
+        if (listExpr.type === "literal" && Array.isArray(listExpr.value)) {
+            const values = listExpr.value;
+            // Handle empty array - no matches possible
+            if (values.length === 0) {
+                return { sql: "1 = 0", params: [] };
+            }
+            // Generate placeholders for each value
+            const placeholders = values.map(() => "?").join(", ");
+            params.push(...values);
+            return {
+                sql: `${left.sql} IN (${placeholders})`,
+                params,
+            };
+        }
+        if (listExpr.type === "parameter") {
+            // For parameter arrays, we use json_each to check membership
+            const paramValue = this.ctx.paramValues[listExpr.name];
+            if (Array.isArray(paramValue)) {
+                if (paramValue.length === 0) {
+                    return { sql: "1 = 0", params: [] };
+                }
+                const placeholders = paramValue.map(() => "?").join(", ");
+                params.push(...paramValue);
+                return {
+                    sql: `${left.sql} IN (${placeholders})`,
+                    params,
+                };
+            }
+            throw new Error(`Parameter ${listExpr.name} must be an array for IN clause`);
+        }
+        if (listExpr.type === "variable" || listExpr.type === "property") {
+            // For variable/property references, use json_each subquery
+            const listResult = this.translateWhereExpression(listExpr);
+            params.push(...listResult.params);
+            return {
+                sql: `${left.sql} IN (SELECT value FROM json_each(${listResult.sql}))`,
+                params,
+            };
+        }
+        throw new Error(`Unsupported list expression type in IN clause: ${listExpr.type}`);
     }
     translateOrderByExpression(expr) {
         switch (expr.type) {
@@ -1366,6 +2080,19 @@ export class Translator {
                 }
                 return { sql: `${varInfo.alias}.id`, params: [] };
             }
+            case "binary": {
+                const leftResult = this.translateWhereExpression(expr.left);
+                const rightResult = this.translateWhereExpression(expr.right);
+                return {
+                    sql: `(${leftResult.sql} ${expr.operator} ${rightResult.sql})`,
+                    params: [...leftResult.params, ...rightResult.params],
+                };
+            }
+            case "function": {
+                // Delegate to translateExpression for functions
+                const result = this.translateExpression(expr);
+                return { sql: result.sql, params: result.params };
+            }
             default:
                 throw new Error(`Unknown expression type in WHERE: ${expr.type}`);
         }
@@ -1373,6 +2100,48 @@ export class Translator {
     // ============================================================================
     // Helpers
     // ============================================================================
+    /**
+     * Translate a function argument expression to SQL.
+     * Handles property access, literals, parameters, and variables.
+     */
+    translateFunctionArg(expr) {
+        const tables = [];
+        const params = [];
+        switch (expr.type) {
+            case "property": {
+                const varInfo = this.ctx.variables.get(expr.variable);
+                if (!varInfo) {
+                    throw new Error(`Unknown variable: ${expr.variable}`);
+                }
+                tables.push(varInfo.alias);
+                return {
+                    sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+                    tables,
+                    params,
+                };
+            }
+            case "literal": {
+                const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+                params.push(value);
+                return { sql: "?", tables, params };
+            }
+            case "parameter": {
+                params.push(this.ctx.paramValues[expr.name]);
+                return { sql: "?", tables, params };
+            }
+            case "variable": {
+                const varInfo = this.ctx.variables.get(expr.variable);
+                if (!varInfo) {
+                    throw new Error(`Unknown variable: ${expr.variable}`);
+                }
+                tables.push(varInfo.alias);
+                return { sql: `${varInfo.alias}.id`, tables, params };
+            }
+            default:
+                // For nested function calls, use translateExpression
+                return this.translateExpression(expr);
+        }
+    }
     isRelationshipPattern(pattern) {
         return "source" in pattern && "edge" in pattern && "target" in pattern;
     }

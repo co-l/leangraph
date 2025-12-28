@@ -26,13 +26,14 @@ export interface VariableRef {
 }
 export type PropertyValue = string | number | boolean | null | ParameterRef | VariableRef | PropertyValue[];
 export interface WhereCondition {
-    type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists";
+    type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in";
     left?: Expression;
     right?: Expression;
     operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
     conditions?: WhereCondition[];
     condition?: WhereCondition;
     pattern?: NodePattern | RelationshipPattern;
+    list?: Expression;
 }
 export interface CaseWhen {
     condition: WhereCondition;
@@ -45,7 +46,7 @@ export interface CaseExpression {
     elseExpr?: Expression;
 }
 export interface Expression {
-    type: "property" | "literal" | "parameter" | "variable" | "function" | "case";
+    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary";
     variable?: string;
     property?: string;
     value?: PropertyValue;
@@ -55,6 +56,9 @@ export interface Expression {
     expression?: Expression;
     whens?: CaseWhen[];
     elseExpr?: Expression;
+    operator?: "+" | "-" | "*" | "/" | "%";
+    left?: Expression;
+    right?: Expression;
 }
 export interface ReturnItem {
     expression: Expression;
@@ -123,7 +127,14 @@ export interface UnionClause {
     left: Query;
     right: Query;
 }
-export type Clause = CreateClause | MatchClause | MergeClause | SetClause | DeleteClause | ReturnClause | WithClause | UnwindClause | UnionClause;
+export interface CallClause {
+    type: "CALL";
+    procedure: string;
+    args: Expression[];
+    yields?: string[];
+    where?: WhereCondition;
+}
+export type Clause = CreateClause | MatchClause | MergeClause | SetClause | DeleteClause | ReturnClause | WithClause | UnwindClause | UnionClause | CallClause;
 export interface Query {
     clauses: Clause[];
 }
@@ -158,6 +169,7 @@ export declare class Parser {
     private parseWith;
     private parseUnwind;
     private parseUnwindExpression;
+    private parseCall;
     /**
      * Parse a pattern, which can be a single node or a chain of relationships.
      * For chained patterns like (a)-[:R1]->(b)-[:R2]->(c), this returns multiple
@@ -182,7 +194,11 @@ export declare class Parser {
     private parsePrimaryCondition;
     private parseExistsCondition;
     private parseComparisonCondition;
+    private parseInListExpression;
     private parseExpression;
+    private parseAdditiveExpression;
+    private parseMultiplicativeExpression;
+    private parsePrimaryExpression;
     private parseCaseExpression;
     private peek;
     private advance;

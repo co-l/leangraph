@@ -89,10 +89,74 @@ Check server health.
 
 ## Supported Cypher
 
-- `CREATE`, `MERGE`, `MATCH`, `SET`, `DELETE`, `DETACH DELETE`
-- `RETURN` with `COUNT`, `LIMIT`, aliases (`AS`)
-- `WHERE` with `=`, `<>`, `<`, `>`, `<=`, `>=`, `AND`, `OR`, `NOT`, `CONTAINS`, `STARTS WITH`, `ENDS WITH`
-- Parameters: `$paramName` syntax
+### Clauses & Keywords
+
+| Keyword | Description |
+|---------|-------------|
+| `CREATE` | Create nodes and relationships |
+| `MATCH` | Find patterns in the graph |
+| `MERGE` | Match or create if not exists |
+| `WHERE` | Filter results |
+| `SET` | Update properties |
+| `DELETE` | Delete nodes/relationships |
+| `DETACH DELETE` | Delete nodes and their relationships |
+| `RETURN` | Return results |
+| `AS` | Aliases for returned values |
+| `LIMIT` | Limit number of results |
+| `SKIP` | Skip first N results |
+| `ORDER BY` | Sort results (ASC/DESC) |
+| `DISTINCT` | Remove duplicates |
+| `AND` / `OR` / `NOT` | Boolean operators |
+| `IS NULL` / `IS NOT NULL` | Null checks |
+| `CONTAINS` / `STARTS WITH` / `ENDS WITH` | String matching |
+| `IN` | List membership |
+| `OPTIONAL MATCH` | Match or return null |
+| `WITH` | Chain query parts |
+| `UNION` / `UNION ALL` | Combine results |
+| `UNWIND` | Expand list to rows |
+| `CASE WHEN THEN ELSE END` | Conditional expressions |
+| `EXISTS` | Check pattern existence |
+| Variable-length paths (`*1..3`) | Path patterns |
+| `CALL` (procedures) | Database introspection |
+
+### Operators
+
+| Operator | Description |
+|----------|-------------|
+| `=`, `<>`, `<`, `>`, `<=`, `>=` | Comparison |
+| `+`, `-`, `*`, `/`, `%` | Arithmetic |
+
+### Functions
+
+**Aggregation**: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `COLLECT`
+
+**Scalar**: `ID`, `coalesce`
+
+**String**: `toUpper`, `toLower`, `trim`, `substring`, `replace`, `toString`, `split`
+
+**List**: `size`, `head`, `last`, `tail`, `keys`, `range`
+
+**Node/Relationship**: `labels`, `type`, `properties`
+
+**Math**: `abs`, `ceil`, `floor`, `round`, `rand`, `sqrt`
+
+**Date/Time**: `date`, `datetime`, `timestamp`
+
+### Procedures
+
+| Procedure | Description |
+|-----------|-------------|
+| `CALL db.labels() YIELD label` | List all node labels |
+| `CALL db.relationshipTypes() YIELD type` | List all relationship types |
+| `CALL db.propertyKeys() YIELD key` | List all property keys |
+
+### Parameters
+
+Use `$paramName` syntax for parameterized queries:
+
+```typescript
+await graph.query('MATCH (u:User {id: $id}) RETURN u', { id: 'abc123' });
+```
 
 ## Examples
 

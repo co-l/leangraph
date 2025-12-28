@@ -32,15 +32,27 @@ export declare class Translator {
     private translateDelete;
     private translateReturn;
     private translateWith;
+    private translateReturnFromCall;
     private translateVariableLengthPath;
     private translateUnion;
     private translateUnwind;
+    private translateCall;
+    private translateCallWhere;
+    private translateExpressionForCall;
     private translateExpression;
     private translateCaseExpression;
+    private translateBinaryExpression;
+    private wrapForArithmetic;
     private translateWhere;
     private translateExistsCondition;
+    private translateInCondition;
     private translateOrderByExpression;
     private translateWhereExpression;
+    /**
+     * Translate a function argument expression to SQL.
+     * Handles property access, literals, parameters, and variables.
+     */
+    private translateFunctionArg;
     private isRelationshipPattern;
     private findVariablesInCondition;
     private isParameterRef;

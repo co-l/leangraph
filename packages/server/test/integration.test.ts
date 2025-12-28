@@ -1039,4 +1039,110 @@ describe("Integration Tests", () => {
       expect(result.data[0].n).toBeNull();
     });
   });
+
+  describe("Full CRUD lifecycle", () => {
+    it("performs CREATE, READ, UPDATE, DELETE on a single entity", () => {
+      // === CREATE ===
+      const createResult = expectSuccess(
+        executor.execute(
+          `CREATE (p:Product {
+            id: $id,
+            name: $name,
+            price: $price,
+            stock: $stock,
+            active: $active
+          }) RETURN p`,
+          {
+            id: "prod-001",
+            name: "Widget Pro",
+            price: 29.99,
+            stock: 100,
+            active: true
+          }
+        )
+      );
+
+      expect(createResult.data).toHaveLength(1);
+      expect(createResult.data[0].p).toMatchObject({
+        label: "Product",
+        properties: {
+          id: "prod-001",
+          name: "Widget Pro",
+          price: 29.99,
+          stock: 100,
+          active: true
+        }
+      });
+
+      // === READ ===
+      const readResult = expectSuccess(
+        executor.execute(
+          "MATCH (p:Product {id: $id}) RETURN p.name, p.price, p.stock",
+          { id: "prod-001" }
+        )
+      );
+
+      expect(readResult.data).toHaveLength(1);
+      expect(readResult.data[0].p_name).toBe("Widget Pro");
+      expect(readResult.data[0].p_price).toBe(29.99);
+      expect(readResult.data[0].p_stock).toBe(100);
+
+      // === UPDATE ===
+      const updateResult = expectSuccess(
+        executor.execute(
+          `MATCH (p:Product {id: $id})
+           SET p.price = $newPrice, p.stock = $newStock
+           RETURN p`,
+          {
+            id: "prod-001",
+            newPrice: 24.99,
+            newStock: 85
+          }
+        )
+      );
+
+      expect(updateResult.data).toHaveLength(1);
+      expect(updateResult.data[0].p).toMatchObject({
+        properties: {
+          id: "prod-001",
+          name: "Widget Pro",
+          price: 24.99,
+          stock: 85
+        }
+      });
+
+      // Verify update persisted
+      const verifyUpdate = expectSuccess(
+        executor.execute(
+          "MATCH (p:Product {id: $id}) RETURN p.price, p.stock",
+          { id: "prod-001" }
+        )
+      );
+      expect(verifyUpdate.data[0].p_price).toBe(24.99);
+      expect(verifyUpdate.data[0].p_stock).toBe(85);
+
+      // === DELETE ===
+      const deleteResult = expectSuccess(
+        executor.execute(
+          "MATCH (p:Product {id: $id}) DELETE p",
+          { id: "prod-001" }
+        )
+      );
+
+      // Verify deletion
+      const verifyDelete = expectSuccess(
+        executor.execute(
+          "MATCH (p:Product {id: $id}) RETURN p",
+          { id: "prod-001" }
+        )
+      );
+      expect(verifyDelete.data).toHaveLength(0);
+
+      // Verify no products remain
+      const countResult = expectSuccess(
+        executor.execute("MATCH (p:Product) RETURN COUNT(p)")
+      );
+      expect(countResult.data[0].count).toBe(0);
+    });
+  });
 });

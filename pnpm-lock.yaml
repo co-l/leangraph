@@ -26,12 +26,12 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.0
         version: 1.19.7(hono@4.11.3)
-      '@nicefox/graphdb':
-        specifier: workspace:*
-        version: link:../server
       commander:
         specifier: ^12.0.0
         version: 12.1.0
+      nicefox-graphdb-server:
+        specifier: workspace:*
+        version: link:../server
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

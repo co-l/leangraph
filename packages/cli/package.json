@@ -1,5 +1,5 @@
 {
-  "name": "@nicefox/graphdb-cli",
+  "name": "nicefox-graphdb-cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@nicefox/graphdb": "workspace:*",
+    "nicefox-graphdb-server": "workspace:*",
     "@hono/node-server": "^1.13.0",
     "commander": "^12.0.0"
   },

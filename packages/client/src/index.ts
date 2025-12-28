@@ -280,11 +280,11 @@ export class NiceFoxGraphDB {
  * Create an in-memory test client for unit testing.
  * This spins up an embedded server with an in-memory SQLite database.
  * 
- * Requires `@nicefox/graphdb` (server package) to be installed.
+ * Requires the server package to be installed: `npm install github:co-l/nicefox-graphdb#main`
  * 
  * @example
  * ```ts
- * import { createTestClient } from '@nicefox/graphdb-client';
+ * import { createTestClient } from 'nicefox-graphdb/packages/client/src/index.ts';
  * 
  * const client = await createTestClient();
  * 

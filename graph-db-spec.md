@@ -164,7 +164,7 @@ nicefox-graphdb serve --port 3000 --data /var/data/nicefox-graphdb
 ## TypeScript Client Library
 
 ```typescript
-import { NiceFoxGraphDB } from '@nicefox/graphdb-client';
+import { NiceFoxGraphDB } from 'nicefox-graphdb/packages/client/src/index.ts';
 
 // Initialize
 const graph = new NiceFoxGraphDB({

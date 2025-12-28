@@ -11,7 +11,7 @@ import {
   BackupManager,
   generateApiKey,
   VERSION,
-} from "@nicefox/graphdb";
+} from "nicefox-graphdb-server";
 import {
   ApiKeyConfig,
   formatBytes,

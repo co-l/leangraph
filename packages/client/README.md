@@ -1,4 +1,4 @@
-# @nicefox/graphdb-client
+# nicefox-graphdb-client
 
 TypeScript client for NiceFox GraphDB.
 

@@ -556,6 +556,7 @@ export class Executor {
     // Look for MERGE clause with ON CREATE SET or ON MATCH SET
     const clauses = query.clauses;
     
+    let matchClauses: MatchClause[] = [];
     let mergeClause: MergeClause | null = null;
     let returnClause: ReturnClause | null = null;
     
@@ -570,6 +571,8 @@ export class Executor {
         }
       } else if (clause.type === "RETURN") {
         returnClause = clause;
+      } else if (clause.type === "MATCH") {
+        matchClauses.push(clause);
       } else {
         // Other clause types present - don't handle
         return null;
@@ -581,18 +584,86 @@ export class Executor {
     }
     
     // Execute MERGE with ON CREATE SET / ON MATCH SET
-    return this.executeMergeWithSetClauses(mergeClause, returnClause, params);
+    return this.executeMergeWithSetClauses(matchClauses, mergeClause, returnClause, params);
   }
 
   /**
    * Execute a MERGE clause with ON CREATE SET and/or ON MATCH SET
    */
   private executeMergeWithSetClauses(
+    matchClauses: MatchClause[],
     mergeClause: MergeClause,
     returnClause: ReturnClause | null,
     params: Record<string, unknown>
   ): Record<string, unknown>[] {
-    const pattern = mergeClause.pattern;
+    // Track matched nodes from MATCH clauses
+    const matchedNodes = new Map<string, { id: string; label: string; properties: Record<string, unknown> }>();
+    
+    // Execute MATCH clauses first to get referenced nodes
+    for (const matchClause of matchClauses) {
+      for (const pattern of matchClause.patterns) {
+        if (this.isRelationshipPattern(pattern)) {
+          // For now, only handle simple node patterns in MATCH before MERGE
+          throw new Error("Relationship patterns in MATCH before MERGE not yet supported");
+        }
+        
+        const nodePattern = pattern as NodePattern;
+        const label = nodePattern.label || "";
+        const matchProps = this.resolveProperties(nodePattern.properties || {}, params);
+        
+        // Build WHERE conditions
+        const conditions: string[] = [];
+        const conditionParams: unknown[] = [];
+        
+        if (label) {
+          conditions.push("label = ?");
+          conditionParams.push(label);
+        }
+        
+        for (const [key, value] of Object.entries(matchProps)) {
+          conditions.push(`json_extract(properties, '$.${key}') = ?`);
+          conditionParams.push(value);
+        }
+        
+        const findSql = `SELECT id, label, properties FROM nodes WHERE ${conditions.join(" AND ")}`;
+        const findResult = this.db.execute(findSql, conditionParams);
+        
+        if (findResult.rows.length > 0 && nodePattern.variable) {
+          const row = findResult.rows[0];
+          matchedNodes.set(nodePattern.variable, {
+            id: row.id as string,
+            label: row.label as string,
+            properties: typeof row.properties === "string" ? JSON.parse(row.properties) : row.properties,
+          });
+        }
+      }
+    }
+    
+    // Now handle the MERGE pattern
+    const patterns = mergeClause.patterns;
+    
+    // Check if this is a relationship pattern or a simple node pattern
+    if (patterns.length === 1 && !this.isRelationshipPattern(patterns[0])) {
+      // Simple node MERGE
+      return this.executeMergeNode(patterns[0] as NodePattern, mergeClause, returnClause, params, matchedNodes);
+    } else if (patterns.length === 1 && this.isRelationshipPattern(patterns[0])) {
+      // Relationship MERGE
+      return this.executeMergeRelationship(patterns[0] as RelationshipPattern, mergeClause, returnClause, params, matchedNodes);
+    } else {
+      throw new Error("Complex MERGE patterns not yet supported");
+    }
+  }
+
+  /**
+   * Execute a simple node MERGE
+   */
+  private executeMergeNode(
+    pattern: NodePattern,
+    mergeClause: MergeClause,
+    returnClause: ReturnClause | null,
+    params: Record<string, unknown>,
+    matchedNodes: Map<string, { id: string; label: string; properties: Record<string, unknown> }>
+  ): Record<string, unknown>[] {
     const label = pattern.label || "";
     const matchProps = this.resolveProperties(pattern.properties || {}, params);
     
@@ -647,46 +718,199 @@ export class Executor {
       }
     }
     
-    // If there's a RETURN clause, fetch and return the node
-    if (returnClause) {
-      const results: Record<string, unknown>[] = [];
-      
-      // Query the node
-      const nodeResult = this.db.execute(
-        "SELECT id, label, properties FROM nodes WHERE id = ?",
-        [nodeId]
-      );
-      
+    // Store the node in matchedNodes for RETURN processing
+    if (pattern.variable) {
+      const nodeResult = this.db.execute("SELECT id, label, properties FROM nodes WHERE id = ?", [nodeId]);
       if (nodeResult.rows.length > 0) {
         const row = nodeResult.rows[0];
-        const resultRow: Record<string, unknown> = {};
-        
-        for (const item of returnClause.items) {
-          const alias = item.alias || this.getExpressionName(item.expression);
-          
-          if (item.expression.type === "variable") {
-            resultRow[alias] = {
-              id: row.id,
-              label: row.label,
-              properties: typeof row.properties === "string"
-                ? JSON.parse(row.properties)
-                : row.properties,
-            };
-          } else if (item.expression.type === "property") {
-            const props = typeof row.properties === "string"
-              ? JSON.parse(row.properties)
-              : row.properties;
-            resultRow[alias] = props[item.expression.property!];
-          }
-        }
-        
-        results.push(resultRow);
+        matchedNodes.set(pattern.variable, {
+          id: row.id as string,
+          label: row.label as string,
+          properties: typeof row.properties === "string" ? JSON.parse(row.properties) : row.properties,
+        });
       }
-      
-      return results;
+    }
+    
+    // If there's a RETURN clause, process it
+    if (returnClause) {
+      return this.processReturnClause(returnClause, matchedNodes, params);
     }
     
     return [];
+  }
+
+  /**
+   * Execute a relationship MERGE: MERGE (a)-[:TYPE]->(b)
+   */
+  private executeMergeRelationship(
+    pattern: RelationshipPattern,
+    mergeClause: MergeClause,
+    returnClause: ReturnClause | null,
+    params: Record<string, unknown>,
+    matchedNodes: Map<string, { id: string; label: string; properties: Record<string, unknown> }>
+  ): Record<string, unknown>[] {
+    const sourceVar = pattern.source.variable;
+    const targetLabel = pattern.target.label || "";
+    const targetProps = this.resolveProperties(pattern.target.properties || {}, params);
+    const edgeType = pattern.edge.type || "";
+    
+    // Get source node from matched nodes
+    if (!sourceVar || !matchedNodes.has(sourceVar)) {
+      throw new Error(`Source variable '${sourceVar}' not found in matched nodes`);
+    }
+    const sourceNode = matchedNodes.get(sourceVar)!;
+    
+    // Build conditions to find existing target node connected via the relationship
+    const findTargetConditions: string[] = [];
+    const findTargetParams: unknown[] = [];
+    
+    if (targetLabel) {
+      findTargetConditions.push("n.label = ?");
+      findTargetParams.push(targetLabel);
+    }
+    
+    for (const [key, value] of Object.entries(targetProps)) {
+      findTargetConditions.push(`json_extract(n.properties, '$.${key}') = ?`);
+      findTargetParams.push(value);
+    }
+    
+    // Look for existing edge + target combination
+    let findSql = `
+      SELECT n.id, n.label, n.properties, e.id as edge_id
+      FROM nodes n
+      JOIN edges e ON e.target_id = n.id
+      WHERE e.source_id = ? AND e.type = ?
+    `;
+    findTargetParams.unshift(sourceNode.id, edgeType);
+    
+    if (findTargetConditions.length > 0) {
+      findSql += ` AND ${findTargetConditions.join(" AND ")}`;
+    }
+    
+    const findResult = this.db.execute(findSql, findTargetParams);
+    
+    let targetNodeId: string;
+    let wasCreated = false;
+    
+    if (findResult.rows.length === 0) {
+      // Relationship doesn't exist - create target node and edge
+      targetNodeId = crypto.randomUUID();
+      wasCreated = true;
+      
+      // Start with match properties for target node
+      const nodeProps = { ...targetProps };
+      
+      // Apply ON CREATE SET properties
+      if (mergeClause.onCreateSet) {
+        for (const assignment of mergeClause.onCreateSet) {
+          const value = this.evaluateExpression(assignment.value, params);
+          nodeProps[assignment.property] = value;
+        }
+      }
+      
+      // Create target node
+      this.db.execute(
+        "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+        [targetNodeId, targetLabel, JSON.stringify(nodeProps)]
+      );
+      
+      // Create edge
+      const edgeId = crypto.randomUUID();
+      this.db.execute(
+        "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
+        [edgeId, edgeType, sourceNode.id, targetNodeId, "{}"]
+      );
+    } else {
+      // Relationship exists - apply ON MATCH SET
+      targetNodeId = findResult.rows[0].id as string;
+      
+      if (mergeClause.onMatchSet) {
+        for (const assignment of mergeClause.onMatchSet) {
+          const value = this.evaluateExpression(assignment.value, params);
+          this.db.execute(
+            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            [JSON.stringify(value), targetNodeId]
+          );
+        }
+      }
+    }
+    
+    // Store the target node in matchedNodes for RETURN processing
+    if (pattern.target.variable) {
+      const nodeResult = this.db.execute("SELECT id, label, properties FROM nodes WHERE id = ?", [targetNodeId]);
+      if (nodeResult.rows.length > 0) {
+        const row = nodeResult.rows[0];
+        matchedNodes.set(pattern.target.variable, {
+          id: row.id as string,
+          label: row.label as string,
+          properties: typeof row.properties === "string" ? JSON.parse(row.properties) : row.properties,
+        });
+      }
+    }
+    
+    // If there's a RETURN clause, process it
+    if (returnClause) {
+      return this.processReturnClause(returnClause, matchedNodes, params);
+    }
+    
+    return [];
+  }
+
+  /**
+   * Process a RETURN clause using matched nodes
+   */
+  private processReturnClause(
+    returnClause: ReturnClause,
+    matchedNodes: Map<string, { id: string; label: string; properties: Record<string, unknown> }>,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] {
+    const results: Record<string, unknown>[] = [];
+    const resultRow: Record<string, unknown> = {};
+    
+    for (const item of returnClause.items) {
+      const alias = item.alias || this.getExpressionName(item.expression);
+      
+      if (item.expression.type === "variable") {
+        const node = matchedNodes.get(item.expression.variable!);
+        if (node) {
+          resultRow[alias] = {
+            id: node.id,
+            label: node.label,
+            properties: node.properties,
+          };
+        }
+      } else if (item.expression.type === "property") {
+        const node = matchedNodes.get(item.expression.variable!);
+        if (node) {
+          resultRow[alias] = node.properties[item.expression.property!];
+        }
+      }
+    }
+    
+    results.push(resultRow);
+    return results;
+  }
+
+  /**
+   * Evaluate an expression for RETURN clause
+   */
+  private evaluateReturnExpression(
+    expr: Expression,
+    matchedNodes: Map<string, { id: string; label: string; properties: Record<string, unknown> }>,
+    params: Record<string, unknown>
+  ): unknown {
+    if (expr.type === "property") {
+      const node = matchedNodes.get(expr.variable!);
+      if (node) {
+        return node.properties[expr.property!];
+      }
+      return null;
+    } else if (expr.type === "parameter") {
+      return params[expr.name!];
+    } else if (expr.type === "literal") {
+      return expr.value;
+    }
+    return null;
   }
 
   /**

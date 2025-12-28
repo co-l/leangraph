@@ -393,8 +393,10 @@ describe("Parser", () => {
       const clause = query.clauses[0] as MergeClause;
 
       expect(clause.type).toBe("MERGE");
-      expect(clause.pattern.label).toBe("Person");
-      expect(clause.pattern.properties).toEqual({ id: "abc123" });
+      expect(clause.patterns).toHaveLength(1);
+      const node = clause.patterns[0] as NodePattern;
+      expect(node.label).toBe("Person");
+      expect(node.properties).toEqual({ id: "abc123" });
     });
 
     it("parses MERGE with ON CREATE SET", () => {

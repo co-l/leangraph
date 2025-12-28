@@ -667,6 +667,65 @@ describe("Integration Tests", () => {
       expect(queryResult.data[0].n_name).toBe("Original Widget"); // Name unchanged
       expect(queryResult.data[0].n_price).toBe(12.99); // Price updated
     });
+
+    it("handles MERGE with relationship and ON CREATE SET", () => {
+      // First create the user node
+      executor.execute(
+        "CREATE (u:BF_User {id: $userId})",
+        { userId: "user1" }
+      );
+
+      // MERGE a relationship with ON CREATE SET
+      const mergeResult = expectSuccess(
+        executor.execute(
+          `MATCH (u:BF_User {id: $userId})
+           MERGE (u)-[:BF_LEARNS]->(l:BF_Language {language: $language})
+           ON CREATE SET l.proficiency = $proficiency,
+                         l.created_at = $createdAt
+           RETURN l.created_at as createdAt`,
+          { userId: "user1", language: "French", proficiency: "beginner", createdAt: "2024-01-01" }
+        )
+      );
+
+      expect(mergeResult.data).toHaveLength(1);
+      expect(mergeResult.data[0].createdAt).toBe("2024-01-01");
+
+      // Verify the relationship was created
+      const verifyResult = expectSuccess(
+        executor.execute(
+          "MATCH (u:BF_User)-[:BF_LEARNS]->(l:BF_Language) RETURN l.language, l.proficiency, l.created_at"
+        )
+      );
+
+      expect(verifyResult.data).toHaveLength(1);
+      expect(verifyResult.data[0].l_language).toBe("French");
+      expect(verifyResult.data[0].l_proficiency).toBe("beginner");
+      expect(verifyResult.data[0].l_created_at).toBe("2024-01-01");
+    });
+
+    it("handles MERGE relationship with ON MATCH SET", () => {
+      // Create user and language with relationship
+      executor.execute("CREATE (u:BF_User {id: 'user2'})");
+      executor.execute("CREATE (l:BF_Language {language: 'Spanish', proficiency: 'beginner'})");
+      executor.execute(
+        `MATCH (u:BF_User {id: 'user2'}), (l:BF_Language {language: 'Spanish'})
+         CREATE (u)-[:BF_LEARNS]->(l)`
+      );
+
+      // MERGE should find existing and apply ON MATCH SET
+      const mergeResult = expectSuccess(
+        executor.execute(
+          `MATCH (u:BF_User {id: $userId})
+           MERGE (u)-[:BF_LEARNS]->(l:BF_Language {language: $language})
+           ON MATCH SET l.proficiency = $proficiency
+           RETURN l.proficiency as proficiency`,
+          { userId: "user2", language: "Spanish", proficiency: "advanced" }
+        )
+      );
+
+      expect(mergeResult.data).toHaveLength(1);
+      expect(mergeResult.data[0].proficiency).toBe("advanced");
+    });
   });
 
   describe("id() function", () => {

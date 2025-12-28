@@ -80,7 +80,7 @@ export interface MatchClause {
 }
 export interface MergeClause {
     type: "MERGE";
-    pattern: NodePattern;
+    patterns: (NodePattern | RelationshipPattern)[];
     onCreateSet?: SetAssignment[];
     onMatchSet?: SetAssignment[];
 }

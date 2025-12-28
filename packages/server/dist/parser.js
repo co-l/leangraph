@@ -394,7 +394,7 @@ export class Parser {
     }
     parseMerge() {
         this.expect("KEYWORD", "MERGE");
-        const pattern = this.parseNodePattern();
+        const patterns = this.parsePatternChain();
         let onCreateSet;
         let onMatchSet;
         while (this.checkKeyword("ON")) {
@@ -413,7 +413,7 @@ export class Parser {
                 throw new Error("Expected CREATE or MATCH after ON");
             }
         }
-        return { type: "MERGE", pattern, onCreateSet, onMatchSet };
+        return { type: "MERGE", patterns, onCreateSet, onMatchSet };
     }
     parseSet() {
         this.expect("KEYWORD", "SET");

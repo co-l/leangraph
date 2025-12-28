@@ -112,7 +112,7 @@ export interface MatchClause {
 
 export interface MergeClause {
   type: "MERGE";
-  pattern: NodePattern;
+  patterns: (NodePattern | RelationshipPattern)[];
   onCreateSet?: SetAssignment[];
   onMatchSet?: SetAssignment[];
 }
@@ -678,7 +678,7 @@ export class Parser {
 
   private parseMerge(): MergeClause {
     this.expect("KEYWORD", "MERGE");
-    const pattern = this.parseNodePattern();
+    const patterns = this.parsePatternChain();
 
     let onCreateSet: SetAssignment[] | undefined;
     let onMatchSet: SetAssignment[] | undefined;
@@ -698,7 +698,7 @@ export class Parser {
       }
     }
 
-    return { type: "MERGE", pattern, onCreateSet, onMatchSet };
+    return { type: "MERGE", patterns, onCreateSet, onMatchSet };
   }
 
   private parseSet(): SetClause {

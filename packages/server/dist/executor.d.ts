@@ -59,6 +59,22 @@ export declare class Executor {
      */
     private executeMergeWithSetClauses;
     /**
+     * Execute a simple node MERGE
+     */
+    private executeMergeNode;
+    /**
+     * Execute a relationship MERGE: MERGE (a)-[:TYPE]->(b)
+     */
+    private executeMergeRelationship;
+    /**
+     * Process a RETURN clause using matched nodes
+     */
+    private processReturnClause;
+    /**
+     * Evaluate an expression for RETURN clause
+     */
+    private evaluateReturnExpression;
+    /**
      * Execute a CREATE relationship pattern, tracking created IDs
      */
     private executeCreateRelationshipPattern;

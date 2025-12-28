@@ -511,6 +511,29 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("$.id");
       expect(result.statements[0].sql).toContain("$.name");
     });
+
+    it("parses MERGE with relationship pattern", () => {
+      // MERGE with relationship patterns are parsed but executed via executor, not translator
+      const parseResult = parse(
+        `MATCH (u:BF_User {id: $userId})
+         MERGE (u)-[:BF_LEARNS]->(l:BF_Language {language: $language})
+         ON CREATE SET l.proficiency = $proficiency,
+                       l.created_at = $createdAt
+         RETURN l.created_at as createdAt`
+      );
+
+      // Should parse successfully
+      expect(parseResult.success).toBe(true);
+      if (!parseResult.success) return;
+
+      // Check MERGE clause was parsed correctly
+      const mergeClause = parseResult.query.clauses.find(c => c.type === "MERGE") as any;
+      expect(mergeClause).toBeDefined();
+      expect(mergeClause.patterns).toHaveLength(1);
+      expect(mergeClause.onCreateSet).toHaveLength(2);
+      expect(mergeClause.onCreateSet[0].property).toBe("proficiency");
+      expect(mergeClause.onCreateSet[1].property).toBe("created_at");
+    });
   });
 
   describe("Parameter binding", () => {

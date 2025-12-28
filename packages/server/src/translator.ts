@@ -336,8 +336,20 @@ export class Translator {
   private translateMerge(clause: MergeClause): SqlStatement[] {
     // MERGE: Create if not exists, match if exists
     // This requires multiple statements or an UPSERT pattern
+    // Note: Complex MERGE with ON CREATE SET / ON MATCH SET is handled by executor
 
-    const node = clause.pattern;
+    // For now, only handle simple node patterns
+    if (clause.patterns.length !== 1) {
+      throw new Error("MERGE with multiple patterns not supported in translator");
+    }
+
+    const pattern = clause.patterns[0];
+    if (this.isRelationshipPattern(pattern)) {
+      // Relationship MERGE is handled by executor
+      throw new Error("MERGE with relationship pattern must be executed, not translated");
+    }
+
+    const node = pattern as NodePattern;
     const label = node.label || "";
     const props = node.properties || {};
     const serialized = this.serializeProperties(props);

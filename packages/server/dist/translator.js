@@ -242,7 +242,17 @@ export class Translator {
     translateMerge(clause) {
         // MERGE: Create if not exists, match if exists
         // This requires multiple statements or an UPSERT pattern
-        const node = clause.pattern;
+        // Note: Complex MERGE with ON CREATE SET / ON MATCH SET is handled by executor
+        // For now, only handle simple node patterns
+        if (clause.patterns.length !== 1) {
+            throw new Error("MERGE with multiple patterns not supported in translator");
+        }
+        const pattern = clause.patterns[0];
+        if (this.isRelationshipPattern(pattern)) {
+            // Relationship MERGE is handled by executor
+            throw new Error("MERGE with relationship pattern must be executed, not translated");
+        }
+        const node = pattern;
         const label = node.label || "";
         const props = node.properties || {};
         const serialized = this.serializeProperties(props);

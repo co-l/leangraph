@@ -592,6 +592,42 @@ describe("Translator", () => {
     });
   });
 
+  describe("RETURN DISTINCT", () => {
+    it("generates SELECT DISTINCT for property", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN DISTINCT n.city");
+
+      expect(result.statements[0].sql).toContain("SELECT DISTINCT");
+    });
+
+    it("generates SELECT DISTINCT for multiple properties", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN DISTINCT n.city, n.country");
+
+      expect(result.statements[0].sql).toContain("SELECT DISTINCT");
+    });
+
+    it("generates SELECT without DISTINCT when not specified", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n.city");
+
+      expect(result.statements[0].sql).not.toContain("DISTINCT");
+    });
+
+    it("generates SELECT DISTINCT with ORDER BY", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN DISTINCT n.city ORDER BY n.city");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("SELECT DISTINCT");
+      expect(sql).toContain("ORDER BY");
+    });
+
+    it("generates SELECT DISTINCT with LIMIT", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN DISTINCT n.city LIMIT 10");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("SELECT DISTINCT");
+      expect(sql).toContain("LIMIT");
+    });
+  });
+
   describe("Standalone RETURN", () => {
     it("handles RETURN with literal number", () => {
       const result = translateCypher("RETURN 1");

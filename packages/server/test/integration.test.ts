@@ -1428,4 +1428,79 @@ describe("Integration Tests", () => {
       expect(countResult.data[0].count).toBe(0);
     });
   });
+
+  describe("RETURN DISTINCT", () => {
+    it("returns distinct values for a property", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice', city: 'NYC'})");
+      executor.execute("CREATE (n:Person {name: 'Bob', city: 'NYC'})");
+      executor.execute("CREATE (n:Person {name: 'Charlie', city: 'LA'})");
+      executor.execute("CREATE (n:Person {name: 'Dave', city: 'LA'})");
+      executor.execute("CREATE (n:Person {name: 'Eve', city: 'Chicago'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN DISTINCT n.city")
+      );
+
+      expect(result.data).toHaveLength(3);
+      const cities = result.data.map((r: Record<string, unknown>) => r.n_city);
+      expect(cities).toContain("NYC");
+      expect(cities).toContain("LA");
+      expect(cities).toContain("Chicago");
+    });
+
+    it("returns distinct multiple properties", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice', city: 'NYC', country: 'USA'})");
+      executor.execute("CREATE (n:Person {name: 'Bob', city: 'NYC', country: 'USA'})");
+      executor.execute("CREATE (n:Person {name: 'Charlie', city: 'London', country: 'UK'})");
+      executor.execute("CREATE (n:Person {name: 'Dave', city: 'NYC', country: 'USA'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN DISTINCT n.city, n.country")
+      );
+
+      expect(result.data).toHaveLength(2);
+    });
+
+    it("returns distinct with ORDER BY", () => {
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+      executor.execute("CREATE (n:Person {city: 'LA'})");
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+      executor.execute("CREATE (n:Person {city: 'Chicago'})");
+      executor.execute("CREATE (n:Person {city: 'LA'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN DISTINCT n.city ORDER BY n.city ASC")
+      );
+
+      expect(result.data).toHaveLength(3);
+      expect(result.data[0].n_city).toBe("Chicago");
+      expect(result.data[1].n_city).toBe("LA");
+      expect(result.data[2].n_city).toBe("NYC");
+    });
+
+    it("returns distinct with LIMIT", () => {
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+      executor.execute("CREATE (n:Person {city: 'LA'})");
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+      executor.execute("CREATE (n:Person {city: 'Chicago'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN DISTINCT n.city ORDER BY n.city LIMIT 2")
+      );
+
+      expect(result.data).toHaveLength(2);
+    });
+
+    it("returns all rows without DISTINCT", () => {
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+      executor.execute("CREATE (n:Person {city: 'NYC'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.city")
+      );
+
+      expect(result.data).toHaveLength(3);
+    });
+  });
 });

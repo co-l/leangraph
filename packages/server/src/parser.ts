@@ -98,6 +98,7 @@ export interface DeleteClause {
 
 export interface ReturnClause {
   type: "RETURN";
+  distinct?: boolean;
   items: ReturnItem[];
   orderBy?: { expression: Expression; direction: "ASC" | "DESC" }[];
   skip?: number;
@@ -195,6 +196,7 @@ const KEYWORDS = new Set([
   "WITH",
   "AS",
   "IS",
+  "DISTINCT",
 ]);
 
 class Tokenizer {
@@ -618,6 +620,14 @@ export class Parser {
 
   private parseReturn(): ReturnClause {
     this.expect("KEYWORD", "RETURN");
+    
+    // Check for DISTINCT after RETURN
+    let distinct: boolean | undefined;
+    if (this.checkKeyword("DISTINCT")) {
+      this.advance();
+      distinct = true;
+    }
+
     const items: ReturnItem[] = [];
 
     do {
@@ -675,7 +685,7 @@ export class Parser {
       limit = parseInt(limitToken.value, 10);
     }
 
-    return { type: "RETURN", items, orderBy, skip, limit };
+    return { type: "RETURN", distinct, items, orderBy, skip, limit };
   }
 
   /**

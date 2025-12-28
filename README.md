@@ -22,7 +22,7 @@
 | `CONTAINS` / `STARTS WITH` / `ENDS WITH` | Supported |
 | `ORDER BY` | Supported |
 | `SKIP` | Supported |
-| `DISTINCT` | Not supported |
+| `DISTINCT` | Supported |
 | `OPTIONAL MATCH` | Not supported |
 | `WITH` | Not supported |
 | `UNION` | Not supported |

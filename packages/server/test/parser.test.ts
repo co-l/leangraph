@@ -643,6 +643,64 @@ describe("Parser", () => {
       expect(returnClause.items[0].expression.type).toBe("literal");
       expect(returnClause.items[0].expression.value).toBe(1);
     });
+
+    it("parses RETURN DISTINCT with variable", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN DISTINCT n");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.type).toBe("RETURN");
+      expect(returnClause.distinct).toBe(true);
+      expect(returnClause.items).toHaveLength(1);
+      expect(returnClause.items[0].expression.type).toBe("variable");
+    });
+
+    it("parses RETURN DISTINCT with property", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN DISTINCT n.city");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.distinct).toBe(true);
+      expect(returnClause.items[0].expression.type).toBe("property");
+      expect(returnClause.items[0].expression.property).toBe("city");
+    });
+
+    it("parses RETURN DISTINCT with multiple items", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN DISTINCT n.city, n.country");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.distinct).toBe(true);
+      expect(returnClause.items).toHaveLength(2);
+    });
+
+    it("parses RETURN DISTINCT with alias", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN DISTINCT n.city AS location");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.distinct).toBe(true);
+      expect(returnClause.items[0].alias).toBe("location");
+    });
+
+    it("parses RETURN DISTINCT with ORDER BY and LIMIT", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN DISTINCT n.city ORDER BY n.city LIMIT 10");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.distinct).toBe(true);
+      expect(returnClause.orderBy).toHaveLength(1);
+      expect(returnClause.limit).toBe(10);
+    });
+
+    it("parses RETURN without DISTINCT (distinct is undefined)", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.distinct).toBeUndefined();
+    });
+
+    it("parses lowercase return distinct", () => {
+      const query = expectSuccess("match (n:Person) return distinct n.city");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.distinct).toBe(true);
+    });
   });
 
   describe("Parameters", () => {

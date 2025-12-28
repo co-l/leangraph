@@ -522,7 +522,8 @@ export class Translator {
     }
 
     // Build final SQL
-    let sql = `SELECT ${selectParts.join(", ")}`;
+    const distinctKeyword = clause.distinct ? "DISTINCT " : "";
+    let sql = `SELECT ${distinctKeyword}${selectParts.join(", ")}`;
 
     if (fromParts.length > 0) {
       sql += ` FROM ${fromParts.join(", ")}`;

@@ -210,3 +210,66 @@ const pending = await graph.query(`
   RETURN COUNT(t) as count
 `, { projectId: 'proj-1' });
 ```
+
+## Important Conventions
+
+### Node Return Structure
+
+When returning a full node (e.g., `RETURN u`), the result includes the node's internal ID, label, and properties in a nested structure:
+
+```typescript
+const result = await graph.query('MATCH (u:User {id: $id}) RETURN u', { id: 'abc123' });
+// result = [{
+//   u: {
+//     id: "internal-uuid",        // Internal database ID
+//     label: "User",
+//     properties: {
+//       id: "abc123",             // Your application ID
+//       name: "Alice",
+//       email: "alice@example.com"
+//     }
+//   }
+// }]
+
+// Access properties via .properties
+const user = result[0].u;
+const userName = user.properties.name;  // "Alice"
+```
+
+To get properties directly without the wrapper, use property access in your query:
+
+```typescript
+const result = await graph.query(
+  'MATCH (u:User {id: $id}) RETURN u.name as name, u.email as email',
+  { id: 'abc123' }
+);
+// result = [{ name: "Alice", email: "alice@example.com" }]
+```
+
+### Automatic JSON Parsing
+
+NiceFox GraphDB automatically parses JSON strings stored in properties. If you store a JSON string:
+
+```typescript
+await graph.execute(
+  'CREATE (c:Chat {id: $id, messages: $messages})',
+  { id: 'chat-1', messages: JSON.stringify([{ role: 'user', content: 'Hello' }]) }
+);
+```
+
+When you retrieve it, the JSON string is automatically parsed back into an object/array:
+
+```typescript
+const result = await graph.query('MATCH (c:Chat {id: $id}) RETURN c', { id: 'chat-1' });
+const chat = result[0].c;
+// chat.properties.messages is already an array, NOT a string!
+// chat.properties.messages = [{ role: 'user', content: 'Hello' }]
+
+// DON'T do this - it will fail because messages is already parsed:
+// const messages = JSON.parse(chat.properties.messages);  // ERROR!
+
+// DO this instead:
+const messages = chat.properties.messages;  // Already an array
+```
+
+This automatic parsing is recursive and applies to all JSON-serializable values in properties. If you need the raw string, store it with a wrapper or use a different serialization approach.

@@ -1355,6 +1355,67 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
 
+    describe("Multi-hop with ORDER BY and LIMIT", () => {
+      it("handles multi-hop traversal with ORDER BY DESC and LIMIT", () => {
+        // Pattern: MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)-[:BF_HAS_CHAT]->(c:BF_Chat)
+        //          RETURN c ORDER BY c.updated_at DESC LIMIT 20
+        exec("CREATE (u:BF_User {id: 'user-1'})");
+        exec(`
+          MATCH (u:BF_User {id: $userId})
+          CREATE (u)-[:BF_LEARNS]->(l:BF_Language {language: 'Spanish', proficiency: 'beginner'})
+        `, { userId: "user-1" });
+
+        // Create multiple chats with different timestamps
+        const timestamps = [
+          "2024-01-15T10:00:00Z",
+          "2024-01-16T10:00:00Z",
+          "2024-01-14T10:00:00Z",
+          "2024-01-17T10:00:00Z",
+          "2024-01-13T10:00:00Z",
+        ];
+
+        for (let i = 0; i < timestamps.length; i++) {
+          exec(`
+            MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)
+            CREATE (l)-[:BF_HAS_CHAT]->(c:BF_Chat {
+              id: $chatId,
+              title: $title,
+              updated_at: $updatedAt
+            })
+          `, {
+            userId: "user-1",
+            chatId: `chat-${i + 1}`,
+            title: `Chat ${i + 1}`,
+            updatedAt: timestamps[i],
+          });
+        }
+
+        // Query: get chats ordered by updated_at DESC with LIMIT
+        const result = exec(`
+          MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)-[:BF_HAS_CHAT]->(c:BF_Chat)
+          RETURN c
+          ORDER BY c.updated_at DESC
+          LIMIT 20
+        `, { userId: "user-1" });
+
+        expect(result.data).toHaveLength(5);
+        
+        // Verify order is descending by updated_at
+        const chats = result.data.map(r => {
+          const chat = r.c as Record<string, unknown>;
+          const props = chat.properties as Record<string, unknown>;
+          return { id: props.id, updated_at: props.updated_at };
+        });
+        
+        // Should be ordered: 2024-01-17, 2024-01-16, 2024-01-15, 2024-01-14, 2024-01-13
+        expect(chats[0].id).toBe("chat-4"); // 2024-01-17
+        expect(chats[1].id).toBe("chat-2"); // 2024-01-16
+        expect(chats[2].id).toBe("chat-1"); // 2024-01-15
+        expect(chats[3].id).toBe("chat-3"); // 2024-01-14
+        expect(chats[4].id).toBe("chat-5"); // 2024-01-13
+      });
+    });
+
     describe("MERGE with ON CREATE SET and RETURN comparison", () => {
       it("handles MERGE with ON CREATE SET followed by RETURN with equality comparison", () => {
         // This pattern is used to check if a node was created or matched

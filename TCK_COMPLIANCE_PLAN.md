@@ -51,19 +51,40 @@ pnpm test -- -t "openCypher TCK"
 
 ## Tier 1: High Impact, Medium Effort (~100+ tests each)
 
-### 1. Path Expressions `p = (a)-[r]->(b)`
+### 1. Path Expressions `p = (a)-[r]->(b)` - IN PROGRESS
 **Failures**: ~39 tests
+**Status**: Parser and translator implementation complete (December 2024)
 
 ```cypher
 MATCH p = (a)-->(b) RETURN p
 MATCH p = (a)-[r:KNOWS]->(b) RETURN p, length(p)
+MATCH p = (a)-[:KNOWS]->(b)-[:KNOWS]->(c) RETURN length(p), nodes(p), relationships(p)
 ```
 
-**Implementation**:
-- Add `PathExpression` AST node
-- Parser: handle `variable = pattern` syntax
-- Translator: collect nodes/edges into path object
-- Add `length(path)`, `nodes(path)`, `relationships(path)` functions
+**Implementation** (December 2024):
+- **Parser**: Added `PathExpression` interface and `parsePatternOrPath()` method
+  - Handles `variable = pattern` syntax in MATCH clauses
+  - Stores path patterns in `MatchClause.pathExpressions`
+  - Supports both simple paths `p = (a)-[r]->(b)` and multi-hop `p = (a)-[r1]->(b)-[r2]->(c)`
+- **Translator**: Added `registerPathExpression()` to track path components
+  - Registers path variable with type "path" in translation context
+  - Tracks node and edge aliases that make up the path
+  - Returns path as JSON object with nodes and edges arrays
+  - Path functions implemented:
+    - `length(p)`: Returns number of relationships in path
+    - `nodes(p)`: Returns array of node objects in path
+    - `relationships(p)`: Returns array of relationship objects in path
+
+**Known Issues** (needs fixing):
+- Tests currently failing due to multiple labels feature breaking existing CREATE statements
+- Need to fix label storage/retrieval to make tests pass
+- Variable-length paths with path expressions need additional work
+
+**Next Steps**:
+- Fix multiple labels feature to restore test suite
+- Add comprehensive path expression tests once basic tests pass
+- Test path expressions with variable-length paths
+- Performance testing with complex path queries
 
 ### 2. Variable-Length Paths `[*]`, `[*1..3]` - COMPLETED
 **Status**: Implemented (December 2024)
@@ -252,10 +273,11 @@ RETURN [1] + [2] + [3] AS chain        -- Chained concatenation works
 | Phase 1 | Quick Wins (4, 6, 7) | ~840 | ~65% |
 | Phase 1.5 | List Concatenation (10) | ~845 | ~65.5% |
 | Phase 1.6 | Variable-Length Paths (2) | ~882 | ~68.2% |
-| Phase 2 | Paths (1, 3) | ~940 | ~72.5% |
+| Phase 1.7 | Path Expressions (1 - WIP) | ~890 | ~68.8% |
+| Phase 2 | Paths + Multiple Labels (1, 3) | ~940 | ~72.5% |
 | Phase 3 | Remaining (5, 8, 9) | ~1000 | ~77% |
 
-**Note**: Phase 1.6 complete. Variable-length paths now fully functional. Path expressions (item 1) and multiple labels (item 3) remain for Phase 2.
+**Note**: Phase 1.6 complete. Variable-length paths now fully functional. Phase 1.7 in progress - path expressions parser and translator complete, but need to fix multiple labels implementation before tests can pass. Path expressions (item 1) and multiple labels (item 3) are being worked on in parallel for Phase 2.
 
 ---
 

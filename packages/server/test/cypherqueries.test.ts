@@ -2161,4 +2161,198 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data[0].total).toBe(4); // Bob, Charlie, Diana, Eve
     });
   });
+
+  describe("Path Expressions", () => {
+    it("returns a path from simple pattern", () => {
+      // Pattern: MATCH p = (a)-[r]->(b) RETURN p
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN p
+      `);
+
+      expect(result.data).toHaveLength(1);
+      const path = result.data[0].p;
+      expect(path).toBeDefined();
+      // Path should be an object or array containing nodes and relationships
+    });
+
+    it("returns path length with length() function", () => {
+      // Pattern: MATCH p = (a)-[r]->(b) RETURN length(p)
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN length(p) as pathLength
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].pathLength).toBe(1); // 1 relationship = length 1
+    });
+
+    it("returns path length for multi-hop path", () => {
+      // Pattern: MATCH p = (a)-[r1]->(b)-[r2]->(c) RETURN length(p)
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person)
+        RETURN length(p) as pathLength
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].pathLength).toBe(2); // 2 relationships = length 2
+    });
+
+    it("returns nodes in path with nodes() function", () => {
+      // Pattern: MATCH p = (a)-[r]->(b) RETURN nodes(p)
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN nodes(p) as pathNodes
+      `);
+
+      expect(result.data).toHaveLength(1);
+      const nodes = result.data[0].pathNodes as Array<Record<string, unknown>>;
+      expect(nodes).toHaveLength(2); // Alice and Bob
+      expect((nodes[0].properties as Record<string, unknown>).name).toBe("Alice");
+      expect((nodes[1].properties as Record<string, unknown>).name).toBe("Bob");
+    });
+
+    it("returns relationships in path with relationships() function", () => {
+      // Pattern: MATCH p = (a)-[r]->(b) RETURN relationships(p)
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN relationships(p) as pathRels
+      `);
+
+      expect(result.data).toHaveLength(1);
+      const rels = result.data[0].pathRels as Array<Record<string, unknown>>;
+      expect(rels).toHaveLength(1);
+      expect(rels[0].type).toBe("KNOWS");
+    });
+
+    it("returns path with multiple relationships", () => {
+      // Pattern: MATCH p = (a)-[r1]->(b)-[r2]->(c) RETURN p, length(p)
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person)-[:KNOWS]->(c:Person)
+        RETURN p, length(p) as len, nodes(p) as pathNodes
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].len).toBe(2);
+      const nodes = result.data[0].pathNodes as Array<Record<string, unknown>>;
+      expect(nodes).toHaveLength(3); // Alice, Bob, Charlie
+    });
+
+    it("handles path expressions with WHERE clause", () => {
+      // Pattern: MATCH p = (a)-[r]->(b) WHERE length(p) = 1 RETURN p
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})-[:KNOWS]->(d:Person {name: 'Diana'})");
+
+      const result = exec(`
+        MATCH p = (a:Person)-[r:KNOWS]->(b:Person)
+        WHERE length(p) = 1
+        RETURN p, a.name as from, b.name as to
+      `);
+
+      expect(result.data).toHaveLength(2);
+      // Both paths have length 1
+    });
+
+    it("returns path from variable-length pattern", () => {
+      // Pattern: MATCH p = (a)-[*1..2]->(b) RETURN p, length(p)
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[*1..2]->(other:Person)
+        RETURN p, length(p) as len, other.name as name
+        ORDER BY len, name
+      `);
+
+      expect(result.data).toHaveLength(2);
+      // First path: Alice -> Bob (length 1)
+      expect(result.data[0].len).toBe(1);
+      expect(result.data[0].name).toBe("Bob");
+      // Second path: Alice -> Bob -> Charlie (length 2)
+      expect(result.data[1].len).toBe(2);
+      expect(result.data[1].name).toBe("Charlie");
+    });
+
+    it("counts paths with different lengths", () => {
+      // Pattern: MATCH p = (a)-[*]->(b) RETURN length(p) as len, count(*) as pathCount
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      exec("CREATE (d:Person {name: 'Diana'})");
+      
+      // Alice -> Bob
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      // Alice -> Charlie
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (c:Person {name: 'Charlie'})
+        CREATE (a)-[:KNOWS]->(c)
+      `);
+      // Bob -> Diana
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (d:Person {name: 'Diana'})
+        CREATE (b)-[:KNOWS]->(d)
+      `);
+
+      const result = exec(`
+        MATCH p = (a:Person {name: 'Alice'})-[*1..2]->(other:Person)
+        RETURN length(p) as len, count(*) as pathCount
+        ORDER BY len
+      `);
+
+      expect(result.data).toHaveLength(2);
+      // Length 1: Alice -> Bob, Alice -> Charlie (2 paths)
+      expect(result.data[0].len).toBe(1);
+      expect(result.data[0].pathCount).toBe(2);
+      // Length 2: Alice -> Bob -> Diana (1 path)
+      expect(result.data[1].len).toBe(2);
+      expect(result.data[1].pathCount).toBe(1);
+    });
+  });
 });

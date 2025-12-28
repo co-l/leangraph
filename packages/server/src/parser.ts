@@ -25,6 +25,12 @@ export interface RelationshipPattern {
   target: NodePattern;
 }
 
+export interface PathExpression {
+  type: "path";
+  variable: string;
+  patterns: (NodePattern | RelationshipPattern)[];
+}
+
 export interface ParameterRef {
   type: "parameter";
   name: string;
@@ -117,6 +123,7 @@ export interface CreateClause {
 export interface MatchClause {
   type: "MATCH" | "OPTIONAL_MATCH";
   patterns: (NodePattern | RelationshipPattern)[];
+  pathExpressions?: PathExpression[]; // Named paths: p = (a)-[r]->(b)
   where?: WhereCondition;
 }
 
@@ -664,12 +671,24 @@ export class Parser {
   private parseMatch(optional: boolean = false): MatchClause {
     this.expect("KEYWORD", "MATCH");
     const patterns: (NodePattern | RelationshipPattern)[] = [];
+    const pathExpressions: PathExpression[] = [];
 
-    patterns.push(...this.parsePatternChain());
+    // Parse first pattern or path expression
+    const firstPattern = this.parsePatternOrPath();
+    if ("type" in firstPattern && firstPattern.type === "path") {
+      pathExpressions.push(firstPattern);
+    } else {
+      patterns.push(...(Array.isArray(firstPattern) ? firstPattern : [firstPattern]));
+    }
 
     while (this.check("COMMA")) {
       this.advance();
-      patterns.push(...this.parsePatternChain());
+      const nextPattern = this.parsePatternOrPath();
+      if ("type" in nextPattern && nextPattern.type === "path") {
+        pathExpressions.push(nextPattern);
+      } else {
+        patterns.push(...(Array.isArray(nextPattern) ? nextPattern : [nextPattern]));
+      }
     }
 
     let where: WhereCondition | undefined;
@@ -678,7 +697,41 @@ export class Parser {
       where = this.parseWhereCondition();
     }
 
-    return { type: optional ? "OPTIONAL_MATCH" : "MATCH", patterns, where };
+    return { 
+      type: optional ? "OPTIONAL_MATCH" : "MATCH", 
+      patterns, 
+      pathExpressions: pathExpressions.length > 0 ? pathExpressions : undefined,
+      where 
+    };
+  }
+
+  /**
+   * Parse either a regular pattern chain or a named path expression.
+   * Syntax: p = (a)-[r]->(b) or just (a)-[r]->(b)
+   */
+  private parsePatternOrPath(): PathExpression | (NodePattern | RelationshipPattern)[] {
+    // Check for path expression syntax: identifier = pattern
+    if (this.check("IDENTIFIER")) {
+      const savedPos = this.pos;
+      const identifier = this.advance().value;
+      
+      if (this.check("EQUALS")) {
+        // This is a path expression: p = (a)-[r]->(b)
+        this.advance(); // consume "="
+        const patterns = this.parsePatternChain();
+        return {
+          type: "path",
+          variable: identifier,
+          patterns
+        };
+      } else {
+        // Not a path expression, backtrack
+        this.pos = savedPos;
+      }
+    }
+    
+    // Regular pattern chain
+    return this.parsePatternChain();
   }
 
   private parseOptionalMatch(): MatchClause {

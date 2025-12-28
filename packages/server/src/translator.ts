@@ -44,7 +44,7 @@ export interface TranslationResult {
 
 export interface TranslationContext {
   // Maps Cypher variable names to SQL table aliases
-  variables: Map<string, { type: "node" | "edge"; alias: string }>;
+  variables: Map<string, { type: "node" | "edge" | "path"; alias: string }>;
   // Parameter values provided by the user
   paramValues: Record<string, unknown>;
   // Counter for generating unique aliases
@@ -250,6 +250,13 @@ export class Translator {
       }
     }
 
+    // Handle path expressions (e.g., p = (a)-[r]->(b))
+    if (clause.pathExpressions) {
+      for (const pathExpr of clause.pathExpressions) {
+        this.registerPathExpression(pathExpr, optional);
+      }
+    }
+
     // Store the where clause in context for later use
     // For OPTIONAL MATCH, we need to associate the where with the optional patterns
     if (clause.where) {
@@ -265,6 +272,60 @@ export class Translator {
     }
 
     return [];
+  }
+
+  private registerPathExpression(pathExpr: any, optional: boolean = false): void {
+    // Register the path variable so it can be returned
+    const pathAlias = `path${this.ctx.aliasCounter++}`;
+    this.ctx.variables.set(pathExpr.variable, { type: "path", alias: pathAlias });
+
+    // Store path information
+    if (!(this.ctx as any).pathExpressions) {
+      (this.ctx as any).pathExpressions = [];
+    }
+
+    const nodeAliases: string[] = [];
+    const edgeAliases: string[] = [];
+
+    // Register all patterns within the path
+    for (const pattern of pathExpr.patterns) {
+      if (this.isRelationshipPattern(pattern)) {
+        const relPattern = pattern as any;
+        
+        // Check if source is first in chain - if so, record it before registering relationship
+        const isFirstInChain = nodeAliases.length === 0;
+        
+        // Register the relationship pattern - this will handle node and edge registration
+        this.registerRelationshipPattern(pattern, optional);
+        
+        // Now extract the aliases that were created
+        const relPatternInfo = (this.ctx as any).relationshipPatterns[(this.ctx as any).relationshipPatterns.length - 1];
+        
+        // Add source node alias (only for first pattern in chain)
+        if (isFirstInChain) {
+          nodeAliases.push(relPatternInfo.sourceAlias);
+        }
+        
+        // Add edge alias
+        edgeAliases.push(relPatternInfo.edgeAlias);
+        
+        // Add target node alias
+        nodeAliases.push(relPatternInfo.targetAlias);
+      } else {
+        // Single node pattern in path
+        const nodeAlias = this.registerNodePattern(pattern, optional);
+        nodeAliases.push(nodeAlias);
+      }
+    }
+
+    (this.ctx as any).pathExpressions.push({
+      variable: pathExpr.variable,
+      alias: pathAlias,
+      nodeAliases: Array.from(new Set(nodeAliases)), // Remove duplicates
+      edgeAliases,
+      patterns: pathExpr.patterns,
+      optional
+    });
   }
 
   private registerNodePattern(node: NodePattern, optional: boolean = false): string {
@@ -1552,6 +1613,41 @@ export class Translator {
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);
         }
+        
+        // Handle path variables
+        if (varInfo.type === "path") {
+          const pathExpressions = (this.ctx as any).pathExpressions as Array<{
+            variable: string;
+            alias: string;
+            nodeAliases: string[];
+            edgeAliases: string[];
+          }> | undefined;
+          
+          if (pathExpressions) {
+            const pathInfo = pathExpressions.find(p => p.variable === expr.variable);
+            if (pathInfo) {
+              // Add all tables involved in the path
+              tables.push(...pathInfo.nodeAliases, ...pathInfo.edgeAliases);
+              
+              // Construct a path object with nodes and edges arrays
+              const nodesJson = pathInfo.nodeAliases.map(alias => 
+                `json_object('id', ${alias}.id, 'label', ${alias}.label, 'properties', ${alias}.properties)`
+              ).join(', ');
+              
+              const edgesJson = pathInfo.edgeAliases.map(alias =>
+                `json_object('id', ${alias}.id, 'type', ${alias}.type, 'source_id', ${alias}.source_id, 'target_id', ${alias}.target_id, 'properties', ${alias}.properties)`
+              ).join(', ');
+              
+              return {
+                sql: `json_object('nodes', json_array(${nodesJson}), 'edges', json_array(${edgesJson}))`,
+                tables,
+                params,
+              };
+            }
+          }
+          throw new Error(`Path information not found for variable: ${expr.variable}`);
+        }
+        
         tables.push(varInfo.alias);
         // Return the whole row as JSON for variables
         // Nodes have: id, label, properties
@@ -1726,6 +1822,109 @@ export class Translator {
             }
           }
           throw new Error(`COLLECT requires a property, variable, or object argument`);
+        }
+
+        // ============================================================================
+        // Path functions
+        // ============================================================================
+
+        // LENGTH: return the number of relationships in a path
+        if (expr.functionName === "LENGTH") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              
+              if (varInfo.type === "path") {
+                const pathExpressions = (this.ctx as any).pathExpressions as Array<{
+                  variable: string;
+                  edgeAliases: string[];
+                }> | undefined;
+                
+                if (pathExpressions) {
+                  const pathInfo = pathExpressions.find(p => p.variable === arg.variable);
+                  if (pathInfo) {
+                    // Path length is the number of edges
+                    return { sql: `${pathInfo.edgeAliases.length}`, tables, params };
+                  }
+                }
+              }
+            }
+          }
+          throw new Error("LENGTH requires a path variable argument");
+        }
+
+        // NODES: return array of nodes in a path
+        if (expr.functionName === "NODES") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              
+              if (varInfo.type === "path") {
+                const pathExpressions = (this.ctx as any).pathExpressions as Array<{
+                  variable: string;
+                  nodeAliases: string[];
+                }> | undefined;
+                
+                if (pathExpressions) {
+                  const pathInfo = pathExpressions.find(p => p.variable === arg.variable);
+                  if (pathInfo) {
+                    tables.push(...pathInfo.nodeAliases);
+                    
+                    // Return array of node objects
+                    const nodesJson = pathInfo.nodeAliases.map(alias => 
+                      `json_object('id', ${alias}.id, 'label', ${alias}.label, 'properties', ${alias}.properties)`
+                    ).join(', ');
+                    
+                    return { sql: `json_array(${nodesJson})`, tables, params };
+                  }
+                }
+              }
+            }
+          }
+          throw new Error("NODES requires a path variable argument");
+        }
+
+        // RELATIONSHIPS: return array of relationships in a path
+        if (expr.functionName === "RELATIONSHIPS") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              
+              if (varInfo.type === "path") {
+                const pathExpressions = (this.ctx as any).pathExpressions as Array<{
+                  variable: string;
+                  edgeAliases: string[];
+                }> | undefined;
+                
+                if (pathExpressions) {
+                  const pathInfo = pathExpressions.find(p => p.variable === arg.variable);
+                  if (pathInfo) {
+                    tables.push(...pathInfo.edgeAliases);
+                    
+                    // Return array of relationship objects
+                    const edgesJson = pathInfo.edgeAliases.map(alias =>
+                      `json_object('id', ${alias}.id, 'type', ${alias}.type, 'source_id', ${alias}.source_id, 'target_id', ${alias}.target_id, 'properties', ${alias}.properties)`
+                    ).join(', ');
+                    
+                    return { sql: `json_array(${edgesJson})`, tables, params };
+                  }
+                }
+              }
+            }
+          }
+          throw new Error("RELATIONSHIPS requires a path variable argument");
         }
 
         // ============================================================================

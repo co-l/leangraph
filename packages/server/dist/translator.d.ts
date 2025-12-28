@@ -9,7 +9,7 @@ export interface TranslationResult {
 }
 export interface TranslationContext {
     variables: Map<string, {
-        type: "node" | "edge";
+        type: "node" | "edge" | "path";
         alias: string;
     }>;
     paramValues: Record<string, unknown>;
@@ -25,6 +25,7 @@ export declare class Translator {
     private translateCreateNode;
     private translateCreateRelationship;
     private translateMatch;
+    private registerPathExpression;
     private registerNodePattern;
     private registerRelationshipPattern;
     private translateMerge;

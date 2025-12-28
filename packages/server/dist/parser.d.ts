@@ -16,6 +16,11 @@ export interface RelationshipPattern {
     edge: EdgePattern;
     target: NodePattern;
 }
+export interface PathExpression {
+    type: "path";
+    variable: string;
+    patterns: (NodePattern | RelationshipPattern)[];
+}
 export interface ParameterRef {
     type: "parameter";
     name: string;
@@ -83,6 +88,7 @@ export interface CreateClause {
 export interface MatchClause {
     type: "MATCH" | "OPTIONAL_MATCH";
     patterns: (NodePattern | RelationshipPattern)[];
+    pathExpressions?: PathExpression[];
     where?: WhereCondition;
 }
 export interface MergeClause {
@@ -167,6 +173,11 @@ export declare class Parser {
     private parseClause;
     private parseCreate;
     private parseMatch;
+    /**
+     * Parse either a regular pattern chain or a named path expression.
+     * Syntax: p = (a)-[r]->(b) or just (a)-[r]->(b)
+     */
+    private parsePatternOrPath;
     private parseOptionalMatch;
     private parseMerge;
     private parseSet;

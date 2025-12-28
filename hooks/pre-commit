@@ -1,0 +1,8 @@
+#!/bin/bash
+# Pre-commit hook: rebuild dist/ and stage changes
+
+echo "Building packages..."
+pnpm build
+
+# Stage any changes to dist/
+git add packages/*/dist/

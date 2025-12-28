@@ -104,6 +104,127 @@ describe("Integration Tests", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].count).toBe(3);
     });
+
+    it("orders results by property ASC", () => {
+      executor.execute("CREATE (n:Person {name: 'Charlie', age: 35})");
+      executor.execute("CREATE (n:Person {name: 'Alice', age: 25})");
+      executor.execute("CREATE (n:Person {name: 'Bob', age: 30})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name ASC")
+      );
+
+      expect(result.data).toHaveLength(3);
+      expect(result.data[0].n_name).toBe("Alice");
+      expect(result.data[1].n_name).toBe("Bob");
+      expect(result.data[2].n_name).toBe("Charlie");
+    });
+
+    it("orders results by property DESC", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice', age: 25})");
+      executor.execute("CREATE (n:Person {name: 'Bob', age: 30})");
+      executor.execute("CREATE (n:Person {name: 'Charlie', age: 35})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name, n.age ORDER BY n.age DESC")
+      );
+
+      expect(result.data).toHaveLength(3);
+      expect(result.data[0].n_age).toBe(35);
+      expect(result.data[1].n_age).toBe(30);
+      expect(result.data[2].n_age).toBe(25);
+    });
+
+    it("orders results by multiple fields", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice', dept: 'Engineering', age: 30})");
+      executor.execute("CREATE (n:Person {name: 'Bob', dept: 'Engineering', age: 25})");
+      executor.execute("CREATE (n:Person {name: 'Charlie', dept: 'Sales', age: 35})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name, n.dept ORDER BY n.dept ASC, n.name ASC")
+      );
+
+      expect(result.data).toHaveLength(3);
+      // Engineering comes first alphabetically, then sorted by name within dept
+      expect(result.data[0].n_name).toBe("Alice");
+      expect(result.data[1].n_name).toBe("Bob");
+      expect(result.data[2].n_name).toBe("Charlie");
+    });
+
+    it("orders results with LIMIT", () => {
+      executor.execute("CREATE (n:Person {name: 'Charlie'})");
+      executor.execute("CREATE (n:Person {name: 'Alice'})");
+      executor.execute("CREATE (n:Person {name: 'Bob'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name LIMIT 2")
+      );
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].n_name).toBe("Alice");
+      expect(result.data[1].n_name).toBe("Bob");
+    });
+
+    it("uses SKIP correctly", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice'})");
+      executor.execute("CREATE (n:Person {name: 'Bob'})");
+      executor.execute("CREATE (n:Person {name: 'Charlie'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 1")
+      );
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].n_name).toBe("Bob");
+      expect(result.data[1].n_name).toBe("Charlie");
+    });
+
+    it("uses SKIP with LIMIT for pagination", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice'})");
+      executor.execute("CREATE (n:Person {name: 'Bob'})");
+      executor.execute("CREATE (n:Person {name: 'Charlie'})");
+      executor.execute("CREATE (n:Person {name: 'Dave'})");
+      executor.execute("CREATE (n:Person {name: 'Eve'})");
+
+      // Page 1: first 2 results
+      const page1 = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 0 LIMIT 2")
+      );
+      expect(page1.data).toHaveLength(2);
+      expect(page1.data[0].n_name).toBe("Alice");
+      expect(page1.data[1].n_name).toBe("Bob");
+
+      // Page 2: next 2 results
+      const page2 = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 2 LIMIT 2")
+      );
+      expect(page2.data).toHaveLength(2);
+      expect(page2.data[0].n_name).toBe("Charlie");
+      expect(page2.data[1].n_name).toBe("Dave");
+
+      // Page 3: last result
+      const page3 = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 4 LIMIT 2")
+      );
+      expect(page3.data).toHaveLength(1);
+      expect(page3.data[0].n_name).toBe("Eve");
+    });
+
+    it("uses ORDER BY with DESC and SKIP and LIMIT", () => {
+      executor.execute("CREATE (n:Person {name: 'Alice', score: 100})");
+      executor.execute("CREATE (n:Person {name: 'Bob', score: 85})");
+      executor.execute("CREATE (n:Person {name: 'Charlie', score: 92})");
+      executor.execute("CREATE (n:Person {name: 'Dave', score: 78})");
+
+      // Get 2nd and 3rd highest scores
+      const result = expectSuccess(
+        executor.execute("MATCH (n:Person) RETURN n.name, n.score ORDER BY n.score DESC SKIP 1 LIMIT 2")
+      );
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].n_score).toBe(92); // Charlie (2nd highest)
+      expect(result.data[1].n_score).toBe(85); // Bob (3rd highest)
+    });
   });
 
   describe("CREATE relationships", () => {

@@ -20,8 +20,8 @@
 | `AND` / `OR` / `NOT` | Supported |
 | `IS NULL` / `IS NOT NULL` | Supported |
 | `CONTAINS` / `STARTS WITH` / `ENDS WITH` | Supported |
-| `ORDER BY` | Not supported |
-| `SKIP` | Not supported |
+| `ORDER BY` | Supported |
+| `SKIP` | Supported |
 | `DISTINCT` | Not supported |
 | `OPTIONAL MATCH` | Not supported |
 | `WITH` | Not supported |

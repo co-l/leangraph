@@ -194,6 +194,70 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["count"]);
     });
 
+    it("generates ORDER BY clause with single property", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n ORDER BY n.name");
+
+      expect(result.statements[0].sql).toContain("ORDER BY");
+      expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.statements[0].sql).toContain("$.name");
+      expect(result.statements[0].sql).toContain("ASC");
+    });
+
+    it("generates ORDER BY with DESC", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n ORDER BY n.age DESC");
+
+      expect(result.statements[0].sql).toContain("ORDER BY");
+      expect(result.statements[0].sql).toContain("DESC");
+    });
+
+    it("generates ORDER BY with multiple fields", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n ORDER BY n.name ASC, n.age DESC");
+
+      expect(result.statements[0].sql).toContain("ORDER BY");
+      expect(result.statements[0].sql).toMatch(/ASC.*DESC/);
+    });
+
+    it("generates ORDER BY before LIMIT", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n ORDER BY n.name LIMIT 10");
+
+      const sql = result.statements[0].sql;
+      const orderByIndex = sql.indexOf("ORDER BY");
+      const limitIndex = sql.indexOf("LIMIT");
+      expect(orderByIndex).toBeLessThan(limitIndex);
+    });
+
+    it("generates OFFSET for SKIP", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n SKIP 5");
+
+      expect(result.statements[0].sql).toContain("OFFSET");
+      expect(result.statements[0].params).toContain(5);
+    });
+
+    it("generates LIMIT and OFFSET for SKIP with LIMIT", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n SKIP 10 LIMIT 5");
+
+      expect(result.statements[0].sql).toContain("LIMIT");
+      expect(result.statements[0].sql).toContain("OFFSET");
+      expect(result.statements[0].params).toContain(5);
+      expect(result.statements[0].params).toContain(10);
+    });
+
+    it("generates ORDER BY with SKIP and LIMIT", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN n ORDER BY n.name SKIP 10 LIMIT 5");
+
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("ORDER BY");
+      expect(sql).toContain("LIMIT");
+      expect(sql).toContain("OFFSET");
+      
+      // Verify order: ORDER BY before LIMIT before OFFSET
+      const orderByIndex = sql.indexOf("ORDER BY");
+      const limitIndex = sql.indexOf("LIMIT");
+      const offsetIndex = sql.indexOf("OFFSET");
+      expect(orderByIndex).toBeLessThan(limitIndex);
+      expect(limitIndex).toBeLessThan(offsetIndex);
+    });
+
     it("handles alias in RETURN", () => {
       const result = translateCypher(
         "MATCH (n:Person) RETURN n.name AS personName"

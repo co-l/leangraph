@@ -538,6 +538,75 @@ describe("Parser", () => {
       expect(returnClause.limit).toBe(1);
     });
 
+    it("parses RETURN with ORDER BY single property", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n ORDER BY n.name");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.orderBy).toBeDefined();
+      expect(returnClause.orderBy).toHaveLength(1);
+      expect(returnClause.orderBy![0].expression.type).toBe("property");
+      expect(returnClause.orderBy![0].expression.variable).toBe("n");
+      expect(returnClause.orderBy![0].expression.property).toBe("name");
+      expect(returnClause.orderBy![0].direction).toBe("ASC");
+    });
+
+    it("parses ORDER BY with explicit ASC", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n ORDER BY n.name ASC");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.orderBy![0].direction).toBe("ASC");
+    });
+
+    it("parses ORDER BY with DESC", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n ORDER BY n.age DESC");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.orderBy![0].direction).toBe("DESC");
+    });
+
+    it("parses ORDER BY with multiple fields", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n ORDER BY n.name ASC, n.age DESC");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.orderBy).toHaveLength(2);
+      expect(returnClause.orderBy![0].expression.property).toBe("name");
+      expect(returnClause.orderBy![0].direction).toBe("ASC");
+      expect(returnClause.orderBy![1].expression.property).toBe("age");
+      expect(returnClause.orderBy![1].direction).toBe("DESC");
+    });
+
+    it("parses ORDER BY with LIMIT", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n ORDER BY n.name LIMIT 10");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.orderBy).toHaveLength(1);
+      expect(returnClause.limit).toBe(10);
+    });
+
+    it("parses RETURN with SKIP", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n SKIP 5");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.skip).toBe(5);
+    });
+
+    it("parses SKIP with LIMIT", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n SKIP 10 LIMIT 5");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.skip).toBe(10);
+      expect(returnClause.limit).toBe(5);
+    });
+
+    it("parses ORDER BY with SKIP and LIMIT", () => {
+      const query = expectSuccess("MATCH (n:Person) RETURN n ORDER BY n.name SKIP 10 LIMIT 5");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.orderBy).toHaveLength(1);
+      expect(returnClause.skip).toBe(10);
+      expect(returnClause.limit).toBe(5);
+    });
+
     it("allows keywords as aliases", () => {
       // 'count' is a keyword but should work as an alias
       const query = expectSuccess("MATCH (n) RETURN COUNT(n) AS count");

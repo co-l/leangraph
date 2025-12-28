@@ -99,8 +99,9 @@ export interface DeleteClause {
 export interface ReturnClause {
   type: "RETURN";
   items: ReturnItem[];
-  limit?: number;
   orderBy?: { expression: Expression; direction: "ASC" | "DESC" }[];
+  skip?: number;
+  limit?: number;
 }
 
 export type Clause =
@@ -178,6 +179,7 @@ const KEYWORDS = new Set([
   "OR",
   "NOT",
   "LIMIT",
+  "SKIP",
   "ORDER",
   "BY",
   "ASC",
@@ -634,6 +636,38 @@ export class Parser {
       items.push({ expression, alias });
     } while (this.check("COMMA"));
 
+    // Parse ORDER BY
+    let orderBy: { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;
+    if (this.checkKeyword("ORDER")) {
+      this.advance();
+      this.expect("KEYWORD", "BY");
+      orderBy = [];
+
+      do {
+        if (orderBy.length > 0) {
+          this.expect("COMMA");
+        }
+        const expression = this.parseExpression();
+        let direction: "ASC" | "DESC" = "ASC"; // Default to ASC
+        if (this.checkKeyword("ASC")) {
+          this.advance();
+        } else if (this.checkKeyword("DESC")) {
+          this.advance();
+          direction = "DESC";
+        }
+        orderBy.push({ expression, direction });
+      } while (this.check("COMMA"));
+    }
+
+    // Parse SKIP
+    let skip: number | undefined;
+    if (this.checkKeyword("SKIP")) {
+      this.advance();
+      const skipToken = this.expect("NUMBER");
+      skip = parseInt(skipToken.value, 10);
+    }
+
+    // Parse LIMIT
     let limit: number | undefined;
     if (this.checkKeyword("LIMIT")) {
       this.advance();
@@ -641,7 +675,7 @@ export class Parser {
       limit = parseInt(limitToken.value, 10);
     }
 
-    return { type: "RETURN", items, limit };
+    return { type: "RETURN", items, orderBy, skip, limit };
   }
 
   /**

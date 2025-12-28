@@ -536,9 +536,30 @@ export class Translator {
       sql += ` WHERE ${whereParts.join(" AND ")}`;
     }
 
-    if (clause.limit !== undefined) {
-      sql += ` LIMIT ?`;
-      params.push(clause.limit);
+    // Add ORDER BY clause
+    if (clause.orderBy && clause.orderBy.length > 0) {
+      const orderParts = clause.orderBy.map(({ expression, direction }) => {
+        const { sql: exprSql } = this.translateOrderByExpression(expression);
+        return `${exprSql} ${direction}`;
+      });
+      sql += ` ORDER BY ${orderParts.join(", ")}`;
+    }
+
+    // Add LIMIT and OFFSET (SKIP)
+    // SQLite requires LIMIT before OFFSET
+    if (clause.limit !== undefined || clause.skip !== undefined) {
+      if (clause.limit !== undefined) {
+        sql += ` LIMIT ?`;
+        params.push(clause.limit);
+      } else if (clause.skip !== undefined) {
+        // SKIP without LIMIT - need a large limit for SQLite
+        sql += ` LIMIT -1`;
+      }
+
+      if (clause.skip !== undefined) {
+        sql += ` OFFSET ?`;
+        params.push(clause.skip);
+      }
     }
 
     // Combine expression params with other params (expression params come first for SELECT)
@@ -703,6 +724,44 @@ export class Translator {
 
       default:
         throw new Error(`Unknown condition type: ${condition.type}`);
+    }
+  }
+
+  private translateOrderByExpression(expr: Expression): { sql: string } {
+    switch (expr.type) {
+      case "property": {
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (!varInfo) {
+          throw new Error(`Unknown variable: ${expr.variable}`);
+        }
+        return {
+          sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+        };
+      }
+
+      case "variable": {
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (!varInfo) {
+          throw new Error(`Unknown variable: ${expr.variable}`);
+        }
+        return { sql: `${varInfo.alias}.id` };
+      }
+
+      case "function": {
+        if (expr.functionName === "ID") {
+          if (expr.args && expr.args.length > 0 && expr.args[0].type === "variable") {
+            const varInfo = this.ctx.variables.get(expr.args[0].variable!);
+            if (!varInfo) {
+              throw new Error(`Unknown variable: ${expr.args[0].variable}`);
+            }
+            return { sql: `${varInfo.alias}.id` };
+          }
+        }
+        throw new Error(`Cannot order by function: ${expr.functionName}`);
+      }
+
+      default:
+        throw new Error(`Cannot order by expression of type ${expr.type}`);
     }
   }
 

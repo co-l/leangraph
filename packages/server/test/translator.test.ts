@@ -21,7 +21,7 @@ describe("Translator", () => {
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)"
       );
       expect(result.statements[0].params).toHaveLength(3);
-      expect(result.statements[0].params[1]).toBe("Person");
+      expect(result.statements[0].params[1]).toBe('["Person"]');
       expect(result.statements[0].params[2]).toBe("{}");
     });
 
@@ -82,11 +82,11 @@ describe("Translator", () => {
 
       // First: source node
       expect(result.statements[0].sql).toContain("INSERT INTO nodes");
-      expect(result.statements[0].params[1]).toBe("Person");
+      expect(result.statements[0].params[1]).toBe('["Person"]');
 
       // Second: target node
       expect(result.statements[1].sql).toContain("INSERT INTO nodes");
-      expect(result.statements[1].params[1]).toBe("Person");
+      expect(result.statements[1].params[1]).toBe('["Person"]');
 
       // Third: edge
       expect(result.statements[2].sql).toBe(
@@ -143,7 +143,8 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("SELECT");
       expect(result.statements[0].sql).toContain("FROM nodes");
       expect(result.statements[0].sql).toContain("WHERE");
-      expect(result.statements[0].sql).toContain("label = ?");
+      // Labels are stored as JSON arrays, so we use json_each for matching
+      expect(result.statements[0].sql).toContain("json_each");
       expect(result.statements[0].params).toContain("Person");
     });
 
@@ -1181,7 +1182,8 @@ describe("Translator", () => {
 
       const sql = result.statements[0].sql;
       expect(sql).toContain("EXISTS");
-      expect(sql).toContain("label = ?");
+      // Labels are stored as JSON arrays, so we use json_each for matching
+      expect(sql).toContain("json_each");
     });
 
     it("combines EXISTS with AND condition", () => {

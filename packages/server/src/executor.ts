@@ -288,7 +288,7 @@ export class Executor {
                   const row = nodeResult.rows[0];
                   resultRow[alias] = {
                     id: row.id,
-                    label: row.label,
+                    label: this.normalizeLabelForOutput(row.label),
                     properties: typeof row.properties === "string"
                       ? JSON.parse(row.properties)
                       : row.properties,
@@ -645,7 +645,7 @@ export class Executor {
             const row = nodeResult.rows[0];
             resultRow[alias] = {
               id: row.id,
-              label: row.label,
+              label: this.normalizeLabelForOutput(row.label),
               properties: typeof row.properties === "string" 
                 ? JSON.parse(row.properties) 
                 : row.properties,
@@ -1025,7 +1025,7 @@ export class Executor {
         if (node) {
           resultRow[alias] = {
             id: node.id,
-            label: node.label,
+            label: this.normalizeLabelForOutput(node.label),
             properties: node.properties,
           };
         }
@@ -1518,7 +1518,7 @@ export class Executor {
               const row = nodeResult.rows[0];
               resultRow[alias] = {
                 id: row.id,
-                label: row.label,
+                label: this.normalizeLabelForOutput(row.label),
                 properties: typeof row.properties === "string"
                   ? JSON.parse(row.properties)
                   : row.properties,
@@ -1833,14 +1833,15 @@ export class Executor {
 
   /**
    * Recursively parse JSON strings in a value
+   * Also normalizes labels (single-element arrays become strings)
    */
-  private deepParseJson(value: unknown): unknown {
+  private deepParseJson(value: unknown, key?: string): unknown {
     if (typeof value === "string") {
       try {
         const parsed = JSON.parse(value);
         // Recursively process if it's an object or array
         if (typeof parsed === "object" && parsed !== null) {
-          return this.deepParseJson(parsed);
+          return this.deepParseJson(parsed, key);
         }
         return parsed;
       } catch {
@@ -1850,13 +1851,17 @@ export class Executor {
     }
 
     if (Array.isArray(value)) {
+      // If this is a label field, normalize it (single element -> string)
+      if (key === "label") {
+        return value.length === 1 ? value[0] : value;
+      }
       return value.map((item) => this.deepParseJson(item));
     }
 
     if (typeof value === "object" && value !== null) {
       const result: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value)) {
-        result[k] = this.deepParseJson(v);
+        result[k] = this.deepParseJson(v, k);
       }
       return result;
     }
@@ -1874,6 +1879,37 @@ export class Executor {
     }
     const labelArray = Array.isArray(label) ? label : [label];
     return JSON.stringify(labelArray);
+  }
+
+  /**
+   * Normalize label for output (from database JSON to user-friendly format)
+   * Single label: return string, multiple labels: return array
+   */
+  private normalizeLabelForOutput(label: unknown): string | string[] {
+    if (label === null || label === undefined) {
+      return [];
+    }
+    
+    // If it's already an array, normalize it
+    if (Array.isArray(label)) {
+      return label.length === 1 ? label[0] : label;
+    }
+    
+    // If it's a JSON string, parse it
+    if (typeof label === "string") {
+      try {
+        const parsed = JSON.parse(label);
+        if (Array.isArray(parsed)) {
+          return parsed.length === 1 ? parsed[0] : parsed;
+        }
+        return parsed;
+      } catch {
+        // Not valid JSON, return as-is
+        return label;
+      }
+    }
+    
+    return String(label);
   }
 
   /**

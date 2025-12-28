@@ -160,6 +160,7 @@ export declare class Executor {
     private formatResults;
     /**
      * Recursively parse JSON strings in a value
+     * Also normalizes labels (single-element arrays become strings)
      */
     private deepParseJson;
     /**
@@ -167,6 +168,11 @@ export declare class Executor {
      * Handles both single labels and multiple labels
      */
     private normalizeLabelToJson;
+    /**
+     * Normalize label for output (from database JSON to user-friendly format)
+     * Single label: return string, multiple labels: return array
+     */
+    private normalizeLabelForOutput;
     /**
      * Generate SQL condition for label matching
      * Supports both single and multiple labels

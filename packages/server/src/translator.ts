@@ -100,7 +100,8 @@ export class Translator {
       
       // Add WHERE from CALL...YIELD...WHERE
       if (callClause.where) {
-        const whereResult = this.translateCallWhere(callClause.where, callClause.returnColumn);
+        // Use columnName (actual SQL column) for WHERE clause translation
+        const whereResult = this.translateCallWhere(callClause.where, callClause.columnName);
         sql += ` AND (${whereResult.sql})`;
         params.push(...whereResult.params);
       }
@@ -421,8 +422,9 @@ export class Translator {
     const serialized = this.serializeProperties(props);
 
     // Build condition to find existing node
-    const conditions: string[] = ["label = ?"];
-    const params: unknown[] = [label];
+    const labelCondition = this.generateLabelMatchCondition("", label);
+    const conditions: string[] = [labelCondition.sql.replace(/^[^.]+\./, "")]; // Remove alias prefix
+    const params: unknown[] = [...labelCondition.params];
 
     for (const [key, value] of Object.entries(props)) {
       if (this.isParameterRef(value)) {
@@ -439,6 +441,9 @@ export class Translator {
       this.ctx.variables.set(node.variable, { type: "node", alias: id });
     }
 
+    // Normalize label to JSON array for storage
+    const labelJson = this.normalizeLabelToJson(label);
+
     // SQLite INSERT OR IGNORE + SELECT approach
     // First, try to insert
     const insertSql = `INSERT OR IGNORE INTO nodes (id, label, properties) 
@@ -448,7 +453,7 @@ export class Translator {
     return [
       {
         sql: insertSql,
-        params: [id, label, serialized.json, ...params],
+        params: [id, labelJson, serialized.json, ...params],
       },
     ];
   }
@@ -682,8 +687,9 @@ export class Translator {
           // For optional patterns, add label and property filters to ON clause
           const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
           if (isOptional && targetPattern?.label) {
-            targetOnConditions.push(`${relPattern.targetAlias}.label = ?`);
-            targetOnParams.push(targetPattern.label);
+            const labelMatch = this.generateLabelMatchCondition(relPattern.targetAlias, targetPattern.label);
+            targetOnConditions.push(labelMatch.sql);
+            targetOnParams.push(...labelMatch.params);
             filteredNodeAliases.add(relPattern.targetAlias);
           }
           if (isOptional && targetPattern?.properties) {
@@ -723,8 +729,9 @@ export class Translator {
               // For optional source nodes, this shouldn't happen often
               // as optional patterns usually reference required nodes
             } else {
-              whereParts.push(`${relPattern.sourceAlias}.label = ?`);
-              whereParams.push(sourcePattern.label);
+              const labelMatch = this.generateLabelMatchCondition(relPattern.sourceAlias, sourcePattern.label);
+              whereParts.push(labelMatch.sql);
+              whereParams.push(...labelMatch.params);
             }
           }
           if (sourcePattern?.properties && !sourceIsOptional) {
@@ -746,8 +753,9 @@ export class Translator {
           const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
           if (!isOptional) {
             if (targetPattern?.label) {
-              whereParts.push(`${relPattern.targetAlias}.label = ?`);
-              whereParams.push(targetPattern.label);
+              const labelMatch = this.generateLabelMatchCondition(relPattern.targetAlias, targetPattern.label);
+              whereParts.push(labelMatch.sql);
+              whereParams.push(...labelMatch.params);
             }
             if (targetPattern?.properties) {
               for (const [key, value] of Object.entries(targetPattern.properties)) {
@@ -1086,7 +1094,8 @@ export class Translator {
     
     // Add WHERE from CALL...YIELD...WHERE
     if (callClause.where) {
-      const whereResult = this.translateCallWhere(callClause.where, callClause.returnColumn);
+      // Use columnName (actual SQL column) for WHERE clause translation
+      const whereResult = this.translateCallWhere(callClause.where, callClause.columnName);
       whereParts.push(whereResult.sql);
       params.push(...whereResult.params);
     }
@@ -1429,9 +1438,10 @@ export class Translator {
 
     switch (procedure) {
       case "db.labels":
-        // Get distinct labels from nodes table
-        tableName = "nodes";
-        columnName = "label";
+        // Get distinct labels from nodes table (labels are stored as JSON arrays)
+        // We need to extract individual labels from json_each
+        tableName = "nodes, json_each(nodes.label)";
+        columnName = "json_each.value";
         returnColumn = "label";
         break;
       case "db.relationshiptypes":
@@ -1455,14 +1465,15 @@ export class Translator {
     };
 
     // Register yield variables for subsequent clauses
+    // Use columnName (actual SQL column) for variable resolution
     if (clause.yields) {
       for (const yieldVar of clause.yields) {
         // Use a special marker to track CALL yield variables
-        (this.ctx as any)[`call_yield_${yieldVar}`] = returnColumn;
+        (this.ctx as any)[`call_yield_${yieldVar}`] = columnName;
       }
     } else {
       // Default yield variable matches the return column
-      (this.ctx as any)[`call_yield_${returnColumn}`] = returnColumn;
+      (this.ctx as any)[`call_yield_${returnColumn}`] = columnName;
     }
 
     // Don't generate SQL here - let translateReturn handle it if there's a RETURN clause
@@ -2741,8 +2752,9 @@ export class Translator {
         } else {
           fromClause += ` JOIN nodes ${targetAlias} ON ${edgeAlias}.target_id = ${targetAlias}.id`;
         }
-        conditions.push(`${targetAlias}.label = ?`);
-        params.push(rel.target.label);
+        const labelMatch = this.generateLabelMatchCondition(targetAlias, rel.target.label);
+        conditions.push(labelMatch.sql);
+        params.push(...labelMatch.params);
       }
       
       sql = `EXISTS (SELECT 1 FROM ${fromClause} WHERE ${conditions.join(" AND ")})`;
@@ -3018,23 +3030,35 @@ export class Translator {
    */
   private generateLabelMatchCondition(alias: string, label: string | string[]): { sql: string; params: unknown[] } {
     const labels = Array.isArray(label) ? label : [label];
+    const prefix = alias ? `${alias}.` : "";
     
     if (labels.length === 1) {
       // Single label: check if it exists in the JSON array
       return {
-        sql: `EXISTS (SELECT 1 FROM json_each(${alias}.label) WHERE value = ?)`,
+        sql: `EXISTS (SELECT 1 FROM json_each(${prefix}label) WHERE value = ?)`,
         params: [labels[0]]
       };
     } else {
       // Multiple labels: check if all exist in the JSON array
       const conditions = labels.map(() => 
-        `EXISTS (SELECT 1 FROM json_each(${alias}.label) WHERE value = ?)`
+        `EXISTS (SELECT 1 FROM json_each(${prefix}label) WHERE value = ?)`
       );
       return {
         sql: conditions.join(" AND "),
         params: labels
       };
     }
+  }
+
+  /**
+   * Normalize label to JSON array string for storage
+   */
+  private normalizeLabelToJson(label: string | string[] | undefined): string {
+    if (!label) {
+      return JSON.stringify([]);
+    }
+    const labelArray = Array.isArray(label) ? label : [label];
+    return JSON.stringify(labelArray);
   }
 
   private findVariablesInCondition(condition: WhereCondition): string[] {

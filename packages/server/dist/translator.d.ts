@@ -67,6 +67,10 @@ export declare class Translator {
      * For multiple labels ["A", "B"], checks if label array contains all of them
      */
     private generateLabelMatchCondition;
+    /**
+     * Normalize label to JSON array string for storage
+     */
+    private normalizeLabelToJson;
     private findVariablesInCondition;
     private isParameterRef;
     private serializeProperties;

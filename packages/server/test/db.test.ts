@@ -32,7 +32,8 @@ describe("GraphDatabase", () => {
       const result = db.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
       );
-      expect(result.rows.length).toBeGreaterThanOrEqual(4);
+      // 3 indexes: idx_edges_type, idx_edges_source, idx_edges_target
+      expect(result.rows.length).toBeGreaterThanOrEqual(3);
     });
 
     it("can be called multiple times safely", () => {
@@ -173,16 +174,18 @@ describe("GraphDatabase", () => {
       db.insertNode("node1", "Person", { name: "Alice" });
       db.insertNode("node2", "Person", { name: "Bob" });
 
-      const result = db.execute("SELECT * FROM nodes WHERE label = ?", [
-        "Person",
-      ]);
+      // Labels are stored as JSON arrays, use json_each for matching
+      const result = db.execute(
+        "SELECT * FROM nodes WHERE EXISTS (SELECT 1 FROM json_each(label) WHERE value = ?)",
+        ["Person"]
+      );
       expect(result.rows).toHaveLength(2);
     });
 
     it("runs INSERT/UPDATE/DELETE and returns changes", () => {
       const result = db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
-        ["node1", "Person", "{}"]
+        ["node1", '["Person"]', "{}"]
       );
       expect(result.changes).toBe(1);
     });

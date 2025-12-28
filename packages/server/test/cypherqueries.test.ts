@@ -1929,4 +1929,236 @@ describe("CypherQueries.json Patterns", () => {
       expect(resultABC.data[0].total).toBe(1);
     });
   });
+
+  describe("Variable-Length Paths", () => {
+    it("matches unbounded variable-length path with [*]", () => {
+      // Pattern: (a)-[*]->(b) finds all nodes reachable from a
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      
+      // Create chain: Alice -> Bob -> Charlie
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+
+      // Find all reachable from Alice
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[*]->(other:Person)
+        RETURN other.name as name
+        ORDER BY name
+      `);
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].name).toBe("Bob");
+      expect(result.data[1].name).toBe("Charlie");
+    });
+
+    it("matches fixed-length variable path with [*n]", () => {
+      // Pattern: (a)-[*2]->(b) finds nodes exactly 2 hops away
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      exec("CREATE (d:Person {name: 'Diana'})");
+      
+      // Create chain: Alice -> Bob -> Charlie -> Diana
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      exec(`
+        MATCH (c:Person {name: 'Charlie'}), (d:Person {name: 'Diana'})
+        CREATE (c)-[:KNOWS]->(d)
+      `);
+
+      // Find nodes exactly 2 hops from Alice
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[*2]->(other:Person)
+        RETURN other.name as name
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].name).toBe("Charlie");
+    });
+
+    it("matches bounded variable-length path with [*n..m]", () => {
+      // Pattern: (a)-[*1..2]->(b) finds nodes 1 or 2 hops away
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      exec("CREATE (d:Person {name: 'Diana'})");
+      
+      // Create chain: Alice -> Bob -> Charlie -> Diana
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      exec(`
+        MATCH (c:Person {name: 'Charlie'}), (d:Person {name: 'Diana'})
+        CREATE (c)-[:KNOWS]->(d)
+      `);
+
+      // Find nodes 1-2 hops from Alice
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[*1..2]->(other:Person)
+        RETURN other.name as name
+        ORDER BY name
+      `);
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].name).toBe("Bob");
+      expect(result.data[1].name).toBe("Charlie");
+    });
+
+    it("matches variable-length path with specific relationship type", () => {
+      // Pattern: (a)-[:KNOWS*1..3]->(b) filters by relationship type
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      exec("CREATE (d:Company {name: 'Acme'})");
+      
+      // Create chain: Alice -KNOWS-> Bob -KNOWS-> Charlie
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      // Add a WORKS_AT edge that should not be included
+      exec(`
+        MATCH (c:Person {name: 'Charlie'}), (d:Company {name: 'Acme'})
+        CREATE (c)-[:WORKS_AT]->(d)
+      `);
+
+      // Find all reachable via KNOWS relationships (1-3 hops)
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(other)
+        RETURN other.name as name
+        ORDER BY name
+      `);
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].name).toBe("Bob");
+      expect(result.data[1].name).toBe("Charlie");
+    });
+
+    it("matches variable-length path with minimum bound only [*n..]", () => {
+      // Pattern: (a)-[*2..]->(b) finds nodes at least 2 hops away
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      exec("CREATE (d:Person {name: 'Diana'})");
+      
+      // Create chain: Alice -> Bob -> Charlie -> Diana
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      exec(`
+        MATCH (c:Person {name: 'Charlie'}), (d:Person {name: 'Diana'})
+        CREATE (c)-[:KNOWS]->(d)
+      `);
+
+      // Find nodes at least 2 hops from Alice
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[*2..]->(other:Person)
+        RETURN other.name as name
+        ORDER BY name
+      `);
+
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].name).toBe("Charlie");
+      expect(result.data[1].name).toBe("Diana");
+    });
+
+    it("handles cycles in variable-length paths", () => {
+      // Create a cycle: Alice -> Bob -> Charlie -> Alice
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (c:Person {name: 'Charlie'})
+        CREATE (b)-[:KNOWS]->(c)
+      `);
+      exec(`
+        MATCH (c:Person {name: 'Charlie'}), (a:Person {name: 'Alice'})
+        CREATE (c)-[:KNOWS]->(a)
+      `);
+
+      // Find all nodes reachable from Alice within 3 hops
+      // Should return Bob, Charlie, and Alice (via cycle)
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[*1..3]->(other:Person)
+        RETURN DISTINCT other.name as name
+        ORDER BY name
+      `);
+
+      expect(result.data).toHaveLength(3);
+      expect(result.data[0].name).toBe("Alice");
+      expect(result.data[1].name).toBe("Bob");
+      expect(result.data[2].name).toBe("Charlie");
+    });
+
+    it("returns count of reachable nodes via variable-length path", () => {
+      // Create a small social network
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+      exec("CREATE (c:Person {name: 'Charlie'})");
+      exec("CREATE (d:Person {name: 'Diana'})");
+      exec("CREATE (e:Person {name: 'Eve'})");
+      
+      // Alice knows Bob and Charlie
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        CREATE (a)-[:KNOWS]->(b)
+      `);
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (c:Person {name: 'Charlie'})
+        CREATE (a)-[:KNOWS]->(c)
+      `);
+      // Bob knows Diana
+      exec(`
+        MATCH (b:Person {name: 'Bob'}), (d:Person {name: 'Diana'})
+        CREATE (b)-[:KNOWS]->(d)
+      `);
+      // Charlie knows Eve
+      exec(`
+        MATCH (c:Person {name: 'Charlie'}), (e:Person {name: 'Eve'})
+        CREATE (c)-[:KNOWS]->(e)
+      `);
+
+      // Count all reachable from Alice within 2 hops
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[*1..2]->(other:Person)
+        RETURN count(DISTINCT other) as total
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].total).toBe(4); // Bob, Charlie, Diana, Eve
+    });
+  });
 });

@@ -944,8 +944,9 @@ export class Translator {
         // Add source/target label filters
         const sourcePattern = this.ctx[`pattern_${sourceAlias}`];
         if (sourcePattern?.label) {
-            whereParts.push(`${sourceAlias}.label = ?`);
-            allParams.push(sourcePattern.label);
+            const labelMatch = this.generateLabelMatchCondition(sourceAlias, sourcePattern.label);
+            whereParts.push(labelMatch.sql);
+            allParams.push(...labelMatch.params);
         }
         if (sourcePattern?.properties) {
             for (const [key, value] of Object.entries(sourcePattern.properties)) {
@@ -961,8 +962,9 @@ export class Translator {
         }
         const targetPattern = this.ctx[`pattern_${targetAlias}`];
         if (targetPattern?.label) {
-            whereParts.push(`${targetAlias}.label = ?`);
-            allParams.push(targetPattern.label);
+            const labelMatch = this.generateLabelMatchCondition(targetAlias, targetPattern.label);
+            whereParts.push(labelMatch.sql);
+            allParams.push(...labelMatch.params);
         }
         if (targetPattern?.properties) {
             for (const [key, value] of Object.entries(targetPattern.properties)) {

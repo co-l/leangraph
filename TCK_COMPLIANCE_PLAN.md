@@ -65,19 +65,45 @@ MATCH p = (a)-[r:KNOWS]->(b) RETURN p, length(p)
 - Translator: collect nodes/edges into path object
 - Add `length(path)`, `nodes(path)`, `relationships(path)` functions
 
-### 2. Variable-Length Paths `[*]`, `[*1..3]`
-**Failures**: ~37 tests
+### 2. Variable-Length Paths `[*]`, `[*1..3]` - COMPLETED
+**Status**: Implemented (December 2024)
 
 ```cypher
-MATCH (a)-[*]->(b) RETURN b
-MATCH (a)-[*1..3]->(b) RETURN b
-MATCH (a)-[:KNOWS*2..5]->(b) RETURN b
+MATCH (a)-[*]->(b) RETURN b          -- Unbounded (defaults to min=1, max=10)
+MATCH (a)-[*1..3]->(b) RETURN b      -- Bounded range
+MATCH (a)-[*2]->(b) RETURN b         -- Fixed length
+MATCH (a)-[:KNOWS*2..5]->(b) RETURN b -- With type filter
+MATCH (a)-[*2..]->(b) RETURN b       -- Minimum bound only
 ```
 
-**Implementation**:
-- Parser: handle `*`, `*n`, `*n..m` in relationship patterns
-- Translator: generate recursive CTE in SQL
-- Handle direction (outgoing, incoming, both)
+**Implementation** (December 2024):
+- **Parser**: Already implemented in `parseVariableLengthSpec()` (lines 1145-1199)
+  - Handles `*`, `*n`, `*n..m`, `*n..`, `*..m` syntax
+  - Stores as `EdgePattern.minHops` and `EdgePattern.maxHops`
+  - Supports all patterns including unbounded (`*`), fixed length (`*2`), and ranges (`*1..3`)
+- **Translator**: Uses recursive CTEs for variable-length path queries
+  - `translateVariableLengthPath()` (lines 1075-1242) generates recursive CTE
+  - Pattern: `WITH RECURSIVE path(start_id, end_id, depth) AS (...)`
+  - Base case: direct edges matching type filter
+  - Recursive case: extends paths up to `maxHops`
+  - Applies `minHops` constraint in WHERE clause
+  - Supports relationship type filtering (`:KNOWS*1..3`)
+- **Bug Fix**: Updated label matching in variable-length path translation to use JSON array format
+  - Changed from `label = ?` to `generateLabelMatchCondition()` (translator.ts:1166, 1183)
+  - Ensures compatibility with multiple labels feature
+- **Test Coverage**: 7 comprehensive tests in `cypherqueries.test.ts`
+  - Unbounded paths `[*]`
+  - Fixed-length paths `[*2]`
+  - Bounded ranges `[*1..2]`
+  - Minimum-only bounds `[*2..]`
+  - Type-filtered paths `[:KNOWS*1..3]`
+  - Cycle handling
+  - Aggregation with `count(DISTINCT other)`
+
+**Notes**:
+- Unbounded `*` defaults to max depth of 10 to prevent infinite loops
+- Direction (outgoing, incoming, both) already supported via parser
+- Handles cycles correctly by returning DISTINCT results
 
 ### 3. Multiple Labels `:A:B:C` - IN PROGRESS
 **Failures**: ~19 tests
@@ -225,10 +251,11 @@ RETURN [1] + [2] + [3] AS chain        -- Chained concatenation works
 | Previous | - | 814 | 62.9% |
 | Phase 1 | Quick Wins (4, 6, 7) | ~840 | ~65% |
 | Phase 1.5 | List Concatenation (10) | ~845 | ~65.5% |
-| Phase 2 | Paths (1, 2, 3) | ~940 | ~72.5% |
+| Phase 1.6 | Variable-Length Paths (2) | ~882 | ~68.2% |
+| Phase 2 | Paths (1, 3) | ~940 | ~72.5% |
 | Phase 3 | Remaining (5, 8, 9) | ~1000 | ~77% |
 
-**Note**: Phase 1 complete. Items 6 and 7 were already working (anonymous nodes). Item 10 (List Concatenation) now complete.
+**Note**: Phase 1.6 complete. Variable-length paths now fully functional. Path expressions (item 1) and multiple labels (item 3) remain for Phase 2.
 
 ---
 

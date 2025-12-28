@@ -29,3 +29,4 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+packages/server/test/tck/openCypher/

@@ -27,25 +27,21 @@ Use TDD: write failing tests first, then implement.
 
 See `README.md` for the full support table. Priority candidates for implementation:
 
-1. **`IN` operator** - List membership check in WHERE
-   ```cypher
-   MATCH (n:Person) WHERE n.name IN ['Alice', 'Bob'] RETURN n
-   ```
-
-2. **Arithmetic operators** - `+`, `-`, `*`, `/`, `%` in expressions
-   ```cypher
-   MATCH (n:Order) RETURN n.price * n.quantity AS total
-   ```
-
-3. **Date/Time functions** - `date()`, `datetime()`, `timestamp()`
-   ```cypher
-   RETURN date() AS today
-   MATCH (n:Event) WHERE n.date > date('2024-01-01') RETURN n
-   ```
-
-4. **`CALL` procedures** - Lower priority
+1. **`CALL` procedures** - Database introspection
    ```cypher
    CALL db.labels() YIELD label RETURN label
+   CALL db.relationshipTypes() YIELD type RETURN type
+   ```
+
+2. **Path expressions** - Named paths and path functions
+   ```cypher
+   MATCH p = (a:Person)-[:KNOWS*]->(b:Person) RETURN p
+   RETURN length(p) AS pathLength
+   ```
+
+3. **List comprehensions** - Filter and transform lists
+   ```cypher
+   RETURN [x IN range(1, 10) WHERE x % 2 = 0] AS evens
    ```
 
 ## Key Patterns
@@ -57,25 +53,28 @@ See `README.md` for the full support table. Priority candidates for implementati
 
 ## Implementation Notes
 
-### Adding a new operator (e.g., `IN`)
-1. Add token type in `parser.ts` tokenizer if needed
-2. Add keyword to `KEYWORDS` set in `parser.ts`
-3. Add condition type to `WhereCondition` interface
-4. Implement parsing in `parsePrimaryCondition()` or `parseComparisonCondition()`
-5. Implement SQL translation in `translateWhere()` in `translator.ts`
-6. Write tests first in `translator.test.ts`
+### Adding a new WHERE operator (e.g., `IN`)
+1. Add keyword to `KEYWORDS` set in `parser.ts` if needed
+2. Add condition type to `WhereCondition` interface (e.g., `"in"`)
+3. Implement parsing in `parseComparisonCondition()` - check for keyword after expression
+4. Add case handling in `translateWhere()` in `translator.ts`
+5. Write tests first in `translator.test.ts`
+
+Example: `IN` uses `WhereCondition.list` for the array expression.
 
 ### Adding a new function
 1. Add function handling in `translateExpression()` in `translator.ts`
 2. Use `translateFunctionArg()` for argument translation
 3. Map to appropriate SQLite function or expression
-4. Write tests first in `translator.test.ts`
+4. For use in WHERE, also add case `"function"` in `translateWhereExpression()`
+5. Write tests first in `translator.test.ts`
 
-### Adding arithmetic operators
-1. Extend `Expression` type to support binary operations
-2. Add operator tokens (`PLUS`, `MINUS`, etc.) to tokenizer
-3. Implement expression parsing with proper precedence
-4. Translate to SQL arithmetic in `translateExpression()`
+### Adding binary operators (arithmetic)
+1. Add token types (`PLUS`, `SLASH`, `PERCENT`) to tokenizer's `singleCharTokens`
+2. Extend `Expression` type to include `"binary"` with `operator`, `left`, `right`
+3. Use precedence parsing: `parseExpression()` → `parseAdditiveExpression()` → `parseMultiplicativeExpression()` → `parsePrimaryExpression()`
+4. Add `translateBinaryExpression()` in translator
+5. Handle in `translateWhereExpression()` for WHERE clause arithmetic
 
 ## Specs
 

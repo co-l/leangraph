@@ -21,7 +21,7 @@
 | `AND` / `OR` / `NOT` | Supported |
 | `IS NULL` / `IS NOT NULL` | Supported |
 | `CONTAINS` / `STARTS WITH` / `ENDS WITH` | Supported |
-| `IN` | Not supported |
+| `IN` | Supported |
 | `ORDER BY` | Supported |
 | `SKIP` | Supported |
 | `DISTINCT` | Supported |
@@ -39,7 +39,7 @@
 | Operator | Status | Description |
 |----------|--------|-------------|
 | `=`, `<>`, `<`, `>`, `<=`, `>=` | Supported | Comparison operators |
-| `+`, `-`, `*`, `/`, `%` | Not supported | Arithmetic operators |
+| `+`, `-`, `*`, `/`, `%` | Supported | Arithmetic operators |
 
 ### Functions
 
@@ -82,37 +82,28 @@
 | `rand()` | Supported | Random float 0-1 |
 | `sqrt(x)` | Supported | Square root (requires SQLite math extension) |
 | **Date/Time** | | |
-| `date()` | Not supported | Current date |
-| `datetime()` | Not supported | Current datetime |
-| `timestamp()` | Not supported | Unix timestamp |
+| `date()` | Supported | Current date or parse date string |
+| `datetime()` | Supported | Current datetime or parse datetime string |
+| `timestamp()` | Supported | Unix timestamp (milliseconds) |
 
 ## Next Implementation Priorities
 
 The following features are planned for implementation (use TDD):
 
-### 1. `IN` operator
-```cypher
-MATCH (n:Person) WHERE n.name IN ['Alice', 'Bob'] RETURN n
-MATCH (n:Person) WHERE n.age IN $ages RETURN n
-```
-
-### 2. Arithmetic operators
-```cypher
-MATCH (n:Order) RETURN n.price * n.quantity AS total
-MATCH (n:Product) RETURN n.price + 10 AS adjustedPrice
-MATCH (n:Item) RETURN n.total / n.count AS average
-```
-
-### 3. Date/Time functions
-```cypher
-RETURN date() AS today
-RETURN datetime() AS now
-RETURN timestamp() AS ts
-MATCH (n:Event) WHERE n.date > date('2024-01-01') RETURN n
-```
-
-### 4. `CALL` procedures (lower priority)
+### 1. `CALL` procedures
 ```cypher
 CALL db.labels() YIELD label RETURN label
 CALL db.relationshipTypes() YIELD type RETURN type
+```
+
+### 2. Path expressions
+```cypher
+MATCH p = (a:Person)-[:KNOWS*]->(b:Person) RETURN p
+RETURN length(p) AS pathLength
+```
+
+### 3. Additional list functions
+```cypher
+RETURN [x IN range(1, 10) WHERE x % 2 = 0] AS evens
+RETURN [x IN list | x * 2] AS doubled
 ```

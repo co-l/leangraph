@@ -1477,4 +1477,264 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["properties"]);
     });
   });
+
+  describe("IN operator", () => {
+    it("generates IN for literal array", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.name IN ['Alice', 'Bob'] RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("IN");
+      // Should have the names as parameters
+      expect(result.statements[0].params).toContain("Alice");
+      expect(result.statements[0].params).toContain("Bob");
+    });
+
+    it("generates IN for parameter array", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.name IN $names RETURN n",
+        { names: ["Alice", "Bob", "Charlie"] }
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("IN");
+    });
+
+    it("generates IN with numeric array", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.age IN [25, 30, 35] RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("IN");
+      expect(result.statements[0].params).toContain(25);
+      expect(result.statements[0].params).toContain(30);
+      expect(result.statements[0].params).toContain(35);
+    });
+
+    it("generates NOT IN", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE NOT n.name IN ['Alice', 'Bob'] RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("NOT");
+      expect(sql).toContain("IN");
+    });
+
+    it("combines IN with AND condition", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.name IN ['Alice', 'Bob'] AND n.age > 25 RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("IN");
+      expect(sql).toContain("AND");
+    });
+
+    it("combines IN with OR condition", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.name IN ['Alice', 'Bob'] OR n.active = true RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("IN");
+      expect(sql).toContain("OR");
+    });
+
+    it("handles IN with empty array", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE n.name IN [] RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      // Empty IN should result in no matches (can be 1=0 or similar)
+    });
+  });
+
+  describe("Arithmetic operators", () => {
+    it("generates multiplication in RETURN", () => {
+      const result = translateCypher(
+        "MATCH (n:Order) RETURN n.price * n.quantity AS total"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("*");
+      expect(result.returnColumns).toEqual(["total"]);
+    });
+
+    it("generates addition in RETURN", () => {
+      const result = translateCypher(
+        "MATCH (n:Product) RETURN n.price + 10 AS adjustedPrice"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("+");
+      expect(result.returnColumns).toEqual(["adjustedPrice"]);
+    });
+
+    it("generates subtraction in RETURN", () => {
+      const result = translateCypher(
+        "MATCH (n:Account) RETURN n.balance - n.debt AS net"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("-");
+      expect(result.returnColumns).toEqual(["net"]);
+    });
+
+    it("generates division in RETURN", () => {
+      const result = translateCypher(
+        "MATCH (n:Item) RETURN n.total / n.count AS average"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("/");
+      expect(result.returnColumns).toEqual(["average"]);
+    });
+
+    it("generates modulo in RETURN", () => {
+      const result = translateCypher(
+        "MATCH (n:Number) RETURN n.value % 2 AS remainder"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("%");
+      expect(result.returnColumns).toEqual(["remainder"]);
+    });
+
+    it("handles arithmetic with literals on both sides", () => {
+      const result = translateCypher("RETURN 10 + 5 AS sum");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("+");
+      expect(result.returnColumns).toEqual(["sum"]);
+    });
+
+    it("handles mixed property and literal arithmetic", () => {
+      const result = translateCypher(
+        "MATCH (n:Product) RETURN n.price * 1.1 AS priceWithTax"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("*");
+    });
+
+    it("handles complex arithmetic expressions", () => {
+      const result = translateCypher(
+        "MATCH (n:Order) RETURN (n.price * n.quantity) + n.shipping AS totalWithShipping"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("*");
+      expect(sql).toContain("+");
+    });
+
+    it("handles arithmetic in WHERE clause", () => {
+      const result = translateCypher(
+        "MATCH (n:Product) WHERE n.price * 2 > 100 RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("*");
+      expect(sql).toContain(">");
+    });
+
+    it("handles arithmetic with parameter", () => {
+      const result = translateCypher(
+        "MATCH (n:Product) RETURN n.price * $multiplier AS adjusted",
+        { multiplier: 1.5 }
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain("*");
+    });
+  });
+
+  describe("Date/Time functions", () => {
+    it("generates date() for current date", () => {
+      const result = translateCypher("RETURN date() AS today");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // SQLite uses DATE('now') for current date
+      expect(sql).toMatch(/DATE\('now'\)|date\(/i);
+      expect(result.returnColumns).toEqual(["today"]);
+    });
+
+    it("generates datetime() for current datetime", () => {
+      const result = translateCypher("RETURN datetime() AS now");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // SQLite uses DATETIME('now') for current datetime
+      expect(sql).toMatch(/DATETIME\('now'\)|datetime\(/i);
+      expect(result.returnColumns).toEqual(["now"]);
+    });
+
+    it("generates timestamp() for unix timestamp", () => {
+      const result = translateCypher("RETURN timestamp() AS ts");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // SQLite uses strftime('%s', 'now') * 1000 for millisecond timestamp
+      expect(sql).toMatch(/strftime|UNIXEPOCH/i);
+      expect(result.returnColumns).toEqual(["ts"]);
+    });
+
+    it("generates date() with string argument", () => {
+      const result = translateCypher("RETURN date('2024-01-15') AS d");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/DATE\(/i);
+      expect(result.returnColumns).toEqual(["d"]);
+    });
+
+    it("generates datetime() with string argument", () => {
+      const result = translateCypher("RETURN datetime('2024-01-15T12:30:00') AS dt");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/DATETIME\(/i);
+      expect(result.returnColumns).toEqual(["dt"]);
+    });
+
+    it("handles date comparison in WHERE clause", () => {
+      const result = translateCypher(
+        "MATCH (n:Event) WHERE n.date > date('2024-01-01') RETURN n"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toContain(">");
+      expect(sql).toMatch(/DATE\(/i);
+    });
+
+    it("handles date with MATCH", () => {
+      const result = translateCypher(
+        "MATCH (n:Event) RETURN n.name, date() AS today"
+      );
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.returnColumns).toContain("today");
+    });
+  });
 });

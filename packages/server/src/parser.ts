@@ -45,7 +45,7 @@ export type PropertyValue =
   | PropertyValue[];
 
 export interface WhereCondition {
-  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists";
+  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in";
   left?: Expression;
   right?: Expression;
   operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
@@ -53,6 +53,8 @@ export interface WhereCondition {
   condition?: WhereCondition;
   // For EXISTS pattern
   pattern?: NodePattern | RelationshipPattern;
+  // For IN operator - the list of values
+  list?: Expression;
 }
 
 export interface CaseWhen {
@@ -68,7 +70,7 @@ export interface CaseExpression {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -79,6 +81,10 @@ export interface Expression {
   expression?: Expression;
   whens?: CaseWhen[];
   elseExpr?: Expression;
+  // Binary operation fields
+  operator?: "+" | "-" | "*" | "/" | "%";
+  left?: Expression;
+  right?: Expression;
 }
 
 export interface ReturnItem {
@@ -202,6 +208,9 @@ type TokenType =
   | "ARROW_LEFT"
   | "ARROW_RIGHT"
   | "DASH"
+  | "PLUS"
+  | "SLASH"
+  | "PERCENT"
   | "EQUALS"
   | "NOT_EQUALS"
   | "LT"
@@ -231,6 +240,7 @@ const KEYWORDS = new Set([
   "AND",
   "OR",
   "NOT",
+  "IN",
   "LIMIT",
   "SKIP",
   "ORDER",
@@ -365,6 +375,9 @@ class Tokenizer {
       ",": "COMMA",
       ".": "DOT",
       "-": "DASH",
+      "+": "PLUS",
+      "/": "SLASH",
+      "%": "PERCENT",
       "=": "EQUALS",
       "<": "LT",
       ">": "GT",
@@ -1306,6 +1319,14 @@ export class Parser {
       return { type: "endsWith", left, right };
     }
 
+    // Check for IN operator
+    if (this.checkKeyword("IN")) {
+      this.advance();
+      // IN can be followed by a list literal [...] or a parameter $param
+      const listExpr = this.parseInListExpression();
+      return { type: "in", left, list: listExpr };
+    }
+
     // Comparison operators
     const opToken = this.peek();
     let operator: "=" | "<>" | "<" | ">" | "<=" | ">=" | undefined;
@@ -1326,8 +1347,81 @@ export class Parser {
     throw new Error(`Expected comparison operator, got ${opToken.type}`);
   }
 
-  private parseExpression(): Expression {
+  private parseInListExpression(): Expression {
     const token = this.peek();
+
+    // Array literal [...]
+    if (token.type === "LBRACKET") {
+      const values = this.parseArray();
+      return { type: "literal", value: values };
+    }
+
+    // Parameter $param
+    if (token.type === "PARAMETER") {
+      this.advance();
+      return { type: "parameter", name: token.value };
+    }
+
+    // Variable reference
+    if (token.type === "IDENTIFIER") {
+      const variable = this.advance().value;
+      if (this.check("DOT")) {
+        this.advance();
+        const property = this.expectIdentifier();
+        return { type: "property", variable, property };
+      }
+      return { type: "variable", variable };
+    }
+
+    throw new Error(`Expected array, parameter, or variable in IN clause, got ${token.type} '${token.value}'`);
+  }
+
+  private parseExpression(): Expression {
+    return this.parseAdditiveExpression();
+  }
+
+  // Handle + and - (lower precedence)
+  private parseAdditiveExpression(): Expression {
+    let left = this.parseMultiplicativeExpression();
+
+    while (this.check("PLUS") || this.check("DASH")) {
+      const operatorToken = this.advance();
+      const operator = operatorToken.type === "PLUS" ? "+" : "-";
+      const right = this.parseMultiplicativeExpression();
+      left = { type: "binary", operator: operator as "+" | "-", left, right };
+    }
+
+    return left;
+  }
+
+  // Handle *, /, % (higher precedence)
+  private parseMultiplicativeExpression(): Expression {
+    let left = this.parsePrimaryExpression();
+
+    while (this.check("STAR") || this.check("SLASH") || this.check("PERCENT")) {
+      const operatorToken = this.advance();
+      let operator: "*" | "/" | "%";
+      if (operatorToken.type === "STAR") operator = "*";
+      else if (operatorToken.type === "SLASH") operator = "/";
+      else operator = "%";
+      const right = this.parsePrimaryExpression();
+      left = { type: "binary", operator, left, right };
+    }
+
+    return left;
+  }
+
+  // Parse primary expressions (atoms)
+  private parsePrimaryExpression(): Expression {
+    const token = this.peek();
+
+    // Parenthesized expression for grouping
+    if (token.type === "LPAREN") {
+      this.advance(); // consume (
+      const expr = this.parseExpression();
+      this.expect("RPAREN");
+      return expr;
+    }
 
     // CASE expression
     if (this.checkKeyword("CASE")) {
@@ -1394,7 +1488,8 @@ export class Parser {
 
       if (this.check("DOT")) {
         this.advance();
-        const property = this.expectIdentifier();
+        // Property names can also be keywords (like 'count', 'order', etc.)
+        const property = this.expectIdentifierOrKeyword();
         return { type: "property", variable, property };
       }
 

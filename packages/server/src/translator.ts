@@ -1687,6 +1687,43 @@ export class Translator {
           throw new Error("properties requires a variable argument");
         }
 
+        // ============================================================================
+        // Date/Time functions
+        // ============================================================================
+
+        // DATE: get current date or parse date string
+        if (expr.functionName === "DATE") {
+          if (expr.args && expr.args.length > 0) {
+            // date('2024-01-15') - parse date string
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `DATE(${argResult.sql})`, tables, params };
+          }
+          // date() - current date
+          return { sql: `DATE('now')`, tables, params };
+        }
+
+        // DATETIME: get current datetime or parse datetime string
+        if (expr.functionName === "DATETIME") {
+          if (expr.args && expr.args.length > 0) {
+            // datetime('2024-01-15T12:30:00') - parse datetime string
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `DATETIME(${argResult.sql})`, tables, params };
+          }
+          // datetime() - current datetime
+          return { sql: `DATETIME('now')`, tables, params };
+        }
+
+        // TIMESTAMP: get unix timestamp in milliseconds
+        if (expr.functionName === "TIMESTAMP") {
+          // Cypher returns milliseconds since epoch
+          // SQLite: strftime('%s', 'now') returns seconds, multiply by 1000
+          return { sql: `(CAST(strftime('%s', 'now') AS INTEGER) * 1000)`, tables, params };
+        }
+
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 
@@ -1704,6 +1741,10 @@ export class Translator {
 
       case "case": {
         return this.translateCaseExpression(expr);
+      }
+
+      case "binary": {
+        return this.translateBinaryExpression(expr);
       }
 
       default:
@@ -1742,6 +1783,39 @@ export class Translator {
     sql += " END";
     
     return { sql, tables, params };
+  }
+
+  private translateBinaryExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+
+    const leftResult = this.translateExpression(expr.left!);
+    const rightResult = this.translateExpression(expr.right!);
+
+    tables.push(...leftResult.tables, ...rightResult.tables);
+    params.push(...leftResult.params, ...rightResult.params);
+
+    // For property access in arithmetic, we need to use json_extract to get the numeric value
+    const leftSql = this.wrapForArithmetic(expr.left!, leftResult.sql);
+    const rightSql = this.wrapForArithmetic(expr.right!, rightResult.sql);
+
+    return {
+      sql: `(${leftSql} ${expr.operator} ${rightSql})`,
+      tables,
+      params,
+    };
+  }
+
+  private wrapForArithmetic(expr: Expression, sql: string): string {
+    // For property access, the -> operator returns JSON, we need to extract as a number
+    if (expr.type === "property") {
+      // Replace -> with json_extract for numeric operations
+      const varInfo = this.ctx.variables.get(expr.variable!);
+      if (varInfo) {
+        return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+      }
+    }
+    return sql;
   }
 
   private translateWhere(condition: WhereCondition): { sql: string; params: unknown[] } {
@@ -1826,6 +1900,10 @@ export class Translator {
         return this.translateExistsCondition(condition);
       }
 
+      case "in": {
+        return this.translateInCondition(condition);
+      }
+
       default:
         throw new Error(`Unknown condition type: ${condition.type}`);
     }
@@ -1900,6 +1978,63 @@ export class Translator {
     }
 
     return { sql, params };
+  }
+
+  private translateInCondition(condition: WhereCondition): { sql: string; params: unknown[] } {
+    const left = this.translateWhereExpression(condition.left!);
+    const params = [...left.params];
+    
+    const listExpr = condition.list;
+    if (!listExpr) {
+      throw new Error("IN condition must have a list expression");
+    }
+
+    if (listExpr.type === "literal" && Array.isArray(listExpr.value)) {
+      const values = listExpr.value as unknown[];
+      
+      // Handle empty array - no matches possible
+      if (values.length === 0) {
+        return { sql: "1 = 0", params: [] };
+      }
+      
+      // Generate placeholders for each value
+      const placeholders = values.map(() => "?").join(", ");
+      params.push(...values);
+      
+      return {
+        sql: `${left.sql} IN (${placeholders})`,
+        params,
+      };
+    }
+    
+    if (listExpr.type === "parameter") {
+      // For parameter arrays, we use json_each to check membership
+      const paramValue = this.ctx.paramValues[listExpr.name!];
+      if (Array.isArray(paramValue)) {
+        if (paramValue.length === 0) {
+          return { sql: "1 = 0", params: [] };
+        }
+        const placeholders = paramValue.map(() => "?").join(", ");
+        params.push(...paramValue);
+        return {
+          sql: `${left.sql} IN (${placeholders})`,
+          params,
+        };
+      }
+      throw new Error(`Parameter ${listExpr.name} must be an array for IN clause`);
+    }
+
+    if (listExpr.type === "variable" || listExpr.type === "property") {
+      // For variable/property references, use json_each subquery
+      const listResult = this.translateWhereExpression(listExpr);
+      params.push(...listResult.params);
+      return {
+        sql: `${left.sql} IN (SELECT value FROM json_each(${listResult.sql}))`,
+        params,
+      };
+    }
+
+    throw new Error(`Unsupported list expression type in IN clause: ${listExpr.type}`);
   }
 
   private translateOrderByExpression(expr: Expression): { sql: string } {
@@ -2012,6 +2147,21 @@ export class Translator {
           throw new Error(`Unknown variable: ${expr.variable}`);
         }
         return { sql: `${varInfo.alias}.id`, params: [] };
+      }
+
+      case "binary": {
+        const leftResult = this.translateWhereExpression(expr.left!);
+        const rightResult = this.translateWhereExpression(expr.right!);
+        return {
+          sql: `(${leftResult.sql} ${expr.operator} ${rightResult.sql})`,
+          params: [...leftResult.params, ...rightResult.params],
+        };
+      }
+
+      case "function": {
+        // Delegate to translateExpression for functions
+        const result = this.translateExpression(expr);
+        return { sql: result.sql, params: result.params };
       }
 
       default:

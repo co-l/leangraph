@@ -12,6 +12,19 @@ import {
   generateApiKey,
   VERSION,
 } from "@nicefox/graphdb";
+import {
+  ApiKeyConfig,
+  formatBytes,
+  formatValue,
+  getApiKeysPath,
+  loadApiKeys,
+  saveApiKeys,
+  ensureDataDir,
+  calculateColumnWidths,
+  formatTableRow,
+  listProjects,
+  getProjectKeyCount,
+} from "./helpers.js";
 
 const program = new Command();
 
@@ -19,37 +32,6 @@ program
   .name("nicefox-graphdb")
   .description("NiceFox GraphDB - SQLite-based graph database with Cypher queries")
   .version(VERSION);
-
-// ============================================================================
-// API Keys Helper
-// ============================================================================
-
-interface ApiKeyConfig {
-  project?: string;
-  env?: string;
-  admin?: boolean;
-}
-
-function getApiKeysPath(dataPath: string): string {
-  return path.join(dataPath, "api-keys.json");
-}
-
-function loadApiKeys(dataPath: string): Record<string, ApiKeyConfig> {
-  const keysFile = getApiKeysPath(dataPath);
-  if (fs.existsSync(keysFile)) {
-    try {
-      return JSON.parse(fs.readFileSync(keysFile, "utf-8"));
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
-
-function saveApiKeys(dataPath: string, keys: Record<string, ApiKeyConfig>): void {
-  const keysFile = getApiKeysPath(dataPath);
-  fs.writeFileSync(keysFile, JSON.stringify(keys, null, 2) + "\n");
-}
 
 // ============================================================================
 // serve - Start the HTTP server
@@ -268,21 +250,7 @@ program
       return;
     }
 
-    const projects = new Map<string, string[]>();
-
-    for (const env of ["production", "test"]) {
-      const envPath = path.join(dataPath, env);
-      if (fs.existsSync(envPath)) {
-        const files = fs.readdirSync(envPath).filter((f) => f.endsWith(".db"));
-        for (const file of files) {
-          const project = file.replace(".db", "");
-          if (!projects.has(project)) {
-            projects.set(project, []);
-          }
-          projects.get(project)!.push(env);
-        }
-      }
-    }
+    const projects = listProjects(dataPath);
 
     if (projects.size === 0) {
       console.log("No projects found.");
@@ -291,17 +259,11 @@ program
 
     // Load API keys to show key count per project
     const keys = loadApiKeys(dataPath);
-    const keyCountByProject = new Map<string, number>();
-    for (const config of Object.values(keys)) {
-      if (config.project) {
-        keyCountByProject.set(config.project, (keyCountByProject.get(config.project) || 0) + 1);
-      }
-    }
 
     console.log("\nProjects:\n");
     for (const [project, envs] of projects) {
       const envList = envs.map((e) => (e === "production" ? "prod" : "test")).join(", ");
-      const keyCount = keyCountByProject.get(project) || 0;
+      const keyCount = getProjectKeyCount(keys, project);
       const keyInfo = keyCount > 0 ? ` (${keyCount} key${keyCount > 1 ? "s" : ""})` : " (no keys)";
       console.log(`  ${project} [${envList}]${keyInfo}`);
     }
@@ -670,44 +632,8 @@ apikey
 // Helpers
 // ============================================================================
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-}
-
-function ensureDataDir(dataPath: string): void {
-  if (!fs.existsSync(dataPath)) {
-    fs.mkdirSync(dataPath, { recursive: true });
-  }
-  // Ensure env subdirs exist
-  for (const env of ["production", "test"]) {
-    const envPath = path.join(dataPath, env);
-    if (!fs.existsSync(envPath)) {
-      fs.mkdirSync(envPath, { recursive: true });
-    }
-  }
-}
-
 function printTable(columns: string[], rows: Record<string, unknown>[]): void {
-  // Calculate column widths
-  const widths: Record<string, number> = {};
-  for (const col of columns) {
-    widths[col] = col.length;
-  }
-  for (const row of rows) {
-    for (const col of columns) {
-      const val = formatValue(row[col]);
-      widths[col] = Math.max(widths[col], val.length);
-    }
-  }
-
-  // Cap max width
-  for (const col of columns) {
-    widths[col] = Math.min(widths[col], 40);
-  }
+  const widths = calculateColumnWidths(columns, rows);
 
   // Print header
   const header = columns.map((col) => col.padEnd(widths[col])).join(" | ");
@@ -716,21 +642,8 @@ function printTable(columns: string[], rows: Record<string, unknown>[]): void {
 
   // Print rows
   for (const row of rows) {
-    const line = columns
-      .map((col) => {
-        const val = formatValue(row[col]);
-        return val.slice(0, widths[col]).padEnd(widths[col]);
-      })
-      .join(" | ");
-    console.log(`  ${line}`);
+    console.log(`  ${formatTableRow(columns, row, widths)}`);
   }
-}
-
-function formatValue(val: unknown): string {
-  if (val === null) return "null";
-  if (val === undefined) return "";
-  if (typeof val === "object") return JSON.stringify(val);
-  return String(val);
 }
 
 // Parse and run

@@ -1229,4 +1229,179 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("json_each");
     });
   });
+
+  describe("String functions", () => {
+    it("generates UPPER for toUpper()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN toUpper(n.name)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("UPPER(");
+      expect(result.returnColumns).toEqual(["toupper"]);
+    });
+
+    it("generates LOWER for toLower()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN toLower(n.name)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("LOWER(");
+      expect(result.returnColumns).toEqual(["tolower"]);
+    });
+
+    it("generates TRIM for trim()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN trim(n.name)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("TRIM(");
+      expect(result.returnColumns).toEqual(["trim"]);
+    });
+
+    it("generates SUBSTR for substring()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN substring(n.name, 0, 3)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("SUBSTR(");
+      expect(result.returnColumns).toEqual(["substring"]);
+    });
+
+    it("generates REPLACE for replace()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN replace(n.name, 'a', 'b')");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("REPLACE(");
+      expect(result.returnColumns).toEqual(["replace"]);
+    });
+
+    it("handles toUpper with alias", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN toUpper(n.name) AS upperName");
+
+      expect(result.statements[0].sql).toContain("AS upperName");
+      expect(result.returnColumns).toEqual(["upperName"]);
+    });
+
+    it("handles toString()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN toString(n.age)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("CAST(");
+      expect(result.statements[0].sql).toContain("AS TEXT");
+      expect(result.returnColumns).toEqual(["tostring"]);
+    });
+  });
+
+  describe("Null/scalar functions", () => {
+    it("generates COALESCE for coalesce()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN coalesce(n.nickname, n.name)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("COALESCE(");
+      expect(result.returnColumns).toEqual(["coalesce"]);
+    });
+
+    it("handles coalesce with multiple arguments", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN coalesce(n.nickname, n.alias, n.name)");
+
+      expect(result.statements[0].sql).toContain("COALESCE(");
+      // Should have 3 arguments separated by commas
+      const sql = result.statements[0].sql;
+      const coalesceMatch = sql.match(/COALESCE\([^)]+\)/);
+      expect(coalesceMatch).toBeTruthy();
+    });
+
+    it("handles coalesce with literal default", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN coalesce(n.nickname, 'Unknown')");
+
+      expect(result.statements[0].sql).toContain("COALESCE(");
+    });
+  });
+
+  describe("Math functions", () => {
+    it("generates ABS for abs()", () => {
+      const result = translateCypher("MATCH (n:Account) RETURN abs(n.balance)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("ABS(");
+      expect(result.returnColumns).toEqual(["abs"]);
+    });
+
+    it("generates ROUND for round()", () => {
+      const result = translateCypher("MATCH (n:Product) RETURN round(n.price)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("ROUND(");
+      expect(result.returnColumns).toEqual(["round"]);
+    });
+
+    it("generates floor()", () => {
+      const result = translateCypher("MATCH (n:Product) RETURN floor(n.price)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses CAST with integer division for floor
+      expect(result.statements[0].sql).toMatch(/CAST\(.*AS INTEGER\)|floor/i);
+      expect(result.returnColumns).toEqual(["floor"]);
+    });
+
+    it("generates ceil()", () => {
+      const result = translateCypher("MATCH (n:Product) RETURN ceil(n.price)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite doesn't have native ceil, needs workaround
+      expect(result.statements[0].sql).toMatch(/CASE|ceil/i);
+      expect(result.returnColumns).toEqual(["ceil"]);
+    });
+
+    it("generates sqrt()", () => {
+      const result = translateCypher("MATCH (n:Shape) RETURN sqrt(n.area)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses pow(x, 0.5) or custom function
+      expect(result.statements[0].sql).toMatch(/SQRT|pow/i);
+      expect(result.returnColumns).toEqual(["sqrt"]);
+    });
+
+    it("generates rand()", () => {
+      const result = translateCypher("RETURN rand()");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses (RANDOM() + 9223372036854775808) / 18446744073709551615.0 for 0-1 range
+      expect(result.statements[0].sql).toMatch(/RANDOM|rand/i);
+      expect(result.returnColumns).toEqual(["rand"]);
+    });
+  });
+
+  describe("List functions", () => {
+    it("generates json_array_length for size()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN size(n.tags)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_array_length(");
+      expect(result.returnColumns).toEqual(["size"]);
+    });
+
+    it("generates head() for first element", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN head(n.tags)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses json_extract with [0]
+      expect(result.statements[0].sql).toMatch(/json_extract.*\[0\]/);
+      expect(result.returnColumns).toEqual(["head"]);
+    });
+
+    it("generates last() for last element", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN last(n.tags)");
+
+      expect(result.statements).toHaveLength(1);
+      // SQLite uses json_extract with [-1] or json_array_length - 1
+      expect(result.statements[0].sql).toMatch(/json_extract|json_array_length/);
+      expect(result.returnColumns).toEqual(["last"]);
+    });
+
+    it("generates keys() for property keys", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN keys(n)");
+
+      expect(result.statements).toHaveLength(1);
+      // Uses SQLite's json_each to get keys
+      expect(result.statements[0].sql).toMatch(/json_group_array|json_each/);
+      expect(result.returnColumns).toEqual(["keys"]);
+    });
+  });
 });

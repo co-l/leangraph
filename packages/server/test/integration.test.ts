@@ -2344,4 +2344,219 @@ describe("Integration Tests", () => {
       expect(result.data[2].x).toBe(5);
     });
   });
+
+  describe("String functions", () => {
+    it("converts string to uppercase with toUpper()", () => {
+      executor.execute("CREATE (p:Person {name: 'alice'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN toUpper(p.name) AS upper")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].upper).toBe("ALICE");
+    });
+
+    it("converts string to lowercase with toLower()", () => {
+      executor.execute("CREATE (p:Person {name: 'ALICE'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN toLower(p.name) AS lower")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].lower).toBe("alice");
+    });
+
+    it("trims whitespace with trim()", () => {
+      executor.execute("CREATE (p:Person {name: '  alice  '})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN trim(p.name) AS trimmed")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].trimmed).toBe("alice");
+    });
+
+    it("extracts substring with substring()", () => {
+      executor.execute("CREATE (p:Person {name: 'alice'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN substring(p.name, 0, 3) AS sub")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].sub).toBe("ali");
+    });
+
+    it("replaces characters with replace()", () => {
+      executor.execute("CREATE (p:Person {name: 'alice'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN replace(p.name, 'a', 'o') AS replaced")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].replaced).toBe("olice");
+    });
+
+    it("converts to string with toString()", () => {
+      executor.execute("CREATE (p:Person {age: 30})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN toString(p.age) AS ageStr")
+      );
+
+      expect(result.data).toHaveLength(1);
+      // SQLite CAST returns a string type in the result
+      expect(String(result.data[0].ageStr)).toBe("30");
+    });
+  });
+
+  describe("Null/scalar functions", () => {
+    it("returns first non-null value with coalesce()", () => {
+      executor.execute("CREATE (p:Person {name: 'Alice'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN coalesce(p.nickname, p.name) AS displayName")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].displayName).toBe("Alice");
+    });
+
+    it("returns first value if not null with coalesce()", () => {
+      executor.execute("CREATE (p:Person {name: 'Alice', nickname: 'Ali'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN coalesce(p.nickname, p.name) AS displayName")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].displayName).toBe("Ali");
+    });
+
+    it("handles coalesce with literal default", () => {
+      executor.execute("CREATE (p:Person {name: 'Alice'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN coalesce(p.nickname, 'Unknown') AS displayName")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].displayName).toBe("Unknown");
+    });
+  });
+
+  describe("Math functions", () => {
+    it("returns absolute value with abs()", () => {
+      executor.execute("CREATE (a:Account {balance: -100})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (a:Account) RETURN abs(a.balance) AS absBalance")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].absBalance).toBe(100);
+    });
+
+    it("rounds to nearest integer with round()", () => {
+      executor.execute("CREATE (p:Product {price: 19.7})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Product) RETURN round(p.price) AS rounded")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].rounded).toBe(20);
+    });
+
+    it("rounds down with floor()", () => {
+      executor.execute("CREATE (p:Product {price: 19.9})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Product) RETURN floor(p.price) AS floored")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].floored).toBe(19);
+    });
+
+    it("rounds up with ceil()", () => {
+      executor.execute("CREATE (p:Product {price: 19.1})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Product) RETURN ceil(p.price) AS ceiled")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].ceiled).toBe(20);
+    });
+
+    it("returns random number with rand()", () => {
+      const result = expectSuccess(
+        executor.execute("RETURN rand() AS random")
+      );
+
+      expect(result.data).toHaveLength(1);
+      const rand = result.data[0].random as number;
+      expect(rand).toBeGreaterThanOrEqual(0);
+      expect(rand).toBeLessThan(1);
+    });
+  });
+
+  describe("List functions", () => {
+    it("returns array length with size()", () => {
+      executor.execute("CREATE (p:Person {tags: ['dev', 'admin', 'tester']})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN size(p.tags) AS tagCount")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].tagCount).toBe(3);
+    });
+
+    it("returns first element with head()", () => {
+      executor.execute("CREATE (p:Person {tags: ['first', 'second', 'third']})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN head(p.tags) AS firstTag")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].firstTag).toBe("first");
+    });
+
+    it("returns last element with last()", () => {
+      executor.execute("CREATE (p:Person {tags: ['first', 'second', 'third']})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN last(p.tags) AS lastTag")
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].lastTag).toBe("third");
+    });
+
+    it("returns property keys with keys()", () => {
+      executor.execute("CREATE (p:Person {name: 'Alice', age: 30, city: 'NYC'})");
+
+      const result = expectSuccess(
+        executor.execute("MATCH (p:Person) RETURN keys(p) AS propKeys")
+      );
+
+      expect(result.data).toHaveLength(1);
+      // Result is a JSON array string
+      const keysStr = result.data[0].propKeys as string;
+      // Parse if it's a JSON string, otherwise it might already be an array
+      const keys = typeof keysStr === 'string' && keysStr.startsWith('[') 
+        ? JSON.parse(keysStr) 
+        : keysStr;
+      expect(keys).toContain("name");
+      expect(keys).toContain("age");
+      expect(keys).toContain("city");
+    });
+  });
 });

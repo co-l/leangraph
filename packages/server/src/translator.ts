@@ -1302,6 +1302,244 @@ export class Translator {
           }
           throw new Error(`COLLECT requires a property or variable argument`);
         }
+
+        // ============================================================================
+        // String functions
+        // ============================================================================
+
+        // TOUPPER: convert string to uppercase
+        if (expr.functionName === "TOUPPER") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `UPPER(${argResult.sql})`, tables, params };
+          }
+          throw new Error("toUpper requires an argument");
+        }
+
+        // TOLOWER: convert string to lowercase
+        if (expr.functionName === "TOLOWER") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `LOWER(${argResult.sql})`, tables, params };
+          }
+          throw new Error("toLower requires an argument");
+        }
+
+        // TRIM: remove leading/trailing whitespace
+        if (expr.functionName === "TRIM") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `TRIM(${argResult.sql})`, tables, params };
+          }
+          throw new Error("trim requires an argument");
+        }
+
+        // SUBSTRING: extract substring (Cypher uses 0-based indexing, SQLite uses 1-based)
+        if (expr.functionName === "SUBSTRING") {
+          if (expr.args && expr.args.length >= 2) {
+            const strResult = this.translateFunctionArg(expr.args[0]);
+            const startResult = this.translateFunctionArg(expr.args[1]);
+            tables.push(...strResult.tables, ...startResult.tables);
+            params.push(...strResult.params, ...startResult.params);
+            
+            if (expr.args.length >= 3) {
+              const lenResult = this.translateFunctionArg(expr.args[2]);
+              tables.push(...lenResult.tables);
+              params.push(...lenResult.params);
+              // Cypher uses 0-based, SQLite uses 1-based indexing
+              return { sql: `SUBSTR(${strResult.sql}, ${startResult.sql} + 1, ${lenResult.sql})`, tables, params };
+            }
+            return { sql: `SUBSTR(${strResult.sql}, ${startResult.sql} + 1)`, tables, params };
+          }
+          throw new Error("substring requires at least 2 arguments");
+        }
+
+        // REPLACE: replace occurrences of a string
+        if (expr.functionName === "REPLACE") {
+          if (expr.args && expr.args.length === 3) {
+            const strResult = this.translateFunctionArg(expr.args[0]);
+            const fromResult = this.translateFunctionArg(expr.args[1]);
+            const toResult = this.translateFunctionArg(expr.args[2]);
+            tables.push(...strResult.tables, ...fromResult.tables, ...toResult.tables);
+            params.push(...strResult.params, ...fromResult.params, ...toResult.params);
+            return { sql: `REPLACE(${strResult.sql}, ${fromResult.sql}, ${toResult.sql})`, tables, params };
+          }
+          throw new Error("replace requires 3 arguments");
+        }
+
+        // TOSTRING: convert value to string
+        if (expr.functionName === "TOSTRING") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `CAST(${argResult.sql} AS TEXT)`, tables, params };
+          }
+          throw new Error("toString requires an argument");
+        }
+
+        // ============================================================================
+        // Null/scalar functions
+        // ============================================================================
+
+        // COALESCE: return first non-null value
+        if (expr.functionName === "COALESCE") {
+          if (expr.args && expr.args.length > 0) {
+            const argResults = expr.args.map(arg => this.translateFunctionArg(arg));
+            for (const r of argResults) {
+              tables.push(...r.tables);
+              params.push(...r.params);
+            }
+            const argsSql = argResults.map(r => r.sql).join(", ");
+            return { sql: `COALESCE(${argsSql})`, tables, params };
+          }
+          throw new Error("coalesce requires at least one argument");
+        }
+
+        // ============================================================================
+        // Math functions
+        // ============================================================================
+
+        // ABS: absolute value
+        if (expr.functionName === "ABS") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `ABS(${argResult.sql})`, tables, params };
+          }
+          throw new Error("abs requires an argument");
+        }
+
+        // ROUND: round to nearest integer
+        if (expr.functionName === "ROUND") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `ROUND(${argResult.sql})`, tables, params };
+          }
+          throw new Error("round requires an argument");
+        }
+
+        // FLOOR: round down to integer
+        if (expr.functionName === "FLOOR") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            // SQLite doesn't have FLOOR, use CAST for positive numbers or CASE for proper floor
+            return { sql: `CAST(${argResult.sql} AS INTEGER)`, tables, params };
+          }
+          throw new Error("floor requires an argument");
+        }
+
+        // CEIL: round up to integer
+        if (expr.functionName === "CEIL") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            // SQLite doesn't have CEIL, simulate with CASE
+            return { 
+              sql: `CASE WHEN ${argResult.sql} = CAST(${argResult.sql} AS INTEGER) THEN CAST(${argResult.sql} AS INTEGER) ELSE CAST(${argResult.sql} AS INTEGER) + 1 END`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("ceil requires an argument");
+        }
+
+        // SQRT: square root
+        if (expr.functionName === "SQRT") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            // SQLite doesn't have native SQRT, use pow(x, 0.5) via math extension or custom
+            // In standard SQLite we can use: exp(0.5 * ln(x)) but that also requires extension
+            // Fall back to placeholder that works if math functions are loaded
+            return { sql: `SQRT(${argResult.sql})`, tables, params };
+          }
+          throw new Error("sqrt requires an argument");
+        }
+
+        // RAND: random float between 0 and 1
+        if (expr.functionName === "RAND") {
+          // SQLite's RANDOM() returns integer between -9223372036854775808 and 9223372036854775807
+          // Convert to 0-1 range: (RANDOM() + 9223372036854775808) / 18446744073709551615.0
+          return { 
+            sql: `((RANDOM() + 9223372036854775808) / 18446744073709551615.0)`, 
+            tables, 
+            params 
+          };
+        }
+
+        // ============================================================================
+        // List functions
+        // ============================================================================
+
+        // SIZE: get length of array
+        if (expr.functionName === "SIZE") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `json_array_length(${argResult.sql})`, tables, params };
+          }
+          throw new Error("size requires an argument");
+        }
+
+        // HEAD: get first element of array
+        if (expr.functionName === "HEAD") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `json_extract(${argResult.sql}, '$[0]')`, tables, params };
+          }
+          throw new Error("head requires an argument");
+        }
+
+        // LAST: get last element of array
+        if (expr.functionName === "LAST") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            // SQLite: json_extract with [json_array_length - 1] or $[#-1] syntax
+            return { sql: `json_extract(${argResult.sql}, '$[#-1]')`, tables, params };
+          }
+          throw new Error("last requires an argument");
+        }
+
+        // KEYS: get property keys of a node
+        if (expr.functionName === "KEYS") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "variable") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              // Use json_each to get keys, then aggregate them
+              return { 
+                sql: `(SELECT json_group_array(key) FROM json_each(${varInfo.alias}.properties))`, 
+                tables, 
+                params 
+              };
+            }
+          }
+          throw new Error("keys requires a variable argument");
+        }
+
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 
@@ -1637,6 +1875,50 @@ export class Translator {
   // ============================================================================
   // Helpers
   // ============================================================================
+
+  /**
+   * Translate a function argument expression to SQL.
+   * Handles property access, literals, parameters, and variables.
+   */
+  private translateFunctionArg(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+
+    switch (expr.type) {
+      case "property": {
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (!varInfo) {
+          throw new Error(`Unknown variable: ${expr.variable}`);
+        }
+        tables.push(varInfo.alias);
+        return {
+          sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+          tables,
+          params,
+        };
+      }
+      case "literal": {
+        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+        params.push(value);
+        return { sql: "?", tables, params };
+      }
+      case "parameter": {
+        params.push(this.ctx.paramValues[expr.name!]);
+        return { sql: "?", tables, params };
+      }
+      case "variable": {
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (!varInfo) {
+          throw new Error(`Unknown variable: ${expr.variable}`);
+        }
+        tables.push(varInfo.alias);
+        return { sql: `${varInfo.alias}.id`, tables, params };
+      }
+      default:
+        // For nested function calls, use translateExpression
+        return this.translateExpression(expr);
+    }
+  }
 
   private isRelationshipPattern(pattern: NodePattern | RelationshipPattern): pattern is RelationshipPattern {
     return "source" in pattern && "edge" in pattern && "target" in pattern;

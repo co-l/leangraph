@@ -1356,6 +1356,66 @@ describe("CypherQueries.json Patterns", () => {
     });
 
     describe("Multi-hop with ORDER BY and LIMIT", () => {
+      it("handles multi-hop traversal returning node and relationship with ORDER BY", () => {
+        // Pattern: MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)-[rel:BF_HAS_FLASHCARD]->(f:BF_Flashcard)
+        //          RETURN f, rel ORDER BY f.created_at DESC
+        exec("CREATE (u:BF_User {id: 'user-1'})");
+        exec(`
+          MATCH (u:BF_User {id: $userId})
+          CREATE (u)-[:BF_LEARNS]->(l:BF_Language {language: 'Spanish'})
+        `, { userId: "user-1" });
+
+        // Create flashcards with different timestamps
+        const timestamps = [
+          "2024-01-15T10:00:00Z",
+          "2024-01-16T10:00:00Z",
+          "2024-01-14T10:00:00Z",
+        ];
+
+        for (let i = 0; i < timestamps.length; i++) {
+          exec(`
+            MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)
+            CREATE (l)-[:BF_HAS_FLASHCARD {difficulty: $difficulty}]->(f:BF_Flashcard {
+              id: $flashcardId,
+              front: $front,
+              back: $back,
+              created_at: $createdAt
+            })
+          `, {
+            userId: "user-1",
+            flashcardId: `flashcard-${i + 1}`,
+            front: `Front ${i + 1}`,
+            back: `Back ${i + 1}`,
+            createdAt: timestamps[i],
+            difficulty: i + 1,
+          });
+        }
+
+        // Query: return both node and relationship, ordered by node property
+        const result = exec(`
+          MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)-[rel:BF_HAS_FLASHCARD]->(f:BF_Flashcard)
+          RETURN f, rel
+          ORDER BY f.created_at DESC
+        `, { userId: "user-1" });
+
+        expect(result.data).toHaveLength(3);
+        
+        // Verify order is descending by created_at
+        const flashcards = result.data.map(r => {
+          const f = r.f as Record<string, unknown>;
+          const props = f.properties as Record<string, unknown>;
+          return { id: props.id, created_at: props.created_at };
+        });
+        
+        // Should be ordered: 2024-01-16, 2024-01-15, 2024-01-14
+        expect(flashcards[0].id).toBe("flashcard-2"); // 2024-01-16
+        expect(flashcards[1].id).toBe("flashcard-1"); // 2024-01-15
+        expect(flashcards[2].id).toBe("flashcard-3"); // 2024-01-14
+
+        // Verify rel is also returned
+        expect(result.data[0].rel).toBeDefined();
+      });
+
       it("handles multi-hop traversal with ORDER BY DESC and LIMIT", () => {
         // Pattern: MATCH (u:BF_User {id: $userId})-[:BF_LEARNS]->(l:BF_Language)-[:BF_HAS_CHAT]->(c:BF_Chat)
         //          RETURN c ORDER BY c.updated_at DESC LIMIT 20

@@ -1283,6 +1283,15 @@ export class Translator {
                 }
                 tables.push(varInfo.alias);
                 // Return the whole row as JSON for variables
+                // Nodes have: id, label, properties
+                // Edges have: id, type, source_id, target_id, properties
+                if (varInfo.type === "edge") {
+                    return {
+                        sql: `json_object('id', ${varInfo.alias}.id, 'type', ${varInfo.alias}.type, 'source_id', ${varInfo.alias}.source_id, 'target_id', ${varInfo.alias}.target_id, 'properties', ${varInfo.alias}.properties)`,
+                        tables,
+                        params,
+                    };
+                }
                 return {
                     sql: `json_object('id', ${varInfo.alias}.id, 'label', ${varInfo.alias}.label, 'properties', ${varInfo.alias}.properties)`,
                     tables,

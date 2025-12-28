@@ -11,6 +11,7 @@ import {
   SetClause,
   DeleteClause,
   ReturnClause,
+  WithClause,
   UnwindClause,
   NodePattern,
   RelationshipPattern,
@@ -89,6 +90,20 @@ export class Executor {
           data: unwindCreateResult,
           meta: {
             count: unwindCreateResult.length,
+            time_ms: Math.round((endTime - startTime) * 100) / 100,
+          },
+        };
+      }
+
+      // 2.3. Check for MATCH+WITH(COLLECT)+UNWIND+RETURN pattern (needs subquery for aggregates)
+      const collectUnwindResult = this.tryCollectUnwindExecution(parseResult.query, params);
+      if (collectUnwindResult !== null) {
+        const endTime = performance.now();
+        return {
+          success: true,
+          data: collectUnwindResult,
+          meta: {
+            count: collectUnwindResult.length,
             time_ms: Math.round((endTime - startTime) * 100) / 100,
           },
         };
@@ -289,6 +304,133 @@ export class Executor {
         }
       }
     });
+    
+    return results;
+  }
+
+  /**
+   * Handle MATCH+WITH(COLLECT)+UNWIND+RETURN pattern
+   * This requires a subquery for the aggregate function because SQLite doesn't
+   * allow aggregate functions directly inside json_each()
+   */
+  private tryCollectUnwindExecution(
+    query: Query,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] | null {
+    const clauses = query.clauses;
+    
+    // Find the pattern: MATCH + WITH (containing COLLECT) + UNWIND + RETURN
+    let matchClauses: MatchClause[] = [];
+    let withClause: WithClause | null = null;
+    let unwindClause: UnwindClause | null = null;
+    let returnClause: ReturnClause | null = null;
+    
+    for (const clause of clauses) {
+      if (clause.type === "MATCH" || clause.type === "OPTIONAL_MATCH") {
+        matchClauses.push(clause);
+      } else if (clause.type === "WITH") {
+        withClause = clause;
+      } else if (clause.type === "UNWIND") {
+        unwindClause = clause;
+      } else if (clause.type === "RETURN") {
+        returnClause = clause;
+      } else {
+        // Unsupported clause in this pattern
+        return null;
+      }
+    }
+    
+    // Must have MATCH, WITH, UNWIND, and RETURN
+    if (matchClauses.length === 0 || !withClause || !unwindClause || !returnClause) {
+      return null;
+    }
+    
+    // WITH must have exactly one item that's a COLLECT function
+    if (withClause.items.length !== 1) {
+      return null;
+    }
+    
+    const withItem = withClause.items[0];
+    if (withItem.expression.type !== "function" || withItem.expression.functionName !== "COLLECT") {
+      return null;
+    }
+    
+    const collectAlias = withItem.alias;
+    if (!collectAlias) {
+      return null;
+    }
+    
+    // UNWIND must reference the COLLECT alias
+    if (unwindClause.expression.type !== "variable" || unwindClause.expression.variable !== collectAlias) {
+      return null;
+    }
+    
+    // Execute in two phases:
+    // Phase 1: Run MATCH with COLLECT to get the aggregated array
+    // Phase 2: Expand the array and return results
+    
+    // Build a query to get the collected values
+    const collectArg = withItem.expression.args?.[0];
+    if (!collectArg) {
+      return null;
+    }
+    
+    // Build a MATCH...RETURN query that collects the values
+    const collectQuery: Query = {
+      clauses: [
+        ...matchClauses,
+        {
+          type: "RETURN" as const,
+          items: [{
+            expression: withItem.expression,
+            alias: collectAlias,
+          }],
+        },
+      ],
+    };
+    
+    // Translate and execute the collect query
+    const translator = new Translator(params);
+    const collectTranslation = translator.translate(collectQuery);
+    
+    let collectedValues: unknown[] = [];
+    for (const stmt of collectTranslation.statements) {
+      const result = this.db.execute(stmt.sql, stmt.params);
+      if (result.rows.length > 0) {
+        // The result should have a single row with the collected array
+        const row = result.rows[0];
+        const collected = row[collectAlias];
+        if (typeof collected === "string") {
+          try {
+            collectedValues = JSON.parse(collected);
+          } catch {
+            collectedValues = [collected];
+          }
+        } else if (Array.isArray(collected)) {
+          collectedValues = collected;
+        }
+      }
+    }
+    
+    // Build results by expanding the collected values
+    const results: Record<string, unknown>[] = [];
+    const unwindAlias = unwindClause.alias;
+    
+    for (const value of collectedValues) {
+      const resultRow: Record<string, unknown> = {};
+      
+      for (const item of returnClause.items) {
+        const alias = item.alias || this.getExpressionName(item.expression);
+        
+        if (item.expression.type === "variable" && item.expression.variable === unwindAlias) {
+          resultRow[alias] = value;
+        }
+      }
+      
+      if (Object.keys(resultRow).length > 0) {
+        results.push(resultRow);
+      }
+    }
     
     return results;
   }

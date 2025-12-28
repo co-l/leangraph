@@ -18,6 +18,7 @@ import {
   EdgePattern,
   WhereCondition,
   Expression,
+  ObjectProperty,
   PropertyValue,
   ParameterRef,
   VariableRef,
@@ -579,6 +580,29 @@ export class Translator {
           }
         }
 
+        // Add edge property filters
+        if (relPattern.edge.properties) {
+          for (const [key, value] of Object.entries(relPattern.edge.properties)) {
+            if (this.isParameterRef(value as PropertyValue)) {
+              if (isOptional) {
+                edgeOnConditions.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                edgeOnParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+              } else {
+                whereParts.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+              }
+            } else {
+              if (isOptional) {
+                edgeOnConditions.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                edgeOnParams.push(value);
+              } else {
+                whereParts.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                whereParams.push(value);
+              }
+            }
+          }
+        }
+
         joinParts.push(`${joinType} edges ${relPattern.edgeAlias} ON ${edgeOnConditions.join(" AND ")}`);
         joinParams.push(...edgeOnParams);
 
@@ -837,7 +861,7 @@ export class Translator {
     const effectiveOrderBy = clause.orderBy && clause.orderBy.length > 0 ? clause.orderBy : withOrderBy;
     if (effectiveOrderBy && effectiveOrderBy.length > 0) {
       const orderParts = effectiveOrderBy.map(({ expression, direction }) => {
-        const { sql: exprSql } = this.translateOrderByExpression(expression);
+        const { sql: exprSql } = this.translateOrderByExpression(expression, returnColumns);
         return `${exprSql} ${direction}`;
       });
       sql += ` ORDER BY ${orderParts.join(", ")}`;
@@ -1184,7 +1208,7 @@ export class Translator {
     // Add ORDER BY if present
     if (clause.orderBy && clause.orderBy.length > 0) {
       const orderParts = clause.orderBy.map(({ expression, direction }) => {
-        const { sql: exprSql } = this.translateOrderByExpression(expression);
+        const { sql: exprSql } = this.translateOrderByExpression(expression, returnColumns);
         return `${exprSql} ${direction}`;
       });
       sql += ` ORDER BY ${orderParts.join(", ")}`;
@@ -1622,9 +1646,19 @@ export class Translator {
                 tables,
                 params,
               };
+            } else if (arg.type === "object") {
+              // COLLECT with object literal: collect({key: expr, ...})
+              const objResult = this.translateObjectLiteral(arg);
+              tables.push(...objResult.tables);
+              params.push(...objResult.params);
+              return {
+                sql: `json_group_array(${objResult.sql})`,
+                tables,
+                params,
+              };
             }
           }
-          throw new Error(`COLLECT requires a property or variable argument`);
+          throw new Error(`COLLECT requires a property, variable, or object argument`);
         }
 
         // ============================================================================
@@ -2071,6 +2105,10 @@ export class Translator {
         return this.translateBinaryExpression(expr);
       }
 
+      case "object": {
+        return this.translateObjectLiteral(expr);
+      }
+
       default:
         throw new Error(`Unknown expression type: ${expr.type}`);
     }
@@ -2140,6 +2178,34 @@ export class Translator {
       }
     }
     return sql;
+  }
+
+  private translateObjectLiteral(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    // Build json_object() call with key-value pairs
+    const keyValuePairs: string[] = [];
+    
+    if (expr.properties) {
+      for (const prop of expr.properties) {
+        // Add key as a string literal
+        params.push(prop.key);
+        
+        // Translate the value expression
+        const valueResult = this.translateExpression(prop.value);
+        tables.push(...valueResult.tables);
+        params.push(...valueResult.params);
+        
+        keyValuePairs.push(`?, ${valueResult.sql}`);
+      }
+    }
+    
+    return {
+      sql: `json_object(${keyValuePairs.join(", ")})`,
+      tables,
+      params,
+    };
   }
 
   private translateWhere(condition: WhereCondition): { sql: string; params: unknown[] } {
@@ -2361,7 +2427,7 @@ export class Translator {
     throw new Error(`Unsupported list expression type in IN clause: ${listExpr.type}`);
   }
 
-  private translateOrderByExpression(expr: Expression): { sql: string } {
+  private translateOrderByExpression(expr: Expression, returnAliases: string[] = []): { sql: string } {
     switch (expr.type) {
       case "property": {
         const varInfo = this.ctx.variables.get(expr.variable!);
@@ -2374,6 +2440,12 @@ export class Translator {
       }
 
       case "variable": {
+        // First check if this is a return column alias (e.g., ORDER BY total)
+        // SQL allows ORDER BY to reference SELECT column aliases directly
+        if (returnAliases.includes(expr.variable!)) {
+          return { sql: expr.variable! };
+        }
+        
         // Check if this is an UNWIND variable
         const unwindClauses = (this.ctx as any).unwindClauses as Array<{
           alias: string;

@@ -30,6 +30,12 @@ export declare class Executor {
      */
     private tryUnwindCreateExecution;
     /**
+     * Handle MATCH+WITH(COLLECT)+UNWIND+RETURN pattern
+     * This requires a subquery for the aggregate function because SQLite doesn't
+     * allow aggregate functions directly inside json_each()
+     */
+    private tryCollectUnwindExecution;
+    /**
      * Evaluate UNWIND expressions to get the arrays to iterate over
      */
     private evaluateUnwindExpressions;

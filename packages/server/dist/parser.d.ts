@@ -45,8 +45,12 @@ export interface CaseExpression {
     whens: CaseWhen[];
     elseExpr?: Expression;
 }
+export interface ObjectProperty {
+    key: string;
+    value: Expression;
+}
 export interface Expression {
-    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary";
+    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object";
     variable?: string;
     property?: string;
     value?: PropertyValue;
@@ -59,6 +63,7 @@ export interface Expression {
     operator?: "+" | "-" | "*" | "/" | "%";
     left?: Expression;
     right?: Expression;
+    properties?: ObjectProperty[];
 }
 export interface ReturnItem {
     expression: Expression;
@@ -200,6 +205,7 @@ export declare class Parser {
     private parseMultiplicativeExpression;
     private parsePrimaryExpression;
     private parseCaseExpression;
+    private parseObjectLiteral;
     private peek;
     private advance;
     private isAtEnd;

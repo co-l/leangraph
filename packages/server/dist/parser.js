@@ -1061,6 +1061,10 @@ export class Parser {
     // Parse primary expressions (atoms)
     parsePrimaryExpression() {
         const token = this.peek();
+        // Object literal { key: value, ... }
+        if (token.type === "LBRACE") {
+            return this.parseObjectLiteral();
+        }
         // Parenthesized expression for grouping
         if (token.type === "LPAREN") {
             this.advance(); // consume (
@@ -1179,6 +1183,24 @@ export class Parser {
             whens,
             elseExpr,
         };
+    }
+    parseObjectLiteral() {
+        this.expect("LBRACE");
+        const properties = [];
+        if (!this.check("RBRACE")) {
+            do {
+                if (properties.length > 0) {
+                    this.expect("COMMA");
+                }
+                // Property keys can be identifiers or keywords
+                const key = this.expectIdentifierOrKeyword();
+                this.expect("COLON");
+                const value = this.parseExpression();
+                properties.push({ key, value });
+            } while (this.check("COMMA"));
+        }
+        this.expect("RBRACE");
+        return { type: "object", properties };
     }
     // Token helpers
     peek() {

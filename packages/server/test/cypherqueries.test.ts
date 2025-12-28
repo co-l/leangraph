@@ -1002,4 +1002,357 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data[0].expr).toBe(1);
     });
   });
+
+  /**
+   * Additional tests based on patterns from /tmp/cypher_queries.json
+   * These patterns are from real production usage in sellersuite application
+   */
+  describe("Sellersuite Query Patterns", () => {
+    describe("Node comparison in WHERE clause", () => {
+      it("finds duplicate nodes by comparing i <> i2", () => {
+        // Pattern: MATCH (i:Image), (i2:Image) WHERE i <> i2 AND i.image_id = i2.image_id
+        // This pattern finds nodes with duplicate property values
+        exec("CREATE (i1:Image {image_id: 'img-001', name: 'First'})");
+        exec("CREATE (i2:Image {image_id: 'img-001', name: 'Second'})");
+        exec("CREATE (i3:Image {image_id: 'img-002', name: 'Third'})");
+
+        // Find images that share the same image_id but are different nodes
+        const result = exec(`
+          MATCH (i:Image), (i2:Image)
+          WHERE i <> i2 AND i.image_id = i2.image_id
+          RETURN DISTINCT i.image_id as image_id
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].image_id).toBe("img-001");
+      });
+    });
+
+    describe("COLLECT with object construction", () => {
+      it("collects properties into objects", () => {
+        // Pattern: collect({ intellinaut_id: u.user_id, first_name: u.first_name, ... })
+        exec("CREATE (u:User {user_id: 'u1', first_name: 'Alice', last_name: 'Smith', email: 'alice@example.com'})");
+        exec("CREATE (u:User {user_id: 'u2', first_name: 'Bob', last_name: 'Jones', email: 'bob@example.com'})");
+        exec("CREATE (c:Company {company_id: 'c1', name: 'Acme'})");
+        
+        // Link users to company
+        const users = exec("MATCH (u:User) RETURN u.user_id, id(u) as uid").data;
+        const company = exec("MATCH (c:Company) RETURN id(c) as cid").data[0];
+        
+        for (const user of users) {
+          db.insertEdge(`admin-${user.u_user_id}`, "IS_ADMIN", user.uid as string, company.cid as string);
+        }
+
+        // Collect users into objects
+        const result = exec(`
+          MATCH (u:User)-[:IS_ADMIN]->(c:Company)
+          RETURN c.company_id as company_id,
+                 collect({
+                   intellinaut_id: u.user_id,
+                   first_name: u.first_name,
+                   last_name: u.last_name,
+                   email: u.email
+                 }) as intellinauts
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].company_id).toBe("c1");
+        const intellinauts = result.data[0].intellinauts as Array<Record<string, unknown>>;
+        expect(intellinauts).toHaveLength(2);
+        expect(intellinauts.some(i => i.first_name === "Alice")).toBe(true);
+        expect(intellinauts.some(i => i.first_name === "Bob")).toBe(true);
+      });
+    });
+
+    describe("ID() function with alias in RETURN", () => {
+      it("returns node ID with custom alias", () => {
+        // Pattern: MATCH (n) RETURN n, ID(n) as nid
+        exec("CREATE (n:Node {name: 'Test'})");
+
+        const result = exec("MATCH (n:Node) RETURN n, ID(n) as nid");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nid).toBeDefined();
+        expect(typeof result.data[0].nid).toBe("string");
+        // UUID format check
+        expect(result.data[0].nid).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        );
+      });
+
+      it("returns edge ID with custom alias", () => {
+        // Pattern: MATCH ()-[r]->() RETURN r, ID(r) as rid
+        exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+
+        const result = exec("MATCH ()-[r:KNOWS]->() RETURN ID(r) as rid");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].rid).toBeDefined();
+      });
+    });
+
+    describe("Relationship property filters in pattern", () => {
+      it("filters by relationship property in MATCH pattern", () => {
+        // Pattern: (p:Product)-[:PRODUCT_INFO{market_place:$market_place}]->(pi:ProductInfo)
+        exec("CREATE (p:Product {product_id: 'p1', sku: 'SKU001'})");
+        
+        // Create product infos with different market_places
+        const product = exec("MATCH (p:Product {product_id: 'p1'}) RETURN id(p) as pid").data[0];
+        
+        exec("CREATE (pi:ProductInfo {title: 'US Product', price: 99.99})");
+        exec("CREATE (pi:ProductInfo {title: 'EU Product', price: 89.99})");
+        
+        const productInfos = exec("MATCH (pi:ProductInfo) RETURN pi.title, id(pi) as piid").data;
+        
+        const usInfo = productInfos.find(pi => pi.pi_title === "US Product");
+        const euInfo = productInfos.find(pi => pi.pi_title === "EU Product");
+        
+        db.insertEdge("pi-us", "PRODUCT_INFO", product.pid as string, usInfo?.piid as string, { market_place: "us" });
+        db.insertEdge("pi-eu", "PRODUCT_INFO", product.pid as string, euInfo?.piid as string, { market_place: "eu" });
+
+        // Query with relationship property filter
+        const result = exec(`
+          MATCH (p:Product {product_id: $product_id})-[r:PRODUCT_INFO {market_place: $market_place}]->(pi:ProductInfo)
+          RETURN pi.title as title, pi.price as price
+        `, { product_id: "p1", market_place: "us" });
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].title).toBe("US Product");
+        expect(result.data[0].price).toBe(99.99);
+      });
+    });
+
+    describe("DELETE relationship variable", () => {
+      it("deletes relationship by variable without DETACH", () => {
+        // Pattern: MATCH (pi:ProductInfo)-[s:SOLD_BY]->(a) DELETE s
+        exec("CREATE (pi:ProductInfo {title: 'Product'})");
+        exec("CREATE (a:AmazonAccount {merchant_id: 'M001'})");
+        
+        const pi = exec("MATCH (pi:ProductInfo) RETURN id(pi) as piid").data[0];
+        const acc = exec("MATCH (a:AmazonAccount) RETURN id(a) as aid").data[0];
+        
+        db.insertEdge("sold-by-1", "SOLD_BY", pi.piid as string, acc.aid as string);
+
+        // Verify relationship exists
+        let check = exec("MATCH (pi:ProductInfo)-[:SOLD_BY]->(a:AmazonAccount) RETURN pi.title");
+        expect(check.data).toHaveLength(1);
+
+        // Delete relationship only
+        exec("MATCH (pi:ProductInfo)-[s:SOLD_BY]->(a) DELETE s");
+
+        // Verify relationship is gone but nodes remain
+        check = exec("MATCH (pi:ProductInfo)-[:SOLD_BY]->(a:AmazonAccount) RETURN pi.title");
+        expect(check.data).toHaveLength(0);
+        
+        // Nodes should still exist
+        expect(exec("MATCH (pi:ProductInfo) RETURN pi").data).toHaveLength(1);
+        expect(exec("MATCH (a:AmazonAccount) RETURN a").data).toHaveLength(1);
+      });
+    });
+
+    describe("Match all nodes without label", () => {
+      it("matches all nodes with (o) pattern", () => {
+        // Pattern: MATCH (o) RETURN count(o) as count
+        exec("CREATE (p:Person {name: 'Alice'})");
+        exec("CREATE (c:Company {name: 'Acme'})");
+        exec("CREATE (i:Invoice {id: 'inv-1'})");
+
+        const result = exec("MATCH (o) RETURN count(o) as count");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].count).toBe(3);
+      });
+    });
+
+    describe("Match all relationships without type", () => {
+      it("matches all relationships with (m)-[r]->(o) pattern", () => {
+        // Pattern: MATCH (m)-[r]->(o) RETURN count(r) as count
+        exec("CREATE (a:Person {name: 'Alice'})");
+        exec("CREATE (b:Person {name: 'Bob'})");
+        exec("CREATE (c:Company {name: 'Acme'})");
+        
+        const alice = exec("MATCH (p:Person {name: 'Alice'}) RETURN id(p) as pid").data[0];
+        const bob = exec("MATCH (p:Person {name: 'Bob'}) RETURN id(p) as pid").data[0];
+        const acme = exec("MATCH (c:Company) RETURN id(c) as cid").data[0];
+        
+        db.insertEdge("r1", "KNOWS", alice.pid as string, bob.pid as string);
+        db.insertEdge("r2", "WORKS_AT", alice.pid as string, acme.cid as string);
+        db.insertEdge("r3", "WORKS_AT", bob.pid as string, acme.cid as string);
+
+        const result = exec("MATCH (m)-[r]->(o) RETURN count(r) as count");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].count).toBe(3);
+      });
+    });
+
+    describe("DETACH DELETE with matched relationship", () => {
+      it("detach deletes matched nodes through relationship pattern", () => {
+        // Pattern: MATCH (u:User{email:$email})-[prev_admin:IS_ADMIN]->(c:Company) DETACH DELETE prev_admin, c
+        exec("CREATE (u:User {email: 'test@example.com', name: 'Test User'})");
+        exec("CREATE (c:Company {company_id: 'c1', name: 'Old Company'})");
+        
+        const user = exec("MATCH (u:User) RETURN id(u) as uid").data[0];
+        const company = exec("MATCH (c:Company) RETURN id(c) as cid").data[0];
+        
+        db.insertEdge("admin-rel", "IS_ADMIN", user.uid as string, company.cid as string);
+
+        // Verify setup
+        let check = exec("MATCH (u:User)-[:IS_ADMIN]->(c:Company) RETURN u.email, c.name");
+        expect(check.data).toHaveLength(1);
+
+        // Detach delete the relationship and company
+        exec(`
+          MATCH (u:User {email: $email})-[prev_admin:IS_ADMIN]->(c:Company)
+          DETACH DELETE prev_admin, c
+        `, { email: "test@example.com" });
+
+        // User should remain
+        expect(exec("MATCH (u:User) RETURN u").data).toHaveLength(1);
+        // Company should be gone
+        expect(exec("MATCH (c:Company) RETURN c").data).toHaveLength(0);
+        // Relationship should be gone
+        check = exec("MATCH (u:User)-[:IS_ADMIN]->(c:Company) RETURN u");
+        expect(check.data).toHaveLength(0);
+      });
+    });
+
+    describe("Variable-length paths with edge type", () => {
+      it("matches variable-length path with specific edge type", () => {
+        // Pattern: (c)-[*1..3]->(p:Product)
+        exec("CREATE (c:Company {company_id: 'c1'})");
+        exec("CREATE (cat:Category {name: 'Electronics'})");
+        exec("CREATE (p:Product {name: 'Laptop'})");
+        
+        const company = exec("MATCH (c:Company) RETURN id(c) as cid").data[0];
+        const category = exec("MATCH (cat:Category) RETURN id(cat) as catid").data[0];
+        const product = exec("MATCH (p:Product) RETURN id(p) as pid").data[0];
+        
+        db.insertEdge("r1", "HAS_CATEGORY", company.cid as string, category.catid as string);
+        db.insertEdge("r2", "CONTAINS", category.catid as string, product.pid as string);
+
+        // Find products reachable within 1-3 hops from company
+        const result = exec(`
+          MATCH (c:Company {company_id: $company_id})-[*1..3]->(p:Product)
+          RETURN count(p) as total
+        `, { company_id: "c1" });
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].total).toBe(1);
+      });
+    });
+
+    describe("ORDER BY with count aggregation", () => {
+      it("orders by count aggregation", () => {
+        // Pattern: RETURN count(u) as total, user.email as email ORDER BY total
+        exec("CREATE (c:Company {company_id: 'c1'})");
+        exec("CREATE (c:Company {company_id: 'c2'})");
+        exec("CREATE (f:Feature {feature: 'export'})");
+        
+        const companies = exec("MATCH (c:Company) RETURN c.company_id, id(c) as cid").data;
+        const feature = exec("MATCH (f:Feature) RETURN id(f) as fid").data[0];
+        
+        // Company 1 uses feature 3 times
+        for (let i = 0; i < 3; i++) {
+          db.insertEdge(`used-c1-${i}`, "USED", companies[0].cid as string, feature.fid as string);
+        }
+        // Company 2 uses feature 1 time
+        db.insertEdge("used-c2-0", "USED", companies[1].cid as string, feature.fid as string);
+
+        // Create users for each company
+        exec("CREATE (u:User {email: 'user1@c1.com', company_id: 'c1'})");
+        exec("CREATE (u:User {email: 'user2@c2.com', company_id: 'c2'})");
+        
+        const users = exec("MATCH (u:User) RETURN u.email, u.company_id, id(u) as uid").data;
+        for (const user of users) {
+          const company = companies.find(c => c.c_company_id === user.u_company_id);
+          if (company) {
+            db.insertEdge(`admin-${user.u_email}`, "IS_ADMIN", user.uid as string, company.cid as string);
+          }
+        }
+
+        // Query feature usage with ORDER BY count
+        const result = exec(`
+          MATCH (c:Company)-[u:USED]->(f:Feature {feature: $feature}),
+                (user:User)-[:IS_ADMIN]->(c)
+          RETURN count(u) as total, user.email as email
+          ORDER BY total
+        `, { feature: "export" });
+
+        expect(result.data.length).toBeGreaterThan(0);
+        // Results should be ordered by total ascending
+        for (let i = 1; i < result.data.length; i++) {
+          expect(result.data[i].total as number).toBeGreaterThanOrEqual(result.data[i - 1].total as number);
+        }
+      });
+    });
+
+    describe("NOT NULL check with IS NOT NULL", () => {
+      it("filters by IS NOT NULL in WHERE clause", () => {
+        // Pattern: WHERE NOT o.comment_request_date IS NULL
+        exec("CREATE (o:Order {order_id: 'o1', comment_request_date: '2024-01-15'})");
+        exec("CREATE (o:Order {order_id: 'o2'})"); // No comment_request_date
+        exec("CREATE (o:Order {order_id: 'o3', comment_request_date: '2024-01-20'})");
+
+        const result = exec(`
+          MATCH (o:Order)
+          WHERE NOT o.comment_request_date IS NULL
+          RETURN o.order_id as order_id
+        `);
+
+        expect(result.data).toHaveLength(2);
+        const orderIds = result.data.map(r => r.order_id);
+        expect(orderIds).toContain("o1");
+        expect(orderIds).toContain("o3");
+        expect(orderIds).not.toContain("o2");
+      });
+    });
+
+    describe("Multiple relationship patterns in CREATE", () => {
+      it("creates multiple relationships in single CREATE", () => {
+        // Pattern: CREATE (k:Keyword)-[r1:RELATED_KEYWORDS]->(rk1:RelatedKeyword), (k)-[r2:RELATED_KEYWORDS]->(rk2:RelatedKeyword)
+        const result = exec(`
+          CREATE (k:Keyword {lang: $lang, keyword: $keyword})-[r1:RELATED_KEYWORDS]->(rk1:RelatedKeyword {keyword: $duplicate_keyword}),
+                 (k)-[r2:RELATED_KEYWORDS]->(rk2:RelatedKeyword {keyword: $duplicate_keyword})
+          RETURN k
+        `, { lang: "en", keyword: "computer", duplicate_keyword: "laptop" });
+
+        expect(result.success).toBe(true);
+
+        // Verify keyword was created
+        const keywords = exec("MATCH (k:Keyword) RETURN k");
+        expect(keywords.data).toHaveLength(1);
+
+        // Verify related keywords were created
+        const relatedKeywords = exec("MATCH (rk:RelatedKeyword) RETURN rk");
+        expect(relatedKeywords.data).toHaveLength(2);
+
+        // Verify relationships exist
+        const rels = exec("MATCH (k:Keyword)-[:RELATED_KEYWORDS]->(rk:RelatedKeyword) RETURN rk");
+        expect(rels.data).toHaveLength(2);
+      });
+    });
+
+    describe("WITH clause with UNWIND roundtrip", () => {
+      it("handles COLLECT followed by UNWIND", () => {
+        // Pattern: WITH COLLECT(n.name) AS names UNWIND names AS name RETURN name
+        exec("CREATE (p:Person {name: 'Alice'})");
+        exec("CREATE (p:Person {name: 'Bob'})");
+        exec("CREATE (p:Person {name: 'Charlie'})");
+
+        const result = exec(`
+          MATCH (n:Person)
+          WITH COLLECT(n.name) AS names
+          UNWIND names AS name
+          RETURN name
+        `);
+
+        expect(result.data).toHaveLength(3);
+        const names = result.data.map(r => r.name);
+        expect(names).toContain("Alice");
+        expect(names).toContain("Bob");
+        expect(names).toContain("Charlie");
+      });
+    });
+  });
 });

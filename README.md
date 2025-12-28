@@ -32,7 +32,7 @@
 | `CASE` / `WHEN` / `THEN` / `ELSE` / `END` | Supported |
 | `EXISTS` | Supported |
 | Variable-length paths (`*1..3`) | Supported |
-| `CALL` (procedures) | Not supported |
+| `CALL` (procedures) | Supported |
 
 ### Operators
 
@@ -90,19 +90,13 @@
 
 The following features are planned for implementation (use TDD):
 
-### 1. `CALL` procedures
-```cypher
-CALL db.labels() YIELD label RETURN label
-CALL db.relationshipTypes() YIELD type RETURN type
-```
-
-### 2. Path expressions
+### 1. Path expressions
 ```cypher
 MATCH p = (a:Person)-[:KNOWS*]->(b:Person) RETURN p
 RETURN length(p) AS pathLength
 ```
 
-### 3. Additional list functions
+### 2. Additional list functions
 ```cypher
 RETURN [x IN range(1, 10) WHERE x % 2 = 0] AS evens
 RETURN [x IN list | x * 2] AS doubled

@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { serve } from "@hono/node-server";
+import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -404,6 +405,143 @@ program
     fs.copyFileSync(prodPath, testPath);
 
     console.log(`Cloned production/${project}.db → test/${project}.db`);
+  });
+
+// ============================================================================
+// migrate - Migrate databases from old label format to JSON array
+// ============================================================================
+
+program
+  .command("migrate")
+  .description("Migrate databases from old label format (TEXT) to new format (JSON array)")
+  .option("-d, --data <path>", "Data directory for databases", "/var/data/nicefox-graphdb")
+  .option("-p, --project <name>", "Migrate specific project only")
+  .option("--dry-run", "Preview changes without modifying data", false)
+  .option("-f, --force", "Skip confirmation prompt", false)
+  .action((options: { data: string; project?: string; dryRun: boolean; force: boolean }) => {
+    const dataPath = path.resolve(options.data);
+
+    if (!fs.existsSync(dataPath)) {
+      console.error(`Data directory not found: ${dataPath}`);
+      process.exit(1);
+    }
+
+    // Find all databases to migrate
+    const databases: { env: string; project: string; path: string }[] = [];
+    
+    for (const env of ["production", "test"]) {
+      const envPath = path.join(dataPath, env);
+      if (fs.existsSync(envPath)) {
+        const files = fs.readdirSync(envPath).filter((f) => f.endsWith(".db"));
+        for (const file of files) {
+          const project = file.replace(".db", "");
+          if (!options.project || options.project === project) {
+            databases.push({
+              env,
+              project,
+              path: path.join(envPath, file),
+            });
+          }
+        }
+      }
+    }
+
+    if (databases.length === 0) {
+      if (options.project) {
+        console.error(`Project '${options.project}' not found.`);
+      } else {
+        console.log("No databases found.");
+      }
+      process.exit(1);
+    }
+
+    // Check what needs migration
+    console.log("\nChecking databases for migration...\n");
+
+    const toMigrate: { env: string; project: string; path: string; count: number }[] = [];
+    
+    for (const dbInfo of databases) {
+      // Open database directly with better-sqlite3 to avoid schema initialization
+      const db = new Database(dbInfo.path);
+      
+      try {
+        // Check if nodes table exists
+        const tableExists = db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'"
+        ).get();
+        
+        if (!tableExists) {
+          console.log(`  ${dbInfo.env}/${dbInfo.project}.db: no nodes table (skipped)`);
+          continue;
+        }
+
+        // Count nodes that need migration (label is not valid JSON)
+        const result = db.prepare(
+          "SELECT COUNT(*) as count FROM nodes WHERE json_valid(label) = 0"
+        ).get() as { count: number };
+
+        if (result.count > 0) {
+          toMigrate.push({ ...dbInfo, count: result.count });
+          console.log(`  ${dbInfo.env}/${dbInfo.project}.db: ${result.count} node(s) need migration`);
+        } else {
+          console.log(`  ${dbInfo.env}/${dbInfo.project}.db: already migrated`);
+        }
+      } finally {
+        db.close();
+      }
+    }
+
+    if (toMigrate.length === 0) {
+      console.log("\nAll databases are already migrated.");
+      return;
+    }
+
+    // Dry run - just show what would be done
+    if (options.dryRun) {
+      console.log(`\n[dry-run] Would migrate ${toMigrate.length} database(s)`);
+      return;
+    }
+
+    // Confirm before migrating
+    if (!options.force) {
+      console.log(`\nThis will migrate ${toMigrate.length} database(s).`);
+      console.log("Use --force to confirm, or --dry-run to preview.");
+      process.exit(1);
+    }
+
+    // Perform migration
+    console.log("\nMigrating...\n");
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const dbInfo of toMigrate) {
+      const db = new Database(dbInfo.path);
+      
+      try {
+        const start = Date.now();
+        
+        // Migrate: wrap plain text labels in JSON array
+        const result = db.prepare(
+          "UPDATE nodes SET label = json_array(label) WHERE json_valid(label) = 0"
+        ).run();
+
+        const duration = Date.now() - start;
+        console.log(`  ${dbInfo.env}/${dbInfo.project}.db: ${result.changes} node(s) migrated (${duration}ms)`);
+        successCount++;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`  ${dbInfo.env}/${dbInfo.project}.db: FAILED - ${message}`);
+        failCount++;
+      } finally {
+        db.close();
+      }
+    }
+
+    console.log(`\nMigration complete: ${successCount} database(s) updated`);
+    if (failCount > 0) {
+      console.log(`  ${failCount} database(s) failed`);
+      process.exit(1);
+    }
   });
 
 // ============================================================================

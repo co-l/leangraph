@@ -341,8 +341,7 @@ export const FAILING_TESTS = new Set([
   "expressions/aggregation > Aggregation5 - Collect|1",
   "expressions/aggregation > Aggregation5 - Collect|2",
   "expressions/aggregation > Aggregation6 - Percentiles|5",
-  "expressions/aggregation > Aggregation8 - DISTINCT|1",
-  "expressions/aggregation > Aggregation8 - DISTINCT|2",
+  // Aggregation8|3 and |4 fail because collect doesn't filter nulls properly
   "expressions/aggregation > Aggregation8 - DISTINCT|3",
   "expressions/aggregation > Aggregation8 - DISTINCT|4",
 ]);

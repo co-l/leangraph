@@ -846,6 +846,9 @@ export class Executor {
       // Apply ON CREATE SET properties
       if (mergeClause.onCreateSet) {
         for (const assignment of mergeClause.onCreateSet) {
+          // Skip label assignments (handled separately)
+          if (assignment.labels) continue;
+          if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpression(assignment.value, params);
           nodeProps[assignment.property] = value;
         }
@@ -862,6 +865,9 @@ export class Executor {
       
       if (mergeClause.onMatchSet) {
         for (const assignment of mergeClause.onMatchSet) {
+          // Skip label assignments (handled separately)
+          if (assignment.labels) continue;
+          if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpression(assignment.value, params);
           this.db.execute(
             `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
@@ -979,6 +985,9 @@ export class Executor {
       // Apply ON CREATE SET properties (these apply to the target node, not the edge in this pattern)
       if (mergeClause.onCreateSet) {
         for (const assignment of mergeClause.onCreateSet) {
+          // Skip label assignments (handled separately)
+          if (assignment.labels) continue;
+          if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpression(assignment.value, params);
           // Update target node with ON CREATE SET
           this.db.execute(
@@ -998,6 +1007,9 @@ export class Executor {
       
       if (mergeClause.onMatchSet) {
         for (const assignment of mergeClause.onMatchSet) {
+          // Skip label assignments (handled separately)
+          if (assignment.labels) continue;
+          if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpression(assignment.value, params);
           // Update target node with ON MATCH SET
           this.db.execute(
@@ -1821,6 +1833,27 @@ export class Executor {
       const nodeId = resolvedIds[assignment.variable];
       if (!nodeId) {
         throw new Error(`Cannot resolve variable for SET: ${assignment.variable}`);
+      }
+
+      // Handle label assignments
+      if (assignment.labels && assignment.labels.length > 0) {
+        const newLabelsJson = JSON.stringify(assignment.labels);
+        this.db.execute(
+          `UPDATE nodes SET label = (SELECT json_group_array(value) FROM (
+            SELECT DISTINCT value FROM (
+              SELECT value FROM json_each(nodes.label)
+              UNION ALL
+              SELECT value FROM json_each(?)
+            ) ORDER BY value
+          )) WHERE id = ?`,
+          [newLabelsJson, nodeId]
+        );
+        continue;
+      }
+
+      // Handle property assignments
+      if (!assignment.value || !assignment.property) {
+        throw new Error(`Invalid SET assignment for variable: ${assignment.variable}`);
       }
 
       const value = this.evaluateExpression(assignment.value, params);

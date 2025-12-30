@@ -1,7 +1,7 @@
 # NiceFox GraphDB - TCK Compliance Session
 
 ## Context
-SQLite-based graph database with Cypher query support. Currently at 73.1% TCK compliance (1074/1470 tests passing).
+SQLite-based graph database with Cypher query support. Currently at 74.0% TCK compliance (1089/1470 tests passing).
 
 ## Goal
 Improve openCypher TCK compliance by fixing parser/translator/executor issues.
@@ -14,11 +14,17 @@ Improve openCypher TCK compliance by fixing parser/translator/executor issues.
 5. Before committing: rename back to `.skip`, ensure unit tests pass
 6. Update this file's "Current Priority Fixes" section with new stats
 
+## Recently Fixed (2024-12-30)
+- SET n:Label syntax - Added support for adding labels to nodes with SET clause
+- WITH * syntax - Pass through all bound variables
+- RETURN * syntax - Return all matched variables
+- UNWIND variable handling in COLLECT - Fixed collecting scalar values from UNWIND
+
 ## Current Priority Fixes (by impact)
-1. Multiple labels in RETURN (37 tests) - `Expected DOT, got COLON ':'`
-2. Pattern expressions (30 tests) - `size((n)-->())` syntax
-3. Map projection (14 tests) - `n { .name }` syntax
-4. MERGE edge cases (18 tests) - relationship patterns
+1. Multi-MATCH variable scope (18 tests) - `no such column: n0.id` in chained patterns
+2. MERGE relationship patterns (18 tests) - Need executor handling
+3. Source node resolution (18 tests) - CREATE edge cases
+4. Map/list access in DELETE (14 tests) - `nodes.key` and `list[$index]` syntax
 
 **Update this section after each session** with:
 - New pass rate and test counts

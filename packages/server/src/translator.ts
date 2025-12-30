@@ -487,6 +487,38 @@ export class Translator {
 
       const table = varInfo.type === "node" ? "nodes" : "edges";
       
+      // Handle label assignment: SET n:Label1:Label2
+      if (assignment.labels && assignment.labels.length > 0) {
+        if (varInfo.type !== "node") {
+          throw new Error(`Cannot set labels on a relationship: ${assignment.variable}`);
+        }
+        // Add labels to the existing label array using JSON functions
+        // We need to merge existing labels with new ones and deduplicate
+        // Use: json_array_length to check existing, json_each to iterate
+        // For simplicity: UPDATE nodes SET label = (SELECT json_group_array(DISTINCT value) FROM (
+        //   SELECT value FROM json_each(nodes.label)
+        //   UNION
+        //   SELECT value FROM json_each(?)))
+        // WHERE id = ?
+        const newLabelsJson = JSON.stringify(assignment.labels);
+        statements.push({
+          sql: `UPDATE nodes SET label = (SELECT json_group_array(value) FROM (
+            SELECT DISTINCT value FROM (
+              SELECT value FROM json_each(nodes.label)
+              UNION ALL
+              SELECT value FROM json_each(?)
+            ) ORDER BY value
+          )) WHERE id = ?`,
+          params: [newLabelsJson, varInfo.alias],
+        });
+        continue;
+      }
+      
+      // Handle property assignment: SET n.prop = value
+      if (!assignment.property || !assignment.value) {
+        throw new Error(`Invalid SET assignment for variable: ${assignment.variable}`);
+      }
+      
       // Check if the value is a dynamic expression (function, binary op, etc.) that needs SQL translation
       if (assignment.value.type === "function" || assignment.value.type === "binary") {
         const { sql: exprSql, params: exprParams } = this.translateExpression(assignment.value);
@@ -579,7 +611,25 @@ export class Translator {
 
     // Process return items
     const exprParams: unknown[] = [];
-    for (const item of clause.items) {
+    
+    // Check for RETURN * (return all bound variables)
+    let returnItems = clause.items;
+    if (clause.items.length > 0 && 
+        clause.items[0].expression.type === "variable" && 
+        clause.items[0].expression.variable === "*") {
+      // Expand * to all bound variables
+      const expandedItems: ReturnItem[] = [];
+      for (const [varName, varInfo] of this.ctx.variables) {
+        expandedItems.push({ expression: { type: "variable", variable: varName } });
+      }
+      // Add any other items after the * (e.g., RETURN *, count(*) AS cnt)
+      for (let i = 1; i < clause.items.length; i++) {
+        expandedItems.push(clause.items[i]);
+      }
+      returnItems = expandedItems;
+    }
+    
+    for (const item of returnItems) {
       const { sql: exprSql, tables, params: itemParams } = this.translateExpression(item.expression);
       tables.forEach((t) => neededTables.add(t));
       exprParams.push(...itemParams);
@@ -1028,6 +1078,11 @@ export class Translator {
       const alias = item.alias;
       
       if (item.expression.type === "variable") {
+        // Check for WITH * (pass through all variables)
+        if (item.expression.variable === "*") {
+          // All existing variables remain in scope - nothing to do
+          continue;
+        }
         // Variable passthrough - keep or create mapping
         const originalVar = item.expression.variable!;
         const originalInfo = this.ctx.variables.get(originalVar);
@@ -1969,6 +2024,34 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 params,
               };
             } else if (arg.type === "variable") {
+              // Check if this is an UNWIND variable (scalar values from json_each)
+              const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+                alias: string;
+                variable: string;
+                jsonExpr: string;
+                params: unknown[];
+              }> | undefined;
+              
+              if (unwindClauses) {
+                const unwindClause = unwindClauses.find(u => u.variable === arg.variable);
+                if (unwindClause) {
+                  tables.push(unwindClause.alias);
+                  // For UNWIND variables, collect the raw values from json_each
+                  if (useDistinct) {
+                    return {
+                      sql: `json('[' || GROUP_CONCAT(DISTINCT json_quote(${unwindClause.alias}.value)) || ']')`,
+                      tables,
+                      params,
+                    };
+                  }
+                  return {
+                    sql: `json_group_array(${unwindClause.alias}.value)`,
+                    tables,
+                    params,
+                  };
+                }
+              }
+              
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
                 throw new Error(`Unknown variable: ${arg.variable}`);

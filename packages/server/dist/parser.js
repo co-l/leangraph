@@ -477,11 +477,24 @@ export class Parser {
                 this.expect("COMMA");
             }
             const variable = this.expectIdentifier();
-            this.expect("DOT");
-            const property = this.expectIdentifier();
-            this.expect("EQUALS");
-            const value = this.parseExpression();
-            assignments.push({ variable, property, value });
+            // Check for label assignment: SET n:Label or SET n :Label (with whitespace)
+            if (this.check("COLON")) {
+                // Label assignment: SET n:Label1:Label2
+                const labels = [];
+                while (this.check("COLON")) {
+                    this.advance(); // consume ":"
+                    labels.push(this.expectLabelOrType());
+                }
+                assignments.push({ variable, labels });
+            }
+            else {
+                // Property assignment: SET n.property = value
+                this.expect("DOT");
+                const property = this.expectIdentifier();
+                this.expect("EQUALS");
+                const value = this.parseExpression();
+                assignments.push({ variable, property, value });
+            }
         } while (this.check("COMMA"));
         return assignments;
     }
@@ -509,19 +522,32 @@ export class Parser {
             distinct = true;
         }
         const items = [];
-        do {
+        // Check for RETURN * syntax (return all matched variables)
+        if (this.check("STAR")) {
+            this.advance();
+            // Mark with special "*" variable to indicate return all
+            items.push({ expression: { type: "variable", variable: "*" } });
+            // After *, we might have additional items with comma (unlikely but possible)
+            // e.g., RETURN *, count(*) AS cnt - but this is rare
+        }
+        if (items.length === 0 || this.check("COMMA")) {
             if (items.length > 0) {
-                this.expect("COMMA");
+                this.advance(); // consume comma after *
             }
-            // Use parseReturnExpression to allow comparisons in RETURN items
-            const expression = this.parseReturnExpression();
-            let alias;
-            if (this.checkKeyword("AS")) {
-                this.advance();
-                alias = this.expectIdentifierOrKeyword();
-            }
-            items.push({ expression, alias });
-        } while (this.check("COMMA"));
+            do {
+                if (items.length > 0) {
+                    this.expect("COMMA");
+                }
+                // Use parseReturnExpression to allow comparisons in RETURN items
+                const expression = this.parseReturnExpression();
+                let alias;
+                if (this.checkKeyword("AS")) {
+                    this.advance();
+                    alias = this.expectIdentifierOrKeyword();
+                }
+                items.push({ expression, alias });
+            } while (this.check("COMMA"));
+        }
         // Parse ORDER BY
         let orderBy;
         if (this.checkKeyword("ORDER")) {
@@ -569,18 +595,33 @@ export class Parser {
             distinct = true;
         }
         const items = [];
-        do {
-            if (items.length > 0) {
-                this.expect("COMMA");
+        let star = false;
+        // Check for WITH * syntax (pass through all variables)
+        if (this.check("STAR")) {
+            this.advance();
+            star = true;
+            // After *, we might have additional items with comma
+            // e.g., WITH *, count(n) AS cnt
+            // For now, we'll mark this with a special expression
+            items.push({ expression: { type: "variable", variable: "*" } });
+        }
+        if (!star || this.check("COMMA")) {
+            if (star) {
+                this.advance(); // consume comma after *
             }
-            const expression = this.parseExpression();
-            let alias;
-            if (this.checkKeyword("AS")) {
-                this.advance();
-                alias = this.expectIdentifierOrKeyword();
-            }
-            items.push({ expression, alias });
-        } while (this.check("COMMA"));
+            do {
+                if (items.length > (star ? 1 : 0)) {
+                    this.expect("COMMA");
+                }
+                const expression = this.parseExpression();
+                let alias;
+                if (this.checkKeyword("AS")) {
+                    this.advance();
+                    alias = this.expectIdentifierOrKeyword();
+                }
+                items.push({ expression, alias });
+            } while (this.check("COMMA"));
+        }
         // Parse ORDER BY
         let orderBy;
         if (this.checkKeyword("ORDER")) {

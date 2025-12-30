@@ -445,6 +445,31 @@ describe("Translator", () => {
       const setStmt = result.statements.find((s) => s.sql.includes("UPDATE"));
       expect(setStmt!.params).toContain(JSON.stringify("Charlie"));
     });
+
+    it("handles SET with single label", () => {
+      const parseResult = parse("MATCH (n) SET n:Foo RETURN n");
+      if (!parseResult.success) throw new Error("Parse failed");
+
+      const translator = new Translator();
+      const result = translator.translate(parseResult.query);
+
+      const setStmt = result.statements.find((s) => s.sql.includes("UPDATE"));
+      expect(setStmt).toBeDefined();
+      expect(setStmt!.sql).toContain("UPDATE nodes SET label");
+      expect(setStmt!.params[0]).toBe('["Foo"]');
+    });
+
+    it("handles SET with multiple labels", () => {
+      const parseResult = parse("MATCH (n) SET n:Foo:Bar RETURN n");
+      if (!parseResult.success) throw new Error("Parse failed");
+
+      const translator = new Translator();
+      const result = translator.translate(parseResult.query);
+
+      const setStmt = result.statements.find((s) => s.sql.includes("UPDATE"));
+      expect(setStmt).toBeDefined();
+      expect(setStmt!.params[0]).toBe('["Foo","Bar"]');
+    });
   });
 
   describe("DELETE", () => {

@@ -483,8 +483,65 @@ describe("Parser", () => {
       const query = expectSuccess("MATCH (n:Person {id: 'abc123'}) SET n.name = $name");
       const setClause = query.clauses[1] as SetClause;
 
-      expect(setClause.assignments[0].value.type).toBe("parameter");
-      expect(setClause.assignments[0].value.name).toBe("name");
+      expect(setClause.assignments[0].value?.type).toBe("parameter");
+      expect(setClause.assignments[0].value?.name).toBe("name");
+    });
+
+    it("parses SET with single label", () => {
+      const query = expectSuccess("MATCH (n) SET n:Foo RETURN n");
+      const setClause = query.clauses[1] as SetClause;
+
+      expect(setClause.type).toBe("SET");
+      expect(setClause.assignments).toHaveLength(1);
+      expect(setClause.assignments[0].variable).toBe("n");
+      expect(setClause.assignments[0].labels).toEqual(["Foo"]);
+    });
+
+    it("parses SET with multiple labels", () => {
+      const query = expectSuccess("MATCH (n) SET n:Foo:Bar RETURN n");
+      const setClause = query.clauses[1] as SetClause;
+
+      expect(setClause.assignments).toHaveLength(1);
+      expect(setClause.assignments[0].labels).toEqual(["Foo", "Bar"]);
+    });
+
+    it("parses SET with label and whitespace before colon", () => {
+      const query = expectSuccess("MATCH (n) SET n :Foo RETURN labels(n)");
+      const setClause = query.clauses[1] as SetClause;
+
+      expect(setClause.assignments[0].labels).toEqual(["Foo"]);
+    });
+
+    it("parses SET with property and label combined", () => {
+      const query = expectSuccess("MATCH (n) SET n.name = 'Bob', n:Foo RETURN n");
+      const setClause = query.clauses[1] as SetClause;
+
+      expect(setClause.assignments).toHaveLength(2);
+      expect(setClause.assignments[0].property).toBe("name");
+      expect(setClause.assignments[1].labels).toEqual(["Foo"]);
+    });
+  });
+
+  describe("WITH *", () => {
+    it("parses WITH * to pass through all variables", () => {
+      const query = expectSuccess("MATCH () WITH * CREATE ()");
+      expect(query.clauses).toHaveLength(3);
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.type).toBe("WITH");
+      expect(withClause.items).toHaveLength(1);
+      expect(withClause.items[0].expression.type).toBe("variable");
+      expect(withClause.items[0].expression.variable).toBe("*");
+    });
+
+    it("parses WITH * followed by additional items", () => {
+      const query = expectSuccess("MATCH (n) WITH *, count(n) AS cnt RETURN cnt");
+      
+      const withClause = query.clauses[1] as WithClause;
+      expect(withClause.items).toHaveLength(2);
+      expect(withClause.items[0].expression.variable).toBe("*");
+      expect(withClause.items[1].expression.type).toBe("function");
+      expect(withClause.items[1].alias).toBe("cnt");
     });
   });
 

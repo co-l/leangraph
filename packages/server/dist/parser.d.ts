@@ -87,8 +87,9 @@ export interface ReturnItem {
 }
 export interface SetAssignment {
     variable: string;
-    property: string;
-    value: Expression;
+    property?: string;
+    value?: Expression;
+    labels?: string[];
 }
 export interface CreateClause {
     type: "CREATE";

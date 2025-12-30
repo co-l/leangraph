@@ -123,8 +123,9 @@ export interface ReturnItem {
 
 export interface SetAssignment {
   variable: string;
-  property: string;
-  value: Expression;
+  property?: string;  // For property assignments: SET n.prop = value
+  value?: Expression;
+  labels?: string[];  // For label assignments: SET n:Label1:Label2
 }
 
 // Clause types
@@ -797,12 +798,24 @@ export class Parser {
       }
 
       const variable = this.expectIdentifier();
-      this.expect("DOT");
-      const property = this.expectIdentifier();
-      this.expect("EQUALS");
-      const value = this.parseExpression();
-
-      assignments.push({ variable, property, value });
+      
+      // Check for label assignment: SET n:Label or SET n :Label (with whitespace)
+      if (this.check("COLON")) {
+        // Label assignment: SET n:Label1:Label2
+        const labels: string[] = [];
+        while (this.check("COLON")) {
+          this.advance(); // consume ":"
+          labels.push(this.expectLabelOrType());
+        }
+        assignments.push({ variable, labels });
+      } else {
+        // Property assignment: SET n.property = value
+        this.expect("DOT");
+        const property = this.expectIdentifier();
+        this.expect("EQUALS");
+        const value = this.parseExpression();
+        assignments.push({ variable, property, value });
+      }
     } while (this.check("COMMA"));
 
     return assignments;
@@ -841,22 +854,36 @@ export class Parser {
 
     const items: ReturnItem[] = [];
 
-    do {
+    // Check for RETURN * syntax (return all matched variables)
+    if (this.check("STAR")) {
+      this.advance();
+      // Mark with special "*" variable to indicate return all
+      items.push({ expression: { type: "variable", variable: "*" } });
+      // After *, we might have additional items with comma (unlikely but possible)
+      // e.g., RETURN *, count(*) AS cnt - but this is rare
+    }
+
+    if (items.length === 0 || this.check("COMMA")) {
       if (items.length > 0) {
-        this.expect("COMMA");
+        this.advance(); // consume comma after *
       }
+      do {
+        if (items.length > 0) {
+          this.expect("COMMA");
+        }
 
-      // Use parseReturnExpression to allow comparisons in RETURN items
-      const expression = this.parseReturnExpression();
-      let alias: string | undefined;
+        // Use parseReturnExpression to allow comparisons in RETURN items
+        const expression = this.parseReturnExpression();
+        let alias: string | undefined;
 
-      if (this.checkKeyword("AS")) {
-        this.advance();
-        alias = this.expectIdentifierOrKeyword();
-      }
+        if (this.checkKeyword("AS")) {
+          this.advance();
+          alias = this.expectIdentifierOrKeyword();
+        }
 
-      items.push({ expression, alias });
-    } while (this.check("COMMA"));
+        items.push({ expression, alias });
+      } while (this.check("COMMA"));
+    }
 
     // Parse ORDER BY
     let orderBy: { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;
@@ -911,22 +938,38 @@ export class Parser {
     }
 
     const items: ReturnItem[] = [];
+    let star = false;
 
-    do {
-      if (items.length > 0) {
-        this.expect("COMMA");
+    // Check for WITH * syntax (pass through all variables)
+    if (this.check("STAR")) {
+      this.advance();
+      star = true;
+      // After *, we might have additional items with comma
+      // e.g., WITH *, count(n) AS cnt
+      // For now, we'll mark this with a special expression
+      items.push({ expression: { type: "variable", variable: "*" } });
+    }
+
+    if (!star || this.check("COMMA")) {
+      if (star) {
+        this.advance(); // consume comma after *
       }
+      do {
+        if (items.length > (star ? 1 : 0)) {
+          this.expect("COMMA");
+        }
 
-      const expression = this.parseExpression();
-      let alias: string | undefined;
+        const expression = this.parseExpression();
+        let alias: string | undefined;
 
-      if (this.checkKeyword("AS")) {
-        this.advance();
-        alias = this.expectIdentifierOrKeyword();
-      }
+        if (this.checkKeyword("AS")) {
+          this.advance();
+          alias = this.expectIdentifierOrKeyword();
+        }
 
-      items.push({ expression, alias });
-    } while (this.check("COMMA"));
+        items.push({ expression, alias });
+      } while (this.check("COMMA"));
+    }
 
     // Parse ORDER BY
     let orderBy: { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;

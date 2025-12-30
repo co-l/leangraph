@@ -3020,4 +3020,200 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
   });
+
+  describe("Percentile Functions", () => {
+    beforeEach(() => {
+      // Create a set of nodes with numeric values for percentile calculations
+      exec("CREATE (n:Score {value: 10})");
+      exec("CREATE (n:Score {value: 20})");
+      exec("CREATE (n:Score {value: 30})");
+      exec("CREATE (n:Score {value: 40})");
+      exec("CREATE (n:Score {value: 50})");
+    });
+
+    describe("percentileDisc()", () => {
+      it("returns median value (0.5 percentile) for discrete percentile", () => {
+        // percentileDisc returns an actual value from the dataset
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileDisc(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(30); // Middle value for odd count
+      });
+
+      it("returns minimum value (0th percentile)", () => {
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileDisc(n.value, 0) AS minVal
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].minVal).toBe(10);
+      });
+
+      it("returns maximum value (100th percentile)", () => {
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileDisc(n.value, 1) AS maxVal
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].maxVal).toBe(50);
+      });
+
+      it("returns 90th percentile value", () => {
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileDisc(n.value, 0.9) AS p90
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].p90).toBe(50); // 90th percentile rounds to highest value
+      });
+
+      it("returns 25th percentile value", () => {
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileDisc(n.value, 0.25) AS p25
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].p25).toBe(20); // 25th percentile
+      });
+
+      it("works with WHERE clause filtering", () => {
+        exec("CREATE (n:Score {value: 100, category: 'high'})");
+        exec("CREATE (n:Score {value: 200, category: 'high'})");
+        
+        const result = exec(`
+          MATCH (n:Score)
+          WHERE n.category = 'high'
+          RETURN percentileDisc(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        // Discrete percentile: index = ROUND(0.5 * 1) = 1, so returns 200 (second value)
+        expect(result.data[0].median).toBe(200);
+      });
+    });
+
+    describe("percentileCont()", () => {
+      it("returns interpolated median value (0.5 percentile)", () => {
+        // percentileCont can interpolate between values
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileCont(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(30); // Median for 5 values
+      });
+
+      it("returns minimum value (0th percentile)", () => {
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileCont(n.value, 0) AS minVal
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].minVal).toBe(10);
+      });
+
+      it("returns maximum value (100th percentile)", () => {
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileCont(n.value, 1) AS maxVal
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].maxVal).toBe(50);
+      });
+
+      it("interpolates for 0.3 percentile", () => {
+        // With values [10, 20, 30, 40, 50], 0.3 percentile should interpolate
+        // Position = 0.3 * (5-1) = 1.2, so between index 1 (20) and index 2 (30)
+        // Value = 20 + 0.2 * (30 - 20) = 20 + 2 = 22
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileCont(n.value, 0.3) AS p30
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].p30).toBe(22);
+      });
+
+      it("interpolates for 0.75 percentile", () => {
+        // Position = 0.75 * (5-1) = 3, exactly at index 3 (40)
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileCont(n.value, 0.75) AS p75
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].p75).toBe(40);
+      });
+
+      it("handles even number of elements", () => {
+        exec("CREATE (n:Score {value: 60})");
+        // Now we have [10, 20, 30, 40, 50, 60]
+        // Median position = 0.5 * (6-1) = 2.5, between index 2 (30) and index 3 (40)
+        // Value = 30 + 0.5 * (40 - 30) = 35
+        const result = exec(`
+          MATCH (n:Score)
+          RETURN percentileCont(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(35);
+      });
+    });
+
+    describe("Edge cases", () => {
+      it("handles single value for percentileDisc", () => {
+        exec("CREATE (n:SingleScore {value: 42})");
+        
+        const result = exec(`
+          MATCH (n:SingleScore)
+          RETURN percentileDisc(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(42);
+      });
+
+      it("handles single value for percentileCont", () => {
+        exec("CREATE (n:SingleScore {value: 42})");
+        
+        const result = exec(`
+          MATCH (n:SingleScore)
+          RETURN percentileCont(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(42);
+      });
+
+      it("returns null for empty result set in percentileDisc", () => {
+        const result = exec(`
+          MATCH (n:NonExistent)
+          RETURN percentileDisc(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(null);
+      });
+
+      it("returns null for empty result set in percentileCont", () => {
+        const result = exec(`
+          MATCH (n:NonExistent)
+          RETURN percentileCont(n.value, 0.5) AS median
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].median).toBe(null);
+      });
+    });
+  });
 });

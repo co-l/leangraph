@@ -2197,4 +2197,67 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["reversed"]);
     });
   });
+
+  describe("Percentile functions", () => {
+    it("translates percentileDisc() with property access", () => {
+      const result = translateCypher("MATCH (n:Score) RETURN percentileDisc(n.value, 0.5) AS median");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should generate SQL that computes discrete percentile
+      expect(sql).toContain("json_extract");
+      expect(sql).toContain("json_group_array");
+      expect(result.returnColumns).toEqual(["median"]);
+    });
+
+    it("translates percentileCont() with property access", () => {
+      const result = translateCypher("MATCH (n:Score) RETURN percentileCont(n.value, 0.5) AS median");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should generate SQL that computes continuous (interpolated) percentile
+      expect(sql).toContain("json_extract");
+      expect(result.returnColumns).toEqual(["median"]);
+    });
+
+    it("translates percentileDisc() with 0 percentile (minimum)", () => {
+      const result = translateCypher("MATCH (n:Score) RETURN percentileDisc(n.value, 0) AS minVal");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.returnColumns).toEqual(["minVal"]);
+    });
+
+    it("translates percentileDisc() with 1 percentile (maximum)", () => {
+      const result = translateCypher("MATCH (n:Score) RETURN percentileDisc(n.value, 1) AS maxVal");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.returnColumns).toEqual(["maxVal"]);
+    });
+
+    it("translates percentileCont() with parameter percentile", () => {
+      const result = translateCypher(
+        "MATCH (n:Score) RETURN percentileCont(n.value, $p) AS pval",
+        { p: 0.9 }
+      );
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.returnColumns).toEqual(["pval"]);
+    });
+
+    it("includes percentile functions in aggregate function list", () => {
+      // Test that percentile functions are recognized as aggregate functions
+      // by checking the Translator's isAggregateExpression method
+      // Note: GROUP BY generation for mixed aggregate/non-aggregate expressions
+      // is not fully implemented in the translator yet
+      const result = translateCypher(`
+        MATCH (n:Score)
+        RETURN percentileDisc(n.value, 0.5) AS median
+      `);
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should generate aggregate function SQL
+      expect(sql).toContain("json_group_array");
+    });
+  });
 });

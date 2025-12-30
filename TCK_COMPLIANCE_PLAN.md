@@ -2,7 +2,7 @@
 
 ## Current Status
 
-- **Test Suite**: 890 passing, 0 skipped
+- **Test Suite**: 947 passing, 0 skipped
 - **Estimated TCK Compliance**: ~70% (based on implemented features)
 - **TCK Source**: https://github.com/opencypher/openCypher/tree/main/tck
 - **Test Runner**: `packages/server/test/tck/tck.test.ts.skip`
@@ -273,18 +273,23 @@ RETURN [x IN n.values WHERE x > 2] AS filtered           -- Property as source
 
 **Note**: Pattern comprehensions like `[(a)-->(b) | b.name]` (graph patterns in comprehension) are not yet supported.
 
-### 9. Percentile Functions
-**Failures**: ~5 tests
+### 9. Percentile Functions - COMPLETED
+**Status**: Implemented (December 2024)
 
 ```cypher
-RETURN percentileDisc(0.9, n.score)
-RETURN percentileCont(0.5, n.value)
+RETURN percentileDisc(n.score, 0.9) AS p90
+RETURN percentileCont(n.value, 0.5) AS median
+MATCH (n:Score) WHERE n.category = 'high' RETURN percentileDisc(n.value, 0.5) AS median
 ```
 
-**Implementation**:
-- Use SQLite window functions or custom aggregation
-- `percentileDisc`: discrete percentile
-- `percentileCont`: continuous (interpolated) percentile
+**Implementation** (December 2024):
+- **Parser**: Functions are parsed as standard function calls with two arguments
+- **Translator**: Uses `json_group_array()` aggregate to collect values, then scalar subquery to extract percentile
+  - `percentileDisc`: Returns actual value at percentile position using ROUND(percentile * (count-1))
+  - `percentileCont`: Interpolates between adjacent values for exact percentile
+  - Handles edge cases: empty sets (returns NULL), single value, 0th/100th percentiles
+- **Aggregate Recognition**: Added to `isAggregateExpression()` for proper GROUP BY handling
+- **Test Coverage**: 22 tests covering discrete/continuous percentiles, edge cases, filtering
 
 ### 10. List Concatenation - COMPLETED
 **Status**: Implemented

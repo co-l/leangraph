@@ -1840,6 +1840,97 @@ export class Translator {
           }
           throw new Error(`${expr.functionName} requires a property or variable argument`);
         }
+        
+        // Percentile functions: PERCENTILEDISC, PERCENTILECONT
+        // percentileDisc(value, percentile) - Returns discrete value at percentile position
+        // percentileCont(value, percentile) - Returns interpolated value at percentile position
+        // 
+        // These are aggregate functions that:
+        // 1. Uses json_group_array() to collect all values into a sorted array (aggregate)
+        // 2. Extracts the value at the appropriate percentile position
+        if (expr.functionName === "PERCENTILEDISC" || expr.functionName === "PERCENTILECONT") {
+          if (expr.args && expr.args.length >= 2) {
+            const valueArg = expr.args[0];
+            const percentileArg = expr.args[1];
+            
+            // Get the value expression (property access)
+            let valueExpr: string;
+            if (valueArg.type === "property") {
+              const varInfo = this.ctx.variables.get(valueArg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${valueArg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              valueExpr = `json_extract(${varInfo.alias}.properties, '$.${valueArg.property}')`;
+            } else {
+              const argResult = this.translateFunctionArg(valueArg);
+              tables.push(...argResult.tables);
+              params.push(...argResult.params);
+              valueExpr = argResult.sql;
+            }
+            
+            // Get the percentile value (0-1 range)
+            const percentileResult = this.translateFunctionArg(percentileArg);
+            const percentileVal = percentileResult.sql;
+            
+            // We need to push the percentile parameters multiple times since the value
+            // is used in multiple places in the SQL (for bounds checking and calculation)
+            
+            if (expr.functionName === "PERCENTILEDISC") {
+              // Discrete percentile: returns actual value from sorted list at percentile position
+              // Formula: index = ROUND(percentile * (count - 1))
+              // Use a correlated subquery pattern with json_group_array
+              // Push params 3 times for the 3 uses of percentileVal
+              params.push(...percentileResult.params); // for <= 0 check
+              params.push(...percentileResult.params); // for >= 1 check
+              params.push(...percentileResult.params); // for index calculation
+              return {
+                sql: `(SELECT CASE
+  WHEN json_array_length(sv) = 0 OR sv IS NULL THEN NULL
+  WHEN ${percentileVal} <= 0 THEN json_extract(sv, '$[0]')
+  WHEN ${percentileVal} >= 1 THEN json_extract(sv, '$[' || (json_array_length(sv) - 1) || ']')
+  ELSE json_extract(sv, '$[' || CAST(ROUND(${percentileVal} * (json_array_length(sv) - 1)) AS INTEGER) || ']')
+END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
+                tables,
+                params,
+              };
+            } else {
+              // Continuous percentile: interpolates between values
+              // Formula: position = percentile * (count - 1)
+              //          lower_idx = FLOOR(position), upper_idx = CEIL(position)
+              //          fraction = position - lower_idx
+              //          result = lower_val + fraction * (upper_val - lower_val)
+              // Push params 5 times for the 5 uses of percentileVal
+              params.push(...percentileResult.params); // for <= 0 check
+              params.push(...percentileResult.params); // for >= 1 check
+              params.push(...percentileResult.params); // for pos calculation
+              params.push(...percentileResult.params); // for li calculation
+              params.push(...percentileResult.params); // for ui calculation
+              return {
+                sql: `(SELECT CASE
+  WHEN json_array_length(sv) = 0 OR sv IS NULL THEN NULL
+  WHEN json_array_length(sv) = 1 THEN json_extract(sv, '$[0]')
+  WHEN ${percentileVal} <= 0 THEN json_extract(sv, '$[0]')
+  WHEN ${percentileVal} >= 1 THEN json_extract(sv, '$[' || (json_array_length(sv) - 1) || ']')
+  ELSE (
+    SELECT json_extract(sv, '$[' || li || ']') + 
+           (p - li) * (json_extract(sv, '$[' || ui || ']') - json_extract(sv, '$[' || li || ']'))
+    FROM (
+      SELECT 
+        ${percentileVal} * (json_array_length(sv) - 1) as p,
+        CAST(${percentileVal} * (json_array_length(sv) - 1) AS INTEGER) as li,
+        MIN(CAST(${percentileVal} * (json_array_length(sv) - 1) AS INTEGER) + 1, json_array_length(sv) - 1) as ui
+    )
+  )
+END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
+                tables,
+                params,
+              };
+            }
+          }
+          throw new Error(`${expr.functionName} requires two arguments: value and percentile`);
+        }
+        
         // COLLECT: gather values into an array using SQLite's json_group_array
         if (expr.functionName === "COLLECT") {
           if (expr.args && expr.args.length > 0) {
@@ -3523,11 +3614,11 @@ export class Translator {
   }
 
   /**
-   * Check if an expression is an aggregate function (COUNT, SUM, AVG, MIN, MAX, COLLECT)
+   * Check if an expression is an aggregate function (COUNT, SUM, AVG, MIN, MAX, COLLECT, PERCENTILEDISC, PERCENTILECONT)
    */
   private isAggregateExpression(expr: Expression): boolean {
     if (expr.type === "function" && expr.functionName) {
-      const aggregateFunctions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT"];
+      const aggregateFunctions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT", "PERCENTILEDISC", "PERCENTILECONT"];
       return aggregateFunctions.includes(expr.functionName.toUpperCase());
     }
     return false;

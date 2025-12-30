@@ -310,6 +310,8 @@ export const FAILING_TESTS = new Set([
   "clauses/with > With1 - Forward single variable|4",
   "clauses/with > With2 - Forward single expression|1",
   "clauses/with > With2 - Forward single expression|2",
+
+  // With3|1: WITH forwarding multiple variables then re-matching
   "clauses/with > With3 - Forward multiple expressions|1",
   "clauses/with > With4 - Variable aliasing|1",
   "clauses/with > With4 - Variable aliasing|6",
@@ -322,8 +324,8 @@ export const FAILING_TESTS = new Set([
   "clauses/with > With6 - Implicit grouping with aggregates|5",
   "clauses/with > With7 - WITH on WITH|1",
   "clauses/with > With7 - WITH on WITH|2",
+  // Aggregation1|1: GROUP BY not working correctly
   "expressions/aggregation > Aggregation1 - Count|1",
-  "expressions/aggregation > Aggregation1 - Count|2",
   "expressions/aggregation > Aggregation2 - Min and Max|1",
   "expressions/aggregation > Aggregation2 - Min and Max|10",
   "expressions/aggregation > Aggregation2 - Min and Max|11",

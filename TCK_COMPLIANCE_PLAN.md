@@ -2,7 +2,8 @@
 
 ## Current Status
 
-- **Compliance**: ~65% (estimated, based on Phase 1 completion)
+- **Test Suite**: 819 passing, 2 skipped
+- **Estimated TCK Compliance**: ~70% (based on implemented features)
 - **TCK Source**: https://github.com/opencypher/openCypher/tree/main/tck
 - **Test Runner**: `packages/server/test/tck/tck.test.ts.skip`
 
@@ -186,17 +187,33 @@ RETURN sum(DISTINCT n.value)     -- Uses SUM(DISTINCT json_extract(...))
 - COLLECT uses `json('[' || GROUP_CONCAT(DISTINCT json_quote(...)) || ']')` 
   since SQLite's json_group_array doesn't support DISTINCT
 
-### 5. MERGE with Relationships
-**Failures**: ~18 tests
+### 5. MERGE with Relationships - COMPLETED
+**Status**: Implemented (December 2024)
 
 ```cypher
 MERGE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
 MERGE (a)-[r:KNOWS]->(b) ON CREATE SET r.since = date()
+MATCH (a:Person), (b:Person) MERGE (a)-[:KNOWS]->(b)
 ```
 
-**Implementation**:
-- Extend executor to handle relationship patterns in MERGE
-- Check existence of full pattern before creating
+**Implementation** (December 2024):
+- **Executor**: Enhanced `tryMergeExecution()` to handle all relationship MERGE patterns
+  - Now catches MERGE clauses with relationship patterns (not just ON CREATE/MATCH SET)
+  - Refactored `executeMergeRelationship()` to handle three scenarios:
+    1. Both nodes from MATCH: `MATCH (a), (b) MERGE (a)-[:REL]->(b)`
+    2. Source from MATCH, target to find/create: `MATCH (a) MERGE (a)-[:REL]->(b:Label)`
+    3. Entire pattern to find/create: `MERGE (a:Label)-[:REL]->(b:Label)`
+  - Added `findOrCreateNode()` helper to find existing nodes or create new ones
+  - Added `processReturnClauseWithEdges()` for proper edge variable binding in RETURN
+- **Test Coverage**: 8 comprehensive tests in `cypherqueries.test.ts`
+  - Create relationship if doesn't exist
+  - Skip duplicate relationship creation
+  - Relationship with properties
+  - Entire pattern creation (nodes + relationship)
+  - RETURN merged relationship
+  - Match existing pattern instead of creating duplicate
+  - Partial match (create missing parts)
+  - Relationship variable binding with type() function
 
 ### 6. Anonymous Nodes in Patterns - ALREADY SUPPORTED
 **Status**: Working
@@ -312,7 +329,7 @@ pnpm test -- -t "DISTINCT"
 | `Expected DOT, got COLON ':'` | Multiple labels | parser.ts |
 | ~~`Expected expression, got KEYWORD 'DISTINCT'`~~ | ~~DISTINCT in functions~~ | ~~Fixed~~ |
 | ~~`Expected expression, got LBRACKET '['`~~ | ~~List literals in RETURN~~ | ~~Fixed~~ |
-| `MERGE with relationship pattern must be executed` | MERGE relationships | executor.ts |
+| ~~`MERGE with relationship pattern must be executed`~~ | ~~MERGE relationships~~ | ~~Fixed~~ |
 
 ### Known Limitations
 

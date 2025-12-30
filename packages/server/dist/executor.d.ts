@@ -56,7 +56,7 @@ export declare class Executor {
      */
     private tryCreateReturnExecution;
     /**
-     * Handle MERGE with ON CREATE SET / ON MATCH SET
+     * Handle MERGE clauses that need special execution (relationship patterns or ON CREATE/MATCH SET)
      * Returns null if this is not a MERGE pattern that needs special handling
      */
     private tryMergeExecution;
@@ -70,8 +70,20 @@ export declare class Executor {
     private executeMergeNode;
     /**
      * Execute a relationship MERGE: MERGE (a)-[:TYPE]->(b)
+     * Handles multiple scenarios:
+     * 1. MATCH (a), (b) MERGE (a)-[:REL]->(b) - both nodes already matched
+     * 2. MATCH (a) MERGE (a)-[:REL]->(b:Label {props}) - source matched, target to find/create
+     * 3. MERGE (a:Label)-[:REL]->(b:Label) - entire pattern to find/create
      */
     private executeMergeRelationship;
+    /**
+     * Find an existing node matching the pattern, or create a new one
+     */
+    private findOrCreateNode;
+    /**
+     * Process a RETURN clause using matched nodes and edges
+     */
+    private processReturnClauseWithEdges;
     /**
      * Process a RETURN clause using matched nodes
      */

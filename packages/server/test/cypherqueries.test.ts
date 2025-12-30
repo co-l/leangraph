@@ -2359,4 +2359,156 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data[1].pathCount).toBe(1);
     });
   });
+
+  describe("MERGE with Relationships", () => {
+    it("creates relationship if it doesn't exist", () => {
+      // Setup: Create two nodes that are not connected
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+
+      // MERGE should create the relationship since it doesn't exist
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        MERGE (a)-[:KNOWS]->(b)
+      `);
+
+      // Verify the relationship was created
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN a.name as from, b.name as to
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].from).toBe("Alice");
+      expect(result.data[0].to).toBe("Bob");
+    });
+
+    it("does not create duplicate relationship if it already exists", () => {
+      // Setup: Create two nodes and connect them
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})");
+
+      // MERGE should NOT create a new relationship since one already exists
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        MERGE (a)-[:KNOWS]->(b)
+      `);
+
+      // Verify only one relationship exists
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN count(r) as relCount
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].relCount).toBe(1);
+    });
+
+    it("creates relationship with properties if it doesn't exist", () => {
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+
+      exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        MERGE (a)-[:KNOWS {since: 2020}]->(b)
+      `);
+
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN r.since as since
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].since).toBe(2020);
+    });
+
+    it("creates entire pattern (nodes + relationship) if none exists", () => {
+      // MERGE should create both nodes and the relationship
+      exec(`
+        MERGE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+      `);
+
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN a.name as from, b.name as to
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].from).toBe("Alice");
+      expect(result.data[0].to).toBe("Bob");
+    });
+
+    it("returns the merged relationship", () => {
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        MERGE (a)-[r:KNOWS]->(b)
+        RETURN r
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBeDefined();
+      expect((result.data[0].r as Record<string, unknown>).type).toBe("KNOWS");
+    });
+
+    it("matches existing pattern instead of creating duplicate", () => {
+      // Create Alice -> Bob with KNOWS
+      exec("CREATE (a:Person {name: 'Alice'})-[:KNOWS {since: 2020}]->(b:Person {name: 'Bob'})");
+
+      // MERGE the same pattern
+      const result = exec(`
+        MERGE (a:Person {name: 'Alice'})-[r:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN r.since as since
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].since).toBe(2020);
+
+      // Verify only one Person named Alice and one named Bob
+      const aliceCount = exec("MATCH (p:Person {name: 'Alice'}) RETURN count(p) as c");
+      expect(aliceCount.data[0].c).toBe(1);
+
+      const bobCount = exec("MATCH (p:Person {name: 'Bob'}) RETURN count(p) as c");
+      expect(bobCount.data[0].c).toBe(1);
+    });
+
+    it("creates pattern when only partial match exists", () => {
+      // Create Alice but not Bob
+      exec("CREATE (a:Person {name: 'Alice'})");
+
+      // MERGE should create Bob and the relationship
+      exec(`
+        MERGE (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+      `);
+
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(b:Person {name: 'Bob'})
+        RETURN a.name as from, b.name as to
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].from).toBe("Alice");
+      expect(result.data[0].to).toBe("Bob");
+
+      // Verify only one Alice exists
+      const aliceCount = exec("MATCH (p:Person {name: 'Alice'}) RETURN count(p) as c");
+      expect(aliceCount.data[0].c).toBe(1);
+    });
+
+    it("handles MERGE with relationship variable binding", () => {
+      exec("CREATE (a:Person {name: 'Alice'})");
+      exec("CREATE (b:Person {name: 'Bob'})");
+
+      const result = exec(`
+        MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
+        MERGE (a)-[r:KNOWS {since: 2020}]->(b)
+        RETURN type(r) as relType, r.since as since
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].relType).toBe("KNOWS");
+      expect(result.data[0].since).toBe(2020);
+    });
+  });
 });

@@ -127,7 +127,7 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match7 - Optional match|31",
   "clauses/match > Match7 - Optional match|4",
 
-  "clauses/match > Match7 - Optional match|6",
+
   "clauses/match > Match7 - Optional match|8",
   "clauses/match > Match7 - Optional match|9",
   "clauses/match > Match8 - Match clause interoperation with other clauses|2",
@@ -224,6 +224,9 @@ export const FAILING_TESTS = new Set([
   // Return4|11: list comprehension
   "clauses/return > Return4 - Column renaming|11",
 
+  // With5|2: DISTINCT with lists in maps
+  "clauses/with > With5 - Implicit grouping with DISTINCT|2",
+
   // Return5|4: nested maps in DISTINCT inside aggregation
   "clauses/return > Return5 - Implicit grouping with distinct|4",
   // Return5|5: distinct on nulls
@@ -309,7 +312,7 @@ export const FAILING_TESTS = new Set([
   "clauses/with > With4 - Variable aliasing|1",
   "clauses/with > With4 - Variable aliasing|6",
   "clauses/with > With4 - Variable aliasing|7",
-  "clauses/with > With5 - Implicit grouping with DISTINCT|2",
+
   "clauses/with > With6 - Implicit grouping with aggregates|1",
   "clauses/with > With6 - Implicit grouping with aggregates|2",
   "clauses/with > With6 - Implicit grouping with aggregates|3",

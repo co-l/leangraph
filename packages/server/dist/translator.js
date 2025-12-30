@@ -2327,6 +2327,12 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
             case "listComprehension": {
                 return this.translateListComprehension(expr);
             }
+            case "listPredicate": {
+                return this.translateListPredicate(expr);
+            }
+            case "unary": {
+                return this.translateUnaryExpression(expr);
+            }
             default:
                 throw new Error(`Unknown expression type: ${expr.type}`);
         }
@@ -2371,6 +2377,14 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
             const rightArraySql = this.wrapForArray(expr.right, rightResult.sql);
             return {
                 sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftArraySql}) UNION ALL SELECT value FROM json_each(${rightArraySql})))`,
+                tables,
+                params,
+            };
+        }
+        // Handle logical operators (AND, OR)
+        if (expr.operator === "AND" || expr.operator === "OR") {
+            return {
+                sql: `(${leftResult.sql} ${expr.operator} ${rightResult.sql})`,
                 tables,
                 params,
             };
@@ -2663,6 +2677,93 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 throw new Error(`Unsupported condition type in list comprehension: ${condition.type}`);
         }
     }
+    /**
+     * Translate a list predicate expression: ALL/ANY/NONE/SINGLE(var IN list WHERE cond)
+     *
+     * Implementation uses a CTE to evaluate the list once and avoid parameter duplication issues:
+     * - ALL: true when count of elements NOT satisfying condition = 0 (empty list = true)
+     * - ANY: true when count of elements satisfying condition > 0 (empty list = false)
+     * - NONE: true when count of elements satisfying condition = 0 (empty list = true)
+     * - SINGLE: true when count of elements satisfying condition = 1 (empty list = false)
+     */
+    translateListPredicate(expr) {
+        const tables = [];
+        const params = [];
+        const predicateType = expr.predicateType;
+        const variable = expr.variable;
+        const listExpr = expr.listExpr;
+        const filterCondition = expr.filterCondition;
+        // Translate the source list expression
+        const listResult = this.translateExpression(listExpr);
+        tables.push(...listResult.tables);
+        params.push(...listResult.params);
+        // Get the list SQL - wrap for array if needed
+        const listSql = this.wrapForListPredicate(listExpr, listResult.sql);
+        // Translate the filter condition, substituting the list predicate variable with __lp__.value
+        const condResult = this.translateListComprehensionCondition(filterCondition, variable, "__lp__");
+        params.push(...condResult.params);
+        let sql;
+        switch (predicateType) {
+            case "ALL":
+                // ALL: true when no elements violate the condition
+                // For empty list, ALL is vacuously true
+                // Use a single subquery that counts elements not satisfying condition
+                // If list is empty, count is 0, which equals 0, so result is true
+                sql = `((SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__ WHERE NOT (${condResult.sql})) = 0)`;
+                break;
+            case "ANY":
+                // ANY: true when at least one element satisfies the condition
+                // For empty list, ANY is false
+                sql = `(EXISTS (SELECT 1 FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql}))`;
+                break;
+            case "NONE":
+                // NONE: true when no elements satisfy the condition
+                // For empty list, NONE is true
+                sql = `(NOT EXISTS (SELECT 1 FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql}))`;
+                break;
+            case "SINGLE":
+                // SINGLE: true when exactly one element satisfies the condition
+                // For empty list, SINGLE is false
+                sql = `((SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql}) = 1)`;
+                break;
+            default:
+                throw new Error(`Unknown list predicate type: ${predicateType}`);
+        }
+        return { sql, tables, params };
+    }
+    /**
+     * Wrap an expression for use with json_each in list predicates
+     */
+    wrapForListPredicate(expr, sql) {
+        // For property access, use json_extract to get the JSON array
+        if (expr.type === "property") {
+            const varInfo = this.ctx.variables.get(expr.variable);
+            if (varInfo) {
+                return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+            }
+        }
+        // For literal arrays, the sql is already a json_array() call
+        // For function calls like range(), the sql is already the function call
+        return sql;
+    }
+    /**
+     * Translate a unary expression: NOT expr
+     */
+    translateUnaryExpression(expr) {
+        const tables = [];
+        const params = [];
+        if (expr.operator === "NOT") {
+            const operandResult = this.translateExpression(expr.operand);
+            tables.push(...operandResult.tables);
+            params.push(...operandResult.params);
+            return {
+                sql: `NOT (${operandResult.sql})`,
+                tables,
+                params,
+            };
+        }
+        throw new Error(`Unknown unary operator: ${expr.operator}`);
+    }
     translateWhere(condition) {
         switch (condition.type) {
             case "comparison": {
@@ -2737,6 +2838,22 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
             }
             case "in": {
                 return this.translateInCondition(condition);
+            }
+            case "listPredicate": {
+                // List predicate in WHERE clause - convert WhereCondition to Expression format
+                // and reuse the expression translator
+                const expr = {
+                    type: "listPredicate",
+                    predicateType: condition.predicateType,
+                    variable: condition.variable,
+                    listExpr: condition.listExpr,
+                    filterCondition: condition.filterCondition,
+                };
+                const result = this.translateListPredicate(expr);
+                return {
+                    sql: result.sql,
+                    params: result.params,
+                };
             }
             default:
                 throw new Error(`Unknown condition type: ${condition.type}`);

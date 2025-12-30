@@ -1803,4 +1803,123 @@ describe("Parser", () => {
       expect(expr.mapExpr).toBeUndefined();
     });
   });
+
+  describe("List predicates (ALL, ANY, NONE, SINGLE)", () => {
+    it("parses ALL(x IN list WHERE condition)", () => {
+      const query = expectSuccess("RETURN ALL(x IN [1, 2, 3] WHERE x > 0) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("ALL");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeDefined();
+    });
+
+    it("parses ANY(x IN list WHERE condition)", () => {
+      const query = expectSuccess("RETURN ANY(x IN [1, 2, 3] WHERE x > 2) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("ANY");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeDefined();
+    });
+
+    it("parses NONE(x IN list WHERE condition)", () => {
+      const query = expectSuccess("RETURN NONE(x IN [1, 2, 3] WHERE x > 10) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("NONE");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeDefined();
+    });
+
+    it("parses SINGLE(x IN list WHERE condition)", () => {
+      const query = expectSuccess("RETURN SINGLE(x IN [1, 2, 10] WHERE x > 5) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("SINGLE");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeDefined();
+    });
+
+    it("parses list predicate with property access as source", () => {
+      const query = expectSuccess("MATCH (n:Item) RETURN ALL(x IN n.values WHERE x > 0) AS allPositive");
+      const returnClause = query.clauses[1] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("ALL");
+      expect(expr.listExpr!.type).toBe("property");
+    });
+
+    it("parses list predicate with function call as source", () => {
+      const query = expectSuccess("RETURN ALL(x IN range(1, 5) WHERE x > 0) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.listExpr!.type).toBe("function");
+      expect(expr.listExpr!.functionName).toBe("RANGE");
+    });
+
+    it("parses list predicate with string comparison", () => {
+      const query = expectSuccess("RETURN ANY(t IN ['a', 'b', 'c'] WHERE t = 'b') AS hasB");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("ANY");
+      expect(expr.filterCondition).toBeDefined();
+    });
+
+    it("parses list predicate in WHERE clause", () => {
+      const query = expectSuccess("MATCH (n:Item) WHERE ALL(x IN n.scores WHERE x > 10) RETURN n");
+      const matchClause = query.clauses[0] as MatchClause;
+
+      expect(matchClause.where).toBeDefined();
+      expect(matchClause.where!.type).toBe("listPredicate");
+      expect((matchClause.where! as any).predicateType).toBe("ALL");
+    });
+
+    it("parses combined list predicates with AND", () => {
+      const query = expectSuccess("RETURN ALL(x IN [1, 2] WHERE x > 0) AND ANY(x IN [1, 2] WHERE x > 1) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("binary");
+      expect(expr.operator).toBe("AND");
+      expect(expr.left!.type).toBe("listPredicate");
+      expect(expr.right!.type).toBe("listPredicate");
+    });
+
+    it("parses NOT with list predicate", () => {
+      const query = expectSuccess("RETURN NOT ALL(x IN [1, -1] WHERE x > 0) AS notAllPositive");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("unary");
+      expect(expr.operator).toBe("NOT");
+      expect(expr.operand!.type).toBe("listPredicate");
+    });
+
+    it("parses lowercase list predicates", () => {
+      const query = expectSuccess("RETURN all(x IN [1, 2] WHERE x > 0) AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression as any;
+
+      expect(expr.type).toBe("listPredicate");
+      expect(expr.predicateType).toBe("ALL");
+    });
+  });
 });

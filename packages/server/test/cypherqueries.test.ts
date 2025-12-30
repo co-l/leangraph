@@ -3021,6 +3021,247 @@ describe("CypherQueries.json Patterns", () => {
     });
   });
 
+  describe("List Predicates", () => {
+    // Note: SQLite returns 1/0 for boolean predicates, not true/false
+
+    describe("ALL()", () => {
+      it("returns true when all elements satisfy condition", () => {
+        // Pattern: ALL(x IN list WHERE x > 0)
+        const result = exec("RETURN ALL(x IN [1, 2, 3, 4, 5] WHERE x > 0) AS allPositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].allPositive).toBe(1); // SQLite returns 1 for true
+      });
+
+      it("returns false when some elements do not satisfy condition", () => {
+        const result = exec("RETURN ALL(x IN [1, 2, 3, -1, 5] WHERE x > 0) AS allPositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].allPositive).toBe(0); // SQLite returns 0 for false
+      });
+
+      it("returns true for empty list", () => {
+        // ALL over empty list is vacuously true
+        const result = exec("RETURN ALL(x IN [] WHERE x > 0) AS allPositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].allPositive).toBe(1);
+      });
+
+      it("works with property lists", () => {
+        exec("CREATE (n:Item {scores: [10, 20, 30, 40]})");
+        
+        const result = exec(`
+          MATCH (n:Item)
+          RETURN ALL(x IN n.scores WHERE x >= 10) AS allAbove10
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].allAbove10).toBe(1);
+      });
+
+      it("can be used in WHERE clause", () => {
+        exec("CREATE (n:Item {name: 'A', scores: [10, 20, 30]})");
+        exec("CREATE (n:Item {name: 'B', scores: [5, 10, 15]})");
+        
+        const result = exec(`
+          MATCH (n:Item)
+          WHERE ALL(x IN n.scores WHERE x >= 10)
+          RETURN n.name AS name
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].name).toBe("A");
+      });
+    });
+
+    describe("ANY()", () => {
+      it("returns true when at least one element satisfies condition", () => {
+        // Pattern: ANY(x IN list WHERE condition)
+        const result = exec("RETURN ANY(x IN [1, 2, 3, 4, 5] WHERE x > 4) AS anyLarge");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].anyLarge).toBe(1);
+      });
+
+      it("returns false when no elements satisfy condition", () => {
+        const result = exec("RETURN ANY(x IN [1, 2, 3] WHERE x > 10) AS anyLarge");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].anyLarge).toBe(0);
+      });
+
+      it("returns false for empty list", () => {
+        const result = exec("RETURN ANY(x IN [] WHERE x > 0) AS anyPositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].anyPositive).toBe(0);
+      });
+
+      it("works with property lists", () => {
+        exec("CREATE (n:Item {tags: ['urgent', 'important', 'low']})");
+        
+        const result = exec(`
+          MATCH (n:Item)
+          RETURN ANY(t IN n.tags WHERE t = 'urgent') AS hasUrgent
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].hasUrgent).toBe(1);
+      });
+
+      it("can be used in WHERE clause", () => {
+        exec("CREATE (n:Task {name: 'Task1', tags: ['urgent', 'bug']})");
+        exec("CREATE (n:Task {name: 'Task2', tags: ['feature', 'enhancement']})");
+        
+        const result = exec(`
+          MATCH (n:Task)
+          WHERE ANY(t IN n.tags WHERE t = 'urgent')
+          RETURN n.name AS name
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].name).toBe("Task1");
+      });
+    });
+
+    describe("NONE()", () => {
+      it("returns true when no elements satisfy condition", () => {
+        // Pattern: NONE(x IN list WHERE condition)
+        const result = exec("RETURN NONE(x IN [1, 2, 3] WHERE x > 10) AS noneAbove10");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].noneAbove10).toBe(1);
+      });
+
+      it("returns false when some elements satisfy condition", () => {
+        const result = exec("RETURN NONE(x IN [1, 2, 3, 15] WHERE x > 10) AS noneAbove10");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].noneAbove10).toBe(0);
+      });
+
+      it("returns true for empty list", () => {
+        // NONE over empty list is true (no elements violate)
+        const result = exec("RETURN NONE(x IN [] WHERE x > 0) AS nonePositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nonePositive).toBe(1);
+      });
+
+      it("works with property lists", () => {
+        exec("CREATE (n:Item {values: [1, 2, 3, 4, 5]})");
+        
+        const result = exec(`
+          MATCH (n:Item)
+          RETURN NONE(x IN n.values WHERE x < 0) AS noneNegative
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].noneNegative).toBe(1);
+      });
+
+      it("can be used in WHERE clause", () => {
+        exec("CREATE (n:Product {name: 'Good', reviews: [4, 5, 4, 5]})");
+        exec("CREATE (n:Product {name: 'Bad', reviews: [2, 1, 3, 1]})");
+        
+        const result = exec(`
+          MATCH (n:Product)
+          WHERE NONE(r IN n.reviews WHERE r < 3)
+          RETURN n.name AS name
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].name).toBe("Good");
+      });
+    });
+
+    describe("SINGLE()", () => {
+      it("returns true when exactly one element satisfies condition", () => {
+        // Pattern: SINGLE(x IN list WHERE condition)
+        const result = exec("RETURN SINGLE(x IN [1, 2, 3, 4, 5] WHERE x > 4) AS exactlyOne");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].exactlyOne).toBe(1);
+      });
+
+      it("returns false when more than one element satisfies condition", () => {
+        const result = exec("RETURN SINGLE(x IN [1, 2, 3, 4, 5] WHERE x > 3) AS exactlyOne");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].exactlyOne).toBe(0); // 4 and 5 both satisfy
+      });
+
+      it("returns false when no elements satisfy condition", () => {
+        const result = exec("RETURN SINGLE(x IN [1, 2, 3] WHERE x > 10) AS exactlyOne");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].exactlyOne).toBe(0);
+      });
+
+      it("returns false for empty list", () => {
+        const result = exec("RETURN SINGLE(x IN [] WHERE x > 0) AS exactlyOne");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].exactlyOne).toBe(0);
+      });
+
+      it("works with property lists", () => {
+        exec("CREATE (n:Item {values: [1, 2, 100, 3, 4]})");
+        
+        const result = exec(`
+          MATCH (n:Item)
+          RETURN SINGLE(x IN n.values WHERE x > 50) AS singleLarge
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].singleLarge).toBe(1);
+      });
+
+      it("can be used in WHERE clause", () => {
+        exec("CREATE (n:Team {name: 'Alpha', members: ['Alice', 'Bob', 'Charlie']})");
+        exec("CREATE (n:Team {name: 'Beta', members: ['Alice', 'Alice', 'Bob']})");
+        
+        const result = exec(`
+          MATCH (n:Team)
+          WHERE SINGLE(m IN n.members WHERE m = 'Alice')
+          RETURN n.name AS name
+        `);
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].name).toBe("Alpha");
+      });
+    });
+
+    describe("Combined list predicates", () => {
+      it("combines ALL and ANY with AND", () => {
+        exec("CREATE (n:Data {nums: [2, 4, 6, 8, 10]})");
+        
+        const result = exec(`
+          MATCH (n:Data)
+          WHERE ALL(x IN n.nums WHERE x > 0) AND ANY(x IN n.nums WHERE x > 8)
+          RETURN n
+        `);
+        
+        expect(result.data).toHaveLength(1);
+      });
+
+      it("uses NOT with list predicates", () => {
+        const result = exec("RETURN NOT ALL(x IN [1, 2, -3] WHERE x > 0) AS notAllPositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].notAllPositive).toBe(1);
+      });
+
+      it("uses list predicate with range()", () => {
+        const result = exec("RETURN ALL(x IN range(1, 5) WHERE x > 0) AS allPositive");
+        
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].allPositive).toBe(1);
+      });
+    });
+  });
+
   describe("Percentile Functions", () => {
     beforeEach(() => {
       // Create a set of nodes with numeric values for percentile calculations

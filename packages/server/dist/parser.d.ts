@@ -31,7 +31,7 @@ export interface VariableRef {
 }
 export type PropertyValue = string | number | boolean | null | ParameterRef | VariableRef | PropertyValue[];
 export interface WhereCondition {
-    type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in";
+    type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate";
     left?: Expression;
     right?: Expression;
     operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
@@ -39,6 +39,10 @@ export interface WhereCondition {
     condition?: WhereCondition;
     pattern?: NodePattern | RelationshipPattern;
     list?: Expression;
+    predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
+    variable?: string;
+    listExpr?: Expression;
+    filterCondition?: WhereCondition;
 }
 export interface CaseWhen {
     condition: WhereCondition;
@@ -55,7 +59,7 @@ export interface ObjectProperty {
     value: Expression;
 }
 export interface Expression {
-    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension";
+    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary";
     variable?: string;
     property?: string;
     value?: PropertyValue;
@@ -66,14 +70,16 @@ export interface Expression {
     expression?: Expression;
     whens?: CaseWhen[];
     elseExpr?: Expression;
-    operator?: "+" | "-" | "*" | "/" | "%";
+    operator?: "+" | "-" | "*" | "/" | "%" | "AND" | "OR" | "NOT";
     left?: Expression;
     right?: Expression;
+    operand?: Expression;
     comparisonOperator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
     properties?: ObjectProperty[];
     listExpr?: Expression;
     filterCondition?: WhereCondition;
     mapExpr?: Expression;
+    predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
 }
 export interface ReturnItem {
     expression: Expression;
@@ -213,11 +219,16 @@ export declare class Parser {
     private parseAndCondition;
     private parseNotCondition;
     private parsePrimaryCondition;
+    private parseListPredicateCondition;
     private parseExistsCondition;
     private parseComparisonCondition;
     private parseInListExpression;
     private parseExpression;
     private parseReturnExpression;
+    private parseOrExpression;
+    private parseAndExpression;
+    private parseNotExpression;
+    private parseComparisonExpression;
     private parseAdditiveExpression;
     private parseMultiplicativeExpression;
     private parsePrimaryExpression;
@@ -230,6 +241,12 @@ export declare class Parser {
      * - WHERE and | are both optional
      */
     private parseListComprehension;
+    /**
+     * Parse a list predicate after PRED(variable IN has been consumed.
+     * Syntax: ALL/ANY/NONE/SINGLE(variable IN listExpr WHERE filterCondition)
+     * WHERE is required for list predicates.
+     */
+    private parseListPredicate;
     /**
      * Parse a condition in a list comprehension, where the variable can be used.
      * Similar to parseWhereCondition but resolves variable references.

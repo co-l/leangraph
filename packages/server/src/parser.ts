@@ -51,7 +51,7 @@ export type PropertyValue =
   | PropertyValue[];
 
 export interface WhereCondition {
-  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in";
+  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate";
   left?: Expression;
   right?: Expression;
   operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
@@ -61,6 +61,11 @@ export interface WhereCondition {
   pattern?: NodePattern | RelationshipPattern;
   // For IN operator - the list of values
   list?: Expression;
+  // For list predicates (ALL, ANY, NONE, SINGLE)
+  predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
+  variable?: string;
+  listExpr?: Expression;
+  filterCondition?: WhereCondition;
 }
 
 export interface CaseWhen {
@@ -81,7 +86,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -94,9 +99,11 @@ export interface Expression {
   whens?: CaseWhen[];
   elseExpr?: Expression;
   // Binary operation fields (arithmetic)
-  operator?: "+" | "-" | "*" | "/" | "%";
+  operator?: "+" | "-" | "*" | "/" | "%" | "AND" | "OR" | "NOT";
   left?: Expression;
   right?: Expression;
+  // Unary operation fields
+  operand?: Expression;
   // Comparison expression fields
   comparisonOperator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
   // Object literal fields
@@ -105,6 +112,8 @@ export interface Expression {
   listExpr?: Expression;
   filterCondition?: WhereCondition;
   mapExpr?: Expression;
+  // List predicate fields: ALL/ANY/NONE/SINGLE(var IN list WHERE cond)
+  predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
 }
 
 export interface ReturnItem {
@@ -300,6 +309,9 @@ const KEYWORDS = new Set([
   "EXISTS",
   "UNION",
   "ALL",
+  "ANY",
+  "NONE",
+  "SINGLE",
   "CALL",
   "YIELD",
 ]);
@@ -1396,6 +1408,15 @@ export class Parser {
       return this.parseExistsCondition();
     }
 
+    // Handle list predicates: ALL, ANY, NONE, SINGLE
+    const listPredicates = ["ALL", "ANY", "NONE", "SINGLE"];
+    if (this.peek().type === "KEYWORD" && listPredicates.includes(this.peek().value)) {
+      const nextToken = this.tokens[this.pos + 1];
+      if (nextToken && nextToken.type === "LPAREN") {
+        return this.parseListPredicateCondition();
+      }
+    }
+
     // Handle parenthesized conditions
     if (this.check("LPAREN")) {
       this.advance(); // consume (
@@ -1405,6 +1426,38 @@ export class Parser {
     }
 
     return this.parseComparisonCondition();
+  }
+
+  private parseListPredicateCondition(): WhereCondition {
+    // Parse list predicate as a condition (for use in WHERE clause)
+    const predicateType = this.advance().value.toUpperCase() as "ALL" | "ANY" | "NONE" | "SINGLE";
+    this.expect("LPAREN");
+    
+    // Expect variable followed by IN
+    const variable = this.expectIdentifier();
+    this.expect("KEYWORD", "IN");
+    
+    // Parse the source list expression
+    const listExpr = this.parseExpression();
+    
+    // WHERE clause is required for list predicates
+    if (!this.checkKeyword("WHERE")) {
+      throw new Error(`Expected WHERE after list expression in ${predicateType}()`);
+    }
+    this.advance(); // consume WHERE
+    
+    // Parse the filter condition
+    const filterCondition = this.parseListComprehensionCondition(variable);
+    
+    this.expect("RPAREN");
+    
+    return {
+      type: "listPredicate",
+      predicateType,
+      variable,
+      listExpr,
+      filterCondition,
+    };
   }
 
   private parseExistsCondition(): WhereCondition {
@@ -1518,8 +1571,50 @@ export class Parser {
     return this.parseAdditiveExpression();
   }
 
-  // Parse expression that may include comparison (for RETURN items)
+  // Parse expression that may include comparison and logical operators (for RETURN items)
   private parseReturnExpression(): Expression {
+    return this.parseOrExpression();
+  }
+
+  // Handle OR (lowest precedence for logical operators)
+  private parseOrExpression(): Expression {
+    let left = this.parseAndExpression();
+
+    while (this.checkKeyword("OR")) {
+      this.advance();
+      const right = this.parseAndExpression();
+      left = { type: "binary", operator: "OR", left, right };
+    }
+
+    return left;
+  }
+
+  // Handle AND (higher precedence than OR)
+  private parseAndExpression(): Expression {
+    let left = this.parseNotExpression();
+
+    while (this.checkKeyword("AND")) {
+      this.advance();
+      const right = this.parseNotExpression();
+      left = { type: "binary", operator: "AND", left, right };
+    }
+
+    return left;
+  }
+
+  // Handle NOT (highest precedence for logical operators)
+  private parseNotExpression(): Expression {
+    if (this.checkKeyword("NOT")) {
+      this.advance();
+      const operand = this.parseNotExpression();
+      return { type: "unary", operator: "NOT", operand };
+    }
+
+    return this.parseComparisonExpression();
+  }
+
+  // Handle comparison operators
+  private parseComparisonExpression(): Expression {
     let left = this.parseAdditiveExpression();
 
     // Check for comparison operators
@@ -1601,11 +1696,33 @@ export class Parser {
     }
 
     // Function call: COUNT(x), id(x), count(DISTINCT x), COUNT(*)
+    // Also handles list predicates: ALL(x IN list WHERE cond), ANY(...), NONE(...), SINGLE(...)
     if (token.type === "KEYWORD" || token.type === "IDENTIFIER") {
       const nextToken = this.tokens[this.pos + 1];
       if (nextToken && nextToken.type === "LPAREN") {
         const functionName = this.advance().value.toUpperCase();
         this.advance(); // LPAREN
+        
+        // Check if this is a list predicate: ALL, ANY, NONE, SINGLE
+        const listPredicates = ["ALL", "ANY", "NONE", "SINGLE"];
+        if (listPredicates.includes(functionName)) {
+          // Check for list predicate syntax: PRED(var IN list WHERE cond)
+          // Lookahead to see if next is identifier followed by IN
+          if (this.check("IDENTIFIER")) {
+            const savedPos = this.pos;
+            const varToken = this.advance();
+            
+            if (this.checkKeyword("IN")) {
+              // This is a list predicate
+              this.advance(); // consume IN
+              return this.parseListPredicate(functionName as "ALL" | "ANY" | "NONE" | "SINGLE", varToken.value);
+            } else {
+              // Not a list predicate syntax, backtrack
+              this.pos = savedPos;
+            }
+          }
+        }
+        
         const args: Expression[] = [];
         
         // Check for DISTINCT keyword after opening paren (for aggregation functions)
@@ -1833,6 +1950,35 @@ export class Parser {
       listExpr,
       filterCondition,
       mapExpr,
+    };
+  }
+
+  /**
+   * Parse a list predicate after PRED(variable IN has been consumed.
+   * Syntax: ALL/ANY/NONE/SINGLE(variable IN listExpr WHERE filterCondition)
+   * WHERE is required for list predicates.
+   */
+  private parseListPredicate(predicateType: "ALL" | "ANY" | "NONE" | "SINGLE", variable: string): Expression {
+    // Parse the source list expression
+    const listExpr = this.parseExpression();
+    
+    // WHERE clause is required for list predicates
+    if (!this.checkKeyword("WHERE")) {
+      throw new Error(`Expected WHERE after list expression in ${predicateType}()`);
+    }
+    this.advance(); // consume WHERE
+    
+    // Parse the filter condition
+    const filterCondition = this.parseListComprehensionCondition(variable);
+    
+    this.expect("RPAREN");
+    
+    return {
+      type: "listPredicate",
+      predicateType,
+      variable,
+      listExpr,
+      filterCondition,
     };
   }
 

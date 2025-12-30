@@ -2260,4 +2260,158 @@ describe("Translator", () => {
       expect(sql).toContain("json_group_array");
     });
   });
+
+  describe("List predicates (ALL, ANY, NONE, SINGLE)", () => {
+    describe("ALL()", () => {
+      it("translates ALL() with literal list", () => {
+        const result = translateCypher("RETURN ALL(x IN [1, 2, 3] WHERE x > 0) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        // ALL returns true when count of failing elements = 0
+        // Or: NOT EXISTS(... WHERE NOT condition)
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+
+      it("translates ALL() with property access", () => {
+        const result = translateCypher("MATCH (n:Item) RETURN ALL(x IN n.values WHERE x > 10) AS allAbove10");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["allAbove10"]);
+      });
+
+      it("translates ALL() in WHERE clause", () => {
+        const result = translateCypher("MATCH (n:Item) WHERE ALL(x IN n.scores WHERE x >= 10) RETURN n");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("WHERE");
+        expect(sql).toContain("json_each");
+      });
+    });
+
+    describe("ANY()", () => {
+      it("translates ANY() with literal list", () => {
+        const result = translateCypher("RETURN ANY(x IN [1, 2, 3] WHERE x > 2) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        // ANY returns true when count of matching elements > 0
+        // Or: EXISTS(... WHERE condition)
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+
+      it("translates ANY() with property access", () => {
+        const result = translateCypher("MATCH (n:Task) RETURN ANY(t IN n.tags WHERE t = 'urgent') AS hasUrgent");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["hasUrgent"]);
+      });
+
+      it("translates ANY() in WHERE clause", () => {
+        const result = translateCypher("MATCH (n:Task) WHERE ANY(t IN n.tags WHERE t = 'urgent') RETURN n");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("WHERE");
+        expect(sql).toContain("json_each");
+      });
+    });
+
+    describe("NONE()", () => {
+      it("translates NONE() with literal list", () => {
+        const result = translateCypher("RETURN NONE(x IN [1, 2, 3] WHERE x > 10) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        // NONE returns true when count of matching elements = 0
+        // Or: NOT EXISTS(... WHERE condition)
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+
+      it("translates NONE() with property access", () => {
+        const result = translateCypher("MATCH (n:Item) RETURN NONE(x IN n.values WHERE x < 0) AS noneNegative");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["noneNegative"]);
+      });
+
+      it("translates NONE() in WHERE clause", () => {
+        const result = translateCypher("MATCH (n:Product) WHERE NONE(r IN n.reviews WHERE r < 3) RETURN n");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("WHERE");
+        expect(sql).toContain("json_each");
+      });
+    });
+
+    describe("SINGLE()", () => {
+      it("translates SINGLE() with literal list", () => {
+        const result = translateCypher("RETURN SINGLE(x IN [1, 2, 10] WHERE x > 5) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        // SINGLE returns true when count of matching elements = 1
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+
+      it("translates SINGLE() with property access", () => {
+        const result = translateCypher("MATCH (n:Item) RETURN SINGLE(x IN n.values WHERE x > 50) AS singleLarge");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["singleLarge"]);
+      });
+
+      it("translates SINGLE() in WHERE clause", () => {
+        const result = translateCypher("MATCH (n:Team) WHERE SINGLE(m IN n.members WHERE m = 'Alice') RETURN n");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("WHERE");
+        expect(sql).toContain("json_each");
+      });
+    });
+
+    describe("Combined list predicates", () => {
+      it("translates AND with two list predicates", () => {
+        const result = translateCypher("RETURN ALL(x IN [1, 2] WHERE x > 0) AND ANY(x IN [1, 2] WHERE x > 1) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("AND");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+
+      it("translates NOT with list predicate", () => {
+        const result = translateCypher("RETURN NOT ALL(x IN [1, -1] WHERE x > 0) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("NOT");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+
+      it("translates list predicate with range() source", () => {
+        const result = translateCypher("RETURN ALL(x IN range(1, 5) WHERE x > 0) AS result");
+
+        expect(result.statements).toHaveLength(1);
+        const sql = result.statements[0].sql;
+        expect(sql).toContain("json_each");
+        expect(result.returnColumns).toEqual(["result"]);
+      });
+    });
+  });
 });

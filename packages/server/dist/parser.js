@@ -40,6 +40,9 @@ const KEYWORDS = new Set([
     "EXISTS",
     "UNION",
     "ALL",
+    "ANY",
+    "NONE",
+    "SINGLE",
     "CALL",
     "YIELD",
 ]);
@@ -976,6 +979,14 @@ export class Parser {
         if (this.checkKeyword("EXISTS")) {
             return this.parseExistsCondition();
         }
+        // Handle list predicates: ALL, ANY, NONE, SINGLE
+        const listPredicates = ["ALL", "ANY", "NONE", "SINGLE"];
+        if (this.peek().type === "KEYWORD" && listPredicates.includes(this.peek().value)) {
+            const nextToken = this.tokens[this.pos + 1];
+            if (nextToken && nextToken.type === "LPAREN") {
+                return this.parseListPredicateCondition();
+            }
+        }
         // Handle parenthesized conditions
         if (this.check("LPAREN")) {
             this.advance(); // consume (
@@ -984,6 +995,31 @@ export class Parser {
             return condition;
         }
         return this.parseComparisonCondition();
+    }
+    parseListPredicateCondition() {
+        // Parse list predicate as a condition (for use in WHERE clause)
+        const predicateType = this.advance().value.toUpperCase();
+        this.expect("LPAREN");
+        // Expect variable followed by IN
+        const variable = this.expectIdentifier();
+        this.expect("KEYWORD", "IN");
+        // Parse the source list expression
+        const listExpr = this.parseExpression();
+        // WHERE clause is required for list predicates
+        if (!this.checkKeyword("WHERE")) {
+            throw new Error(`Expected WHERE after list expression in ${predicateType}()`);
+        }
+        this.advance(); // consume WHERE
+        // Parse the filter condition
+        const filterCondition = this.parseListComprehensionCondition(variable);
+        this.expect("RPAREN");
+        return {
+            type: "listPredicate",
+            predicateType,
+            variable,
+            listExpr,
+            filterCondition,
+        };
     }
     parseExistsCondition() {
         this.expect("KEYWORD", "EXISTS");
@@ -1083,8 +1119,41 @@ export class Parser {
     parseExpression() {
         return this.parseAdditiveExpression();
     }
-    // Parse expression that may include comparison (for RETURN items)
+    // Parse expression that may include comparison and logical operators (for RETURN items)
     parseReturnExpression() {
+        return this.parseOrExpression();
+    }
+    // Handle OR (lowest precedence for logical operators)
+    parseOrExpression() {
+        let left = this.parseAndExpression();
+        while (this.checkKeyword("OR")) {
+            this.advance();
+            const right = this.parseAndExpression();
+            left = { type: "binary", operator: "OR", left, right };
+        }
+        return left;
+    }
+    // Handle AND (higher precedence than OR)
+    parseAndExpression() {
+        let left = this.parseNotExpression();
+        while (this.checkKeyword("AND")) {
+            this.advance();
+            const right = this.parseNotExpression();
+            left = { type: "binary", operator: "AND", left, right };
+        }
+        return left;
+    }
+    // Handle NOT (highest precedence for logical operators)
+    parseNotExpression() {
+        if (this.checkKeyword("NOT")) {
+            this.advance();
+            const operand = this.parseNotExpression();
+            return { type: "unary", operator: "NOT", operand };
+        }
+        return this.parseComparisonExpression();
+    }
+    // Handle comparison operators
+    parseComparisonExpression() {
         let left = this.parseAdditiveExpression();
         // Check for comparison operators
         const opToken = this.peek();
@@ -1159,11 +1228,31 @@ export class Parser {
             return this.parseCaseExpression();
         }
         // Function call: COUNT(x), id(x), count(DISTINCT x), COUNT(*)
+        // Also handles list predicates: ALL(x IN list WHERE cond), ANY(...), NONE(...), SINGLE(...)
         if (token.type === "KEYWORD" || token.type === "IDENTIFIER") {
             const nextToken = this.tokens[this.pos + 1];
             if (nextToken && nextToken.type === "LPAREN") {
                 const functionName = this.advance().value.toUpperCase();
                 this.advance(); // LPAREN
+                // Check if this is a list predicate: ALL, ANY, NONE, SINGLE
+                const listPredicates = ["ALL", "ANY", "NONE", "SINGLE"];
+                if (listPredicates.includes(functionName)) {
+                    // Check for list predicate syntax: PRED(var IN list WHERE cond)
+                    // Lookahead to see if next is identifier followed by IN
+                    if (this.check("IDENTIFIER")) {
+                        const savedPos = this.pos;
+                        const varToken = this.advance();
+                        if (this.checkKeyword("IN")) {
+                            // This is a list predicate
+                            this.advance(); // consume IN
+                            return this.parseListPredicate(functionName, varToken.value);
+                        }
+                        else {
+                            // Not a list predicate syntax, backtrack
+                            this.pos = savedPos;
+                        }
+                    }
+                }
                 const args = [];
                 // Check for DISTINCT keyword after opening paren (for aggregation functions)
                 let distinct;
@@ -1354,6 +1443,30 @@ export class Parser {
             listExpr,
             filterCondition,
             mapExpr,
+        };
+    }
+    /**
+     * Parse a list predicate after PRED(variable IN has been consumed.
+     * Syntax: ALL/ANY/NONE/SINGLE(variable IN listExpr WHERE filterCondition)
+     * WHERE is required for list predicates.
+     */
+    parseListPredicate(predicateType, variable) {
+        // Parse the source list expression
+        const listExpr = this.parseExpression();
+        // WHERE clause is required for list predicates
+        if (!this.checkKeyword("WHERE")) {
+            throw new Error(`Expected WHERE after list expression in ${predicateType}()`);
+        }
+        this.advance(); // consume WHERE
+        // Parse the filter condition
+        const filterCondition = this.parseListComprehensionCondition(variable);
+        this.expect("RPAREN");
+        return {
+            type: "listPredicate",
+            predicateType,
+            variable,
+            listExpr,
+            filterCondition,
         };
     }
     /**

@@ -67,6 +67,24 @@ export declare class Translator {
      * Translate a WHERE condition within a list comprehension.
      */
     private translateListComprehensionCondition;
+    /**
+     * Translate a list predicate expression: ALL/ANY/NONE/SINGLE(var IN list WHERE cond)
+     *
+     * Implementation uses a CTE to evaluate the list once and avoid parameter duplication issues:
+     * - ALL: true when count of elements NOT satisfying condition = 0 (empty list = true)
+     * - ANY: true when count of elements satisfying condition > 0 (empty list = false)
+     * - NONE: true when count of elements satisfying condition = 0 (empty list = true)
+     * - SINGLE: true when count of elements satisfying condition = 1 (empty list = false)
+     */
+    private translateListPredicate;
+    /**
+     * Wrap an expression for use with json_each in list predicates
+     */
+    private wrapForListPredicate;
+    /**
+     * Translate a unary expression: NOT expr
+     */
+    private translateUnaryExpression;
     private translateWhere;
     private translateExistsCondition;
     private translateInCondition;

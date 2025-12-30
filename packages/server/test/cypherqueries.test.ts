@@ -2508,6 +2508,73 @@ describe("CypherQueries.json Patterns", () => {
     });
   });
 
+  describe("List Comprehensions", () => {
+    it("filters a list with WHERE clause", () => {
+      // Pattern: [x IN list WHERE condition]
+      const result = exec("RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2] AS filtered");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].filtered).toEqual([3, 4, 5]);
+    });
+
+    it("maps over a list with projection", () => {
+      // Pattern: [x IN list | expression]
+      const result = exec("RETURN [x IN [1, 2, 3] | x * 2] AS doubled");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].doubled).toEqual([2, 4, 6]);
+    });
+
+    it("filters and maps a list", () => {
+      // Pattern: [x IN list WHERE condition | expression]
+      const result = exec("RETURN [x IN [1, 2, 3, 4, 5] WHERE x > 2 | x * 10] AS result");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].result).toEqual([30, 40, 50]);
+    });
+
+    it("uses range() with list comprehension", () => {
+      // Pattern: [x IN range(1, 5) WHERE x % 2 = 0]
+      const result = exec("RETURN [x IN range(1, 5) WHERE x % 2 = 0] AS evens");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].evens).toEqual([2, 4]);
+    });
+
+    it("handles nested property access in comprehension", () => {
+      exec("CREATE (n:Item {values: [1, 2, 3, 4, 5]})");
+      
+      const result = exec(`
+        MATCH (n:Item)
+        RETURN [x IN n.values WHERE x > 2] AS filtered
+      `);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].filtered).toEqual([3, 4, 5]);
+    });
+
+    it("handles string list comprehension", () => {
+      const result = exec("RETURN [x IN ['a', 'bb', 'ccc'] WHERE size(x) > 1] AS longStrings");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].longStrings).toEqual(["bb", "ccc"]);
+    });
+
+    it("returns empty list when no elements match", () => {
+      const result = exec("RETURN [x IN [1, 2, 3] WHERE x > 10] AS empty");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].empty).toEqual([]);
+    });
+
+    it("handles empty source list", () => {
+      const result = exec("RETURN [x IN [] | x * 2] AS empty");
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].empty).toEqual([]);
+    });
+  });
+
   describe("Type Conversion Functions", () => {
     describe("toInteger()", () => {
       it("converts string to integer", () => {

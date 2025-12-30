@@ -50,6 +50,23 @@ export declare class Translator {
     private wrapForComparison;
     private translateObjectLiteral;
     private translateArrayLiteral;
+    /**
+     * Translate a list comprehension expression.
+     * Syntax: [variable IN listExpr WHERE filterCondition | mapExpr]
+     *
+     * Translates to SQLite using json_each and json_group_array:
+     * (SELECT json_group_array(value_or_mapped) FROM json_each(listExpr) WHERE filter)
+     */
+    private translateListComprehension;
+    /**
+     * Translate an expression within a list comprehension, replacing
+     * references to the comprehension variable with the json_each value column.
+     */
+    private translateListComprehensionExpr;
+    /**
+     * Translate a WHERE condition within a list comprehension.
+     */
+    private translateListComprehensionCondition;
     private translateWhere;
     private translateExistsCondition;
     private translateInCondition;

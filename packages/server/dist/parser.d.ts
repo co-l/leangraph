@@ -55,7 +55,7 @@ export interface ObjectProperty {
     value: Expression;
 }
 export interface Expression {
-    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison";
+    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension";
     variable?: string;
     property?: string;
     value?: PropertyValue;
@@ -71,6 +71,9 @@ export interface Expression {
     right?: Expression;
     comparisonOperator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
     properties?: ObjectProperty[];
+    listExpr?: Expression;
+    filterCondition?: WhereCondition;
+    mapExpr?: Expression;
 }
 export interface ReturnItem {
     expression: Expression;
@@ -221,6 +224,22 @@ export declare class Parser {
     private parseCaseExpression;
     private parseObjectLiteral;
     private parseListLiteralExpression;
+    /**
+     * Parse a list comprehension after [variable IN has been consumed.
+     * Full syntax: [variable IN listExpr WHERE filterCondition | mapExpr]
+     * - WHERE and | are both optional
+     */
+    private parseListComprehension;
+    /**
+     * Parse a condition in a list comprehension, where the variable can be used.
+     * Similar to parseWhereCondition but resolves variable references.
+     */
+    private parseListComprehensionCondition;
+    /**
+     * Parse an expression in a list comprehension map projection.
+     * Similar to parseExpression but the variable is in scope.
+     */
+    private parseListComprehensionExpression;
     private peek;
     private advance;
     private isAtEnd;

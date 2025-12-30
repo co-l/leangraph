@@ -2535,6 +2535,10 @@ export class Translator {
         return this.translateComparisonExpression(expr);
       }
 
+      case "listComprehension": {
+        return this.translateListComprehension(expr);
+      }
+
       default:
         throw new Error(`Unknown expression type: ${expr.type}`);
     }
@@ -2752,6 +2756,189 @@ export class Translator {
       tables,
       params,
     };
+  }
+
+  /**
+   * Translate a list comprehension expression.
+   * Syntax: [variable IN listExpr WHERE filterCondition | mapExpr]
+   * 
+   * Translates to SQLite using json_each and json_group_array:
+   * (SELECT json_group_array(value_or_mapped) FROM json_each(listExpr) WHERE filter)
+   */
+  private translateListComprehension(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    const variable = expr.variable!;
+    const listExpr = expr.listExpr!;
+    const filterCondition = expr.filterCondition;
+    const mapExpr = expr.mapExpr;
+    
+    // Translate the source list expression
+    const listResult = this.translateExpression(listExpr);
+    tables.push(...listResult.tables);
+    
+    // Wrap the source expression for json_each
+    let sourceExpr = listResult.sql;
+    if (listExpr.type === "property") {
+      // For property access, use json_extract 
+      const varInfo = this.ctx.variables.get(listExpr.variable!);
+      if (varInfo) {
+        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${listExpr.property}')`;
+      }
+    }
+    
+    // Determine what to select: the mapped expression or just the value
+    let selectExpr = `__lc__.value`;
+    let mapParams: unknown[] = [];
+    if (mapExpr) {
+      const mapResult = this.translateListComprehensionExpr(mapExpr, variable, "__lc__");
+      mapParams = mapResult.params;
+      selectExpr = mapResult.sql;
+    }
+    
+    // Build the WHERE clause if filter is present
+    let whereClause = "";
+    let filterParams: unknown[] = [];
+    if (filterCondition) {
+      const filterResult = this.translateListComprehensionCondition(filterCondition, variable, "__lc__");
+      filterParams = filterResult.params;
+      whereClause = ` WHERE ${filterResult.sql}`;
+    }
+    
+    // Build the final SQL using json_group_array
+    const sql = `(SELECT json_group_array(${selectExpr}) FROM json_each(${sourceExpr}) AS __lc__${whereClause})`;
+    
+    // Params must match SQL order: selectExpr params, then source params, then filter params
+    params.push(...mapParams, ...listResult.params, ...filterParams);
+    
+    return { sql, tables, params };
+  }
+
+  /**
+   * Translate an expression within a list comprehension, replacing
+   * references to the comprehension variable with the json_each value column.
+   */
+  private translateListComprehensionExpr(
+    expr: Expression,
+    compVar: string,
+    tableAlias: string
+  ): { sql: string; params: unknown[] } {
+    const params: unknown[] = [];
+    
+    switch (expr.type) {
+      case "variable":
+        if (expr.variable === compVar) {
+          return { sql: `${tableAlias}.value`, params };
+        }
+        // Fall through to regular translation
+        const varResult = this.translateExpression(expr);
+        return { sql: varResult.sql, params: varResult.params };
+        
+      case "binary": {
+        const left = this.translateListComprehensionExpr(expr.left!, compVar, tableAlias);
+        const right = this.translateListComprehensionExpr(expr.right!, compVar, tableAlias);
+        params.push(...left.params, ...right.params);
+        return { sql: `(${left.sql} ${expr.operator} ${right.sql})`, params };
+      }
+      
+      case "literal":
+        if (expr.value === null) {
+          return { sql: "NULL", params };
+        }
+        params.push(expr.value);
+        return { sql: "?", params };
+        
+      case "parameter":
+        params.push(this.ctx.paramValues[expr.name!]);
+        return { sql: "?", params };
+        
+      case "function": {
+        // Handle functions like size(x)
+        const funcArgs: string[] = [];
+        for (const arg of expr.args || []) {
+          const argResult = this.translateListComprehensionExpr(arg, compVar, tableAlias);
+          params.push(...argResult.params);
+          funcArgs.push(argResult.sql);
+        }
+        
+        // Map Cypher functions to SQLite equivalents
+        const funcName = expr.functionName!;
+        if (funcName === "SIZE" || funcName === "LENGTH") {
+          return { sql: `LENGTH(${funcArgs[0]})`, params };
+        }
+        if (funcName === "TOUPPER" || funcName === "UPPER") {
+          return { sql: `UPPER(${funcArgs[0]})`, params };
+        }
+        if (funcName === "TOLOWER" || funcName === "LOWER") {
+          return { sql: `LOWER(${funcArgs[0]})`, params };
+        }
+        if (funcName === "ABS") {
+          return { sql: `ABS(${funcArgs[0]})`, params };
+        }
+        
+        return { sql: `${funcName}(${funcArgs.join(", ")})`, params };
+      }
+      
+      default:
+        // Fall back to regular translation
+        const result = this.translateExpression(expr);
+        return { sql: result.sql, params: result.params };
+    }
+  }
+
+  /**
+   * Translate a WHERE condition within a list comprehension.
+   */
+  private translateListComprehensionCondition(
+    condition: WhereCondition,
+    compVar: string,
+    tableAlias: string
+  ): { sql: string; params: unknown[] } {
+    const params: unknown[] = [];
+    
+    switch (condition.type) {
+      case "comparison": {
+        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias);
+        const right = this.translateListComprehensionExpr(condition.right!, compVar, tableAlias);
+        params.push(...left.params, ...right.params);
+        return {
+          sql: `${left.sql} ${condition.operator} ${right.sql}`,
+          params,
+        };
+      }
+      
+      case "and": {
+        const parts = condition.conditions!.map(c => 
+          this.translateListComprehensionCondition(c, compVar, tableAlias)
+        );
+        return {
+          sql: `(${parts.map(p => p.sql).join(" AND ")})`,
+          params: parts.flatMap(p => p.params),
+        };
+      }
+      
+      case "or": {
+        const parts = condition.conditions!.map(c => 
+          this.translateListComprehensionCondition(c, compVar, tableAlias)
+        );
+        return {
+          sql: `(${parts.map(p => p.sql).join(" OR ")})`,
+          params: parts.flatMap(p => p.params),
+        };
+      }
+      
+      case "not": {
+        const inner = this.translateListComprehensionCondition(condition.condition!, compVar, tableAlias);
+        return {
+          sql: `NOT (${inner.sql})`,
+          params: inner.params,
+        };
+      }
+      
+      default:
+        throw new Error(`Unsupported condition type in list comprehension: ${condition.type}`);
+    }
   }
 
   private translateWhere(condition: WhereCondition): { sql: string; params: unknown[] } {

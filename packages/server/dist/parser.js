@@ -149,6 +149,7 @@ class Tokenizer {
             "<": "LT",
             ">": "GT",
             "*": "STAR",
+            "|": "PIPE",
         };
         if (singleCharTokens[char]) {
             this.pos++;
@@ -1298,6 +1299,22 @@ export class Parser {
     }
     parseListLiteralExpression() {
         this.expect("LBRACKET");
+        // Check for list comprehension: [x IN list WHERE cond | expr]
+        // We need to look ahead to see if this is a list comprehension
+        if (this.check("IDENTIFIER")) {
+            const savedPos = this.pos;
+            const identifier = this.advance().value;
+            if (this.checkKeyword("IN")) {
+                // This is a list comprehension
+                this.advance(); // consume "IN"
+                return this.parseListComprehension(identifier);
+            }
+            else {
+                // Not a list comprehension, backtrack
+                this.pos = savedPos;
+            }
+        }
+        // Regular list literal
         const values = [];
         if (!this.check("RBRACKET")) {
             do {
@@ -1309,6 +1326,49 @@ export class Parser {
         }
         this.expect("RBRACKET");
         return { type: "literal", value: values };
+    }
+    /**
+     * Parse a list comprehension after [variable IN has been consumed.
+     * Full syntax: [variable IN listExpr WHERE filterCondition | mapExpr]
+     * - WHERE and | are both optional
+     */
+    parseListComprehension(variable) {
+        // Parse the source list expression
+        const listExpr = this.parseExpression();
+        // Check for optional WHERE filter
+        let filterCondition;
+        if (this.checkKeyword("WHERE")) {
+            this.advance();
+            filterCondition = this.parseListComprehensionCondition(variable);
+        }
+        // Check for optional map projection (| expr)
+        let mapExpr;
+        if (this.check("PIPE")) {
+            this.advance();
+            mapExpr = this.parseListComprehensionExpression(variable);
+        }
+        this.expect("RBRACKET");
+        return {
+            type: "listComprehension",
+            variable,
+            listExpr,
+            filterCondition,
+            mapExpr,
+        };
+    }
+    /**
+     * Parse a condition in a list comprehension, where the variable can be used.
+     * Similar to parseWhereCondition but resolves variable references.
+     */
+    parseListComprehensionCondition(variable) {
+        return this.parseOrCondition();
+    }
+    /**
+     * Parse an expression in a list comprehension map projection.
+     * Similar to parseExpression but the variable is in scope.
+     */
+    parseListComprehensionExpression(variable) {
+        return this.parseExpression();
     }
     // Token helpers
     peek() {

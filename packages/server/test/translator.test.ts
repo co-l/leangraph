@@ -2039,4 +2039,66 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["allTags"]);
     });
   });
+
+  describe("List comprehensions", () => {
+    it("translates list comprehension with WHERE filter", () => {
+      const result = translateCypher("RETURN [x IN [1, 2, 3] WHERE x > 1] AS filtered");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should use json_each to iterate and filter
+      expect(sql).toMatch(/json_each/i);
+      expect(sql).toMatch(/WHERE/i);
+      expect(result.returnColumns).toEqual(["filtered"]);
+    });
+
+    it("translates list comprehension with map projection", () => {
+      const result = translateCypher("RETURN [x IN [1, 2, 3] | x * 2] AS doubled");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should use json_each and apply the transformation
+      expect(sql).toMatch(/json_each/i);
+      expect(result.returnColumns).toEqual(["doubled"]);
+    });
+
+    it("translates list comprehension with WHERE and map", () => {
+      const result = translateCypher("RETURN [x IN [1, 2, 3, 4] WHERE x > 2 | x * 10] AS result");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should use json_each with WHERE filter and map
+      expect(sql).toMatch(/json_each/i);
+      expect(sql).toMatch(/WHERE/i);
+      expect(result.returnColumns).toEqual(["result"]);
+    });
+
+    it("translates list comprehension with function as source", () => {
+      const result = translateCypher("RETURN [x IN range(1, 5) WHERE x % 2 = 0] AS evens");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // Should handle range() function as source
+      expect(sql).toMatch(/json_each/i);
+      expect(result.returnColumns).toEqual(["evens"]);
+    });
+
+    it("translates list comprehension with property access as source", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN [x IN n.values WHERE x > 2] AS filtered");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/json_each/i);
+      expect(result.returnColumns).toEqual(["filtered"]);
+    });
+
+    it("translates list comprehension without filter or map (identity)", () => {
+      const result = translateCypher("RETURN [x IN [1, 2, 3]] AS same");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/json_each/i);
+      expect(result.returnColumns).toEqual(["same"]);
+    });
+  });
 });

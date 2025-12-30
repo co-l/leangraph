@@ -1716,4 +1716,91 @@ describe("Parser", () => {
       expect(returnClause.items[0].expression.value).toEqual([1, "two", true, null]);
     });
   });
+
+  describe("List comprehensions", () => {
+    it("parses list comprehension with WHERE filter", () => {
+      // [x IN [1, 2, 3] WHERE x > 1]
+      const query = expectSuccess("RETURN [x IN [1, 2, 3] WHERE x > 1] AS filtered");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeDefined();
+      expect(expr.mapExpr).toBeUndefined();
+    });
+
+    it("parses list comprehension with map projection", () => {
+      // [x IN [1, 2, 3] | x * 2]
+      const query = expectSuccess("RETURN [x IN [1, 2, 3] | x * 2] AS doubled");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeUndefined();
+      expect(expr.mapExpr).toBeDefined();
+    });
+
+    it("parses list comprehension with WHERE and map projection", () => {
+      // [x IN [1, 2, 3, 4] WHERE x > 2 | x * 10]
+      const query = expectSuccess("RETURN [x IN [1, 2, 3, 4] WHERE x > 2 | x * 10] AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr).toBeDefined();
+      expect(expr.filterCondition).toBeDefined();
+      expect(expr.mapExpr).toBeDefined();
+    });
+
+    it("parses list comprehension with function call as source", () => {
+      // [x IN range(1, 5) WHERE x % 2 = 0]
+      const query = expectSuccess("RETURN [x IN range(1, 5) WHERE x % 2 = 0] AS evens");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr!.type).toBe("function");
+      expect(expr.listExpr!.functionName).toBe("RANGE");
+    });
+
+    it("parses list comprehension with property access as source", () => {
+      // [x IN n.values WHERE x > 2]
+      const query = expectSuccess("MATCH (n) RETURN [x IN n.values WHERE x > 2] AS filtered");
+      const returnClause = query.clauses[1] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.variable).toBe("x");
+      expect(expr.listExpr!.type).toBe("property");
+    });
+
+    it("parses list comprehension with complex map expression", () => {
+      // [x IN [1, 2, 3] | x + 1]
+      const query = expectSuccess("RETURN [x IN [1, 2, 3] | x + 1] AS result");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.mapExpr!.type).toBe("binary");
+      expect(expr.mapExpr!.operator).toBe("+");
+    });
+
+    it("parses list comprehension without filter or map (identity)", () => {
+      // [x IN [1, 2, 3]]
+      const query = expectSuccess("RETURN [x IN [1, 2, 3]] AS same");
+      const returnClause = query.clauses[0] as ReturnClause;
+      const expr = returnClause.items[0].expression;
+
+      expect(expr.type).toBe("listComprehension");
+      expect(expr.variable).toBe("x");
+      expect(expr.filterCondition).toBeUndefined();
+      expect(expr.mapExpr).toBeUndefined();
+    });
+  });
 });

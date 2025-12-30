@@ -1452,6 +1452,12 @@ export class Translator {
             }
             jsonExpr = `json_extract(${varInfo.alias}.properties, '$.${clause.expression.property}')`;
         }
+        else if (clause.expression.type === "function" || clause.expression.type === "binary") {
+            // Function call like range(1, 10) or binary expression like (first + second)
+            const translated = this.translateExpression(clause.expression);
+            jsonExpr = translated.sql;
+            params.push(...translated.params);
+        }
         else {
             throw new Error(`Unsupported expression type in UNWIND: ${clause.expression.type}`);
         }

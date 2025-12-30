@@ -688,6 +688,13 @@ export class Parser {
     }
     parseUnwindExpression() {
         const token = this.peek();
+        // Parenthesized expression like (first + second)
+        if (token.type === "LPAREN") {
+            this.advance();
+            const expr = this.parseExpression();
+            this.expect("RPAREN");
+            return expr;
+        }
         // Array literal
         if (token.type === "LBRACKET") {
             const values = this.parseArray();
@@ -697,6 +704,10 @@ export class Parser {
         if (token.type === "PARAMETER") {
             this.advance();
             return { type: "parameter", name: token.value };
+        }
+        // Function call like range(1, 10)
+        if ((token.type === "IDENTIFIER" || token.type === "KEYWORD") && this.tokens[this.pos + 1]?.type === "LPAREN") {
+            return this.parseExpression();
         }
         // Variable or property access
         if (token.type === "IDENTIFIER") {

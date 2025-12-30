@@ -1323,6 +1323,14 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("json_each");
     });
+
+    it("handles UNWIND with function call like range()", () => {
+      const result = translateCypher("UNWIND range(1, 5) AS x RETURN x");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("json_each");
+      expect(result.returnColumns).toEqual(["x"]);
+    });
   });
 
   describe("String functions", () => {

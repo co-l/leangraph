@@ -203,28 +203,35 @@ export const FAILING_TESTS = new Set([
   "clauses/merge > Merge9 - Merge clause interoperation with other clauses|2",
   "clauses/merge > Merge9 - Merge clause interoperation with other clauses|3",
   "clauses/merge > Merge9 - Merge clause interoperation with other clauses|4",
+  // Return2|1: ^ operator not supported
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|1",
+  // Return2|10: count > 0 returns 0 instead of false
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|10",
+  // Return2|11: large integers - precision issue
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|11",
+  // Return2|12: list of nodes/relationships - returns AST instead of values
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|12",
+  // Return2|13: map of nodes/relationships - needs map projection
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|13",
+  // Return2|14: type of deleted relationship
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|14",
-  "clauses/return > Return2 - Return single expression (correctly projecting an expression)|2",
-  "clauses/return > Return2 - Return single expression (correctly projecting an expression)|4",
-  "clauses/return > Return2 - Return single expression (correctly projecting an expression)|7",
-
+  // Return2|9: map projection column naming
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|9",
 
-  "clauses/return > Return3 - Return multiple expressions (if column order correct)|2",
-  "clauses/return > Return3 - Return multiple expressions (if column order correct)|3",
-
+  // Return4|4: column name preservation with spaces/casing "cOuNt( * )"
   "clauses/return > Return4 - Column renaming|4",
+  // Return4|6: aggregation in expression
   "clauses/return > Return4 - Column renaming|6",
+  // Return4|8: id() function
   "clauses/return > Return4 - Column renaming|8",
+  // Return4|9: path variable renaming 
   "clauses/return > Return4 - Column renaming|9",
+  // Return4|11: list comprehension
   "clauses/return > Return4 - Column renaming|11",
 
+  // Return5|4: nested maps in DISTINCT inside aggregation
   "clauses/return > Return5 - Implicit grouping with distinct|4",
+  // Return5|5: distinct on nulls
   "clauses/return > Return5 - Implicit grouping with distinct|5",
   "clauses/return > Return6 - Implicit grouping with aggregates|2",
   "clauses/return > Return6 - Implicit grouping with aggregates|3",
@@ -239,8 +246,8 @@ export const FAILING_TESTS = new Set([
   "clauses/return > Return6 - Implicit grouping with aggregates|13",
   "clauses/return > Return6 - Implicit grouping with aggregates|16",
   "clauses/return > Return6 - Implicit grouping with aggregates|18",
-  "clauses/return > Return7 - Return all variables|1",
-  "clauses/return > Return8 - Return clause interoperation with other clauses|1",
+
+
   "clauses/set > Set1 - Set a Property|1",
   "clauses/set > Set1 - Set a Property|10",
   "clauses/set > Set1 - Set a Property|11",

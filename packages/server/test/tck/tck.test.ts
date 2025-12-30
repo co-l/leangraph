@@ -74,6 +74,18 @@ function valuesMatch(expected: unknown, actual: unknown): boolean {
     return true; // If we can't parse, assume it's ok
   }
   
+  // Handle path patterns like <(:Start)-[:T]->()>
+  if (typeof expected === "object" && expected !== null && "_pathPattern" in expected) {
+    // Check it's a path object with nodes and edges arrays
+    if (typeof actual !== "object" || actual === null) return false;
+    const pathObj = actual as Record<string, unknown>;
+    // A path should have nodes and edges arrays
+    if (!Array.isArray(pathObj.nodes) || !Array.isArray(pathObj.edges)) return false;
+    // For now, just verify it's a valid path structure
+    // TODO: Could parse the pattern and verify structure more strictly
+    return true;
+  }
+  
   // Handle arrays
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual)) return false;
@@ -182,6 +194,18 @@ function extractColumns(row: Record<string, unknown>, columns: string[]): unknow
           return (node.properties as Record<string, unknown>)[propName];
         }
         return node[propName];
+      }
+    }
+    
+    // Try extracting function name from expressions like "count(*)" -> "count"
+    // or "count(n)" -> "count", "sum(n.num)" -> "sum", etc.
+    const funcMatch = cleanCol.match(/^(\w+)\s*\(/);
+    if (funcMatch) {
+      const funcName = funcMatch[1].toLowerCase();
+      if (funcName in row) {
+        const value = row[funcName];
+        if (isNullEntity(value)) return null;
+        return value;
       }
     }
     

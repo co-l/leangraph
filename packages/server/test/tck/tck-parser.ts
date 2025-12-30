@@ -288,6 +288,11 @@ function parseCellValue(cell: string): unknown {
     return { _nodePattern: cell };
   }
   
+  // Path pattern like <(:Start)-[:T]->()>
+  if (cell.startsWith("<") && cell.endsWith(">")) {
+    return { _pathPattern: cell };
+  }
+  
   // Relationship pattern
   if (cell.startsWith("[") && cell.endsWith("]")) {
     return { _relPattern: cell };

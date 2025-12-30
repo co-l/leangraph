@@ -2790,6 +2790,188 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
 
+    describe("String Functions (Extended)", () => {
+      describe("left()", () => {
+        it("returns leftmost N characters from string", () => {
+          const result = exec("RETURN left('hello', 3) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hel");
+        });
+
+        it("returns full string when N exceeds length", () => {
+          const result = exec("RETURN left('hi', 10) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hi");
+        });
+
+        it("returns empty string when N is 0", () => {
+          const result = exec("RETURN left('hello', 0) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("");
+        });
+
+        it("returns null for null input", () => {
+          const result = exec("RETURN left(null, 3) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe(null);
+        });
+
+        it("works with property values", () => {
+          exec("CREATE (n:Item {name: 'testing'})");
+          const result = exec(`
+            MATCH (n:Item)
+            RETURN left(n.name, 4) AS prefix
+          `);
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].prefix).toBe("test");
+        });
+      });
+
+      describe("right()", () => {
+        it("returns rightmost N characters from string", () => {
+          const result = exec("RETURN right('hello', 3) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("llo");
+        });
+
+        it("returns full string when N exceeds length", () => {
+          const result = exec("RETURN right('hi', 10) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hi");
+        });
+
+        it("returns empty string when N is 0", () => {
+          const result = exec("RETURN right('hello', 0) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("");
+        });
+
+        it("returns null for null input", () => {
+          const result = exec("RETURN right(null, 3) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe(null);
+        });
+
+        it("works with property values", () => {
+          exec("CREATE (n:Item {name: 'testing'})");
+          const result = exec(`
+            MATCH (n:Item)
+            RETURN right(n.name, 3) AS suffix
+          `);
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].suffix).toBe("ing");
+        });
+      });
+
+      describe("ltrim()", () => {
+        it("removes leading whitespace", () => {
+          const result = exec("RETURN ltrim('   hello') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hello");
+        });
+
+        it("preserves trailing whitespace", () => {
+          const result = exec("RETURN ltrim('   hello   ') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hello   ");
+        });
+
+        it("returns unchanged string with no leading whitespace", () => {
+          const result = exec("RETURN ltrim('hello') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hello");
+        });
+
+        it("returns null for null input", () => {
+          const result = exec("RETURN ltrim(null) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe(null);
+        });
+
+        it("works with property values", () => {
+          exec("CREATE (n:Item {name: '  spaced  '})");
+          const result = exec(`
+            MATCH (n:Item)
+            RETURN ltrim(n.name) AS trimmed
+          `);
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].trimmed).toBe("spaced  ");
+        });
+      });
+
+      describe("rtrim()", () => {
+        it("removes trailing whitespace", () => {
+          const result = exec("RETURN rtrim('hello   ') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hello");
+        });
+
+        it("preserves leading whitespace", () => {
+          const result = exec("RETURN rtrim('   hello   ') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("   hello");
+        });
+
+        it("returns unchanged string with no trailing whitespace", () => {
+          const result = exec("RETURN rtrim('hello') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("hello");
+        });
+
+        it("returns null for null input", () => {
+          const result = exec("RETURN rtrim(null) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe(null);
+        });
+
+        it("works with property values", () => {
+          exec("CREATE (n:Item {name: '  spaced  '})");
+          const result = exec(`
+            MATCH (n:Item)
+            RETURN rtrim(n.name) AS trimmed
+          `);
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].trimmed).toBe("  spaced");
+        });
+      });
+
+      describe("reverse()", () => {
+        it("reverses a string", () => {
+          const result = exec("RETURN reverse('hello') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("olleh");
+        });
+
+        it("handles palindrome", () => {
+          const result = exec("RETURN reverse('radar') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("radar");
+        });
+
+        it("handles empty string", () => {
+          const result = exec("RETURN reverse('') AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe("");
+        });
+
+        it("returns null for null input", () => {
+          const result = exec("RETURN reverse(null) AS result");
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].result).toBe(null);
+        });
+
+        it("works with property values", () => {
+          exec("CREATE (n:Item {name: 'test'})");
+          const result = exec(`
+            MATCH (n:Item)
+            RETURN reverse(n.name) AS reversed
+          `);
+          expect(result.data).toHaveLength(1);
+          expect(result.data[0].reversed).toBe("tset");
+        });
+      });
+    });
+
     describe("Type conversion in expressions", () => {
       it("uses toInteger in arithmetic expressions", () => {
         const result = exec("RETURN toInteger('10') + toInteger('5') AS sum");

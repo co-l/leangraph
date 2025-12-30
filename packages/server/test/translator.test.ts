@@ -2101,4 +2101,100 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["same"]);
     });
   });
+
+  describe("Extended string functions", () => {
+    it("translates left() function", () => {
+      const result = translateCypher("RETURN left('hello', 3) AS result");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // SQLite uses SUBSTR(string, 1, length) for left()
+      expect(sql).toMatch(/SUBSTR/i);
+      expect(result.returnColumns).toEqual(["result"]);
+    });
+
+    it("translates left() with property access", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN left(n.name, 4) AS prefix");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/SUBSTR/i);
+      expect(sql).toMatch(/json_extract/i);
+      expect(result.returnColumns).toEqual(["prefix"]);
+    });
+
+    it("translates right() function", () => {
+      const result = translateCypher("RETURN right('hello', 3) AS result");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // SQLite uses SUBSTR with negative offset for right()
+      expect(sql).toMatch(/SUBSTR/i);
+      expect(result.returnColumns).toEqual(["result"]);
+    });
+
+    it("translates right() with property access", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN right(n.name, 3) AS suffix");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/SUBSTR/i);
+      expect(result.returnColumns).toEqual(["suffix"]);
+    });
+
+    it("translates ltrim() function", () => {
+      const result = translateCypher("RETURN ltrim('   hello') AS result");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/LTRIM/i);
+      expect(result.returnColumns).toEqual(["result"]);
+    });
+
+    it("translates ltrim() with property access", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN ltrim(n.name) AS trimmed");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/LTRIM/i);
+      expect(result.returnColumns).toEqual(["trimmed"]);
+    });
+
+    it("translates rtrim() function", () => {
+      const result = translateCypher("RETURN rtrim('hello   ') AS result");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/RTRIM/i);
+      expect(result.returnColumns).toEqual(["result"]);
+    });
+
+    it("translates rtrim() with property access", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN rtrim(n.name) AS trimmed");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/RTRIM/i);
+      expect(result.returnColumns).toEqual(["trimmed"]);
+    });
+
+    it("translates reverse() function", () => {
+      const result = translateCypher("RETURN reverse('hello') AS result");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      // SQLite doesn't have native REVERSE, uses recursive CTE
+      expect(sql).toMatch(/RECURSIVE.*rev/i);
+      expect(result.returnColumns).toEqual(["result"]);
+    });
+
+    it("translates reverse() with property access", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN reverse(n.name) AS reversed");
+
+      expect(result.statements).toHaveLength(1);
+      const sql = result.statements[0].sql;
+      expect(sql).toMatch(/REVERSE/i);
+      expect(result.returnColumns).toEqual(["reversed"]);
+    });
+  });
 });

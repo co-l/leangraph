@@ -2500,6 +2500,98 @@ export class Translator {
           return { sql: `(CAST(strftime('%s', 'now') AS INTEGER) * 1000)`, tables, params };
         }
 
+        // ============================================================================
+        // Extended string functions
+        // ============================================================================
+
+        // LEFT: get leftmost N characters
+        if (expr.functionName === "LEFT") {
+          if (expr.args && expr.args.length === 2) {
+            const strResult = this.translateFunctionArg(expr.args[0]);
+            const lenResult = this.translateFunctionArg(expr.args[1]);
+            tables.push(...strResult.tables, ...lenResult.tables);
+            // SQLite: SUBSTR(string, 1, length) returns leftmost N chars
+            // Handle null: CASE WHEN str IS NULL THEN NULL ELSE SUBSTR(...) END
+            // Need to duplicate params since strResult.sql appears twice
+            params.push(...strResult.params, ...strResult.params, ...lenResult.params);
+            return { 
+              sql: `CASE WHEN ${strResult.sql} IS NULL THEN NULL ELSE SUBSTR(${strResult.sql}, 1, ${lenResult.sql}) END`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("left requires 2 arguments");
+        }
+
+        // RIGHT: get rightmost N characters
+        if (expr.functionName === "RIGHT") {
+          if (expr.args && expr.args.length === 2) {
+            const strResult = this.translateFunctionArg(expr.args[0]);
+            const lenResult = this.translateFunctionArg(expr.args[1]);
+            tables.push(...strResult.tables, ...lenResult.tables);
+            // SQLite: SUBSTR(string, -length) returns rightmost N chars
+            // But this doesn't handle edge cases:
+            // - length = 0 should return ''
+            // - length > string length should return whole string
+            // strResult.sql appears 4 times, lenResult.sql appears 4 times
+            params.push(
+              ...strResult.params,  // for IS NULL check
+              ...lenResult.params,  // for = 0 check
+              ...lenResult.params,  // for >= LENGTH check
+              ...strResult.params,  // for LENGTH()
+              ...strResult.params,  // for THEN branch
+              ...strResult.params,  // for ELSE SUBSTR
+              ...lenResult.params   // for -length
+            );
+            return { 
+              sql: `CASE WHEN ${strResult.sql} IS NULL THEN NULL WHEN ${lenResult.sql} = 0 THEN '' WHEN ${lenResult.sql} >= LENGTH(${strResult.sql}) THEN ${strResult.sql} ELSE SUBSTR(${strResult.sql}, -${lenResult.sql}) END`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("right requires 2 arguments");
+        }
+
+        // LTRIM: remove leading whitespace
+        if (expr.functionName === "LTRIM") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `LTRIM(${argResult.sql})`, tables, params };
+          }
+          throw new Error("ltrim requires an argument");
+        }
+
+        // RTRIM: remove trailing whitespace
+        if (expr.functionName === "RTRIM") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `RTRIM(${argResult.sql})`, tables, params };
+          }
+          throw new Error("rtrim requires an argument");
+        }
+
+        // REVERSE: reverse a string
+        if (expr.functionName === "REVERSE") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            // argResult.sql appears 2 times
+            params.push(...argResult.params, ...argResult.params);
+            // SQLite doesn't have native REVERSE, use recursive CTE
+            // Pattern: WITH RECURSIVE r AS (SELECT '', str UNION ALL SELECT SUBSTR(rest,1,1)||acc, SUBSTR(rest,2) FROM r WHERE rest<>'') SELECT acc
+            return { 
+              sql: `(SELECT CASE WHEN ${argResult.sql} IS NULL THEN NULL ELSE (WITH RECURSIVE rev(acc, rest) AS (VALUES('', ${argResult.sql}) UNION ALL SELECT SUBSTR(rest, 1, 1) || acc, SUBSTR(rest, 2) FROM rev WHERE rest <> '') SELECT acc FROM rev WHERE rest = '') END)`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("reverse requires an argument");
+        }
+
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 

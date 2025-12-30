@@ -3033,6 +3033,32 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return this.translateUnaryExpression(expr);
       }
 
+      case "labelPredicate": {
+        // (n:Label) - returns true/false based on whether node has the label
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (!varInfo) {
+          throw new Error(`Unknown variable: ${expr.variable}`);
+        }
+        tables.push(varInfo.alias);
+        
+        // Handle single label or multiple labels
+        // Labels are stored as JSON arrays, e.g., ["Foo", "Bar"]
+        // We need to check if the array contains all specified labels
+        const labelsToCheck = expr.labels || (expr.label ? [expr.label] : []);
+        
+        // Use EXISTS with json_each to check if label is in the array
+        // For multiple labels, all must be present (AND)
+        const labelChecks = labelsToCheck.map(l => 
+          `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${l}')`
+        ).join(' AND ');
+        
+        return {
+          sql: `(${labelChecks})`,
+          tables,
+          params,
+        };
+      }
+
       default:
         throw new Error(`Unknown expression type: ${expr.type}`);
     }
@@ -4113,6 +4139,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return `${expr.variable}_${expr.property}`;
       case "function":
         return expr.functionName!.toLowerCase();
+      case "labelPredicate": {
+        // For (n:Foo) or (n:Foo:Bar), the column name should be the full expression
+        const labels = expr.labels || (expr.label ? [expr.label] : []);
+        return `(${expr.variable}:${labels.join(':')})`;
+      }
       default:
         return "expr";
     }

@@ -43,6 +43,17 @@ function valuesMatch(expected: unknown, actual: unknown): boolean {
     return actual === null || actual === undefined;
   }
   
+  // Handle booleans - SQLite returns 1/0 for true/false
+  if (typeof expected === "boolean") {
+    if (typeof actual === "boolean") {
+      return expected === actual;
+    }
+    if (typeof actual === "number") {
+      return expected === (actual !== 0);
+    }
+    return false;
+  }
+  
   // Handle node patterns like (:Label {prop: 'val'})
   if (typeof expected === "object" && expected !== null && "_nodePattern" in expected) {
     // For now, just check it's an object (node)

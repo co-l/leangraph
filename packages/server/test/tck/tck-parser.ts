@@ -168,6 +168,15 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
       continue;
     }
     
+    // Then the result should be empty (check this BEFORE "Then the result should be")
+    if (trimmed.startsWith("Then the result should be empty")) {
+      if (currentScenario) {
+        currentScenario.expectEmpty = true;
+      }
+      expectingTable = false;
+      continue;
+    }
+    
     // Then the result should be
     if (trimmed.startsWith("Then the result should be")) {
       expectingTable = true;
@@ -179,15 +188,6 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
           currentScenario.expectResult.ordered = true;
         }
       }
-      continue;
-    }
-    
-    // Then the result should be empty
-    if (trimmed.startsWith("Then the result should be empty")) {
-      if (currentScenario) {
-        currentScenario.expectEmpty = true;
-      }
-      expectingTable = false;
       continue;
     }
     

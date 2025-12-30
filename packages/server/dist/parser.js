@@ -1325,8 +1325,30 @@ export class Parser {
         if (token.type === "LBRACE") {
             return this.parseObjectLiteral();
         }
-        // Parenthesized expression for grouping
+        // Parenthesized expression for grouping or label predicate (n:Label)
         if (token.type === "LPAREN") {
+            // Check for label predicate: (n:Label) or (n:Label1:Label2)
+            // Look ahead: ( IDENTIFIER COLON ...
+            const nextToken = this.tokens[this.pos + 1];
+            const afterNext = this.tokens[this.pos + 2];
+            if (nextToken?.type === "IDENTIFIER" && afterNext?.type === "COLON") {
+                this.advance(); // consume (
+                const variable = this.advance().value; // consume identifier
+                // Parse one or more labels
+                const labelsList = [];
+                while (this.check("COLON")) {
+                    this.advance(); // consume :
+                    labelsList.push(this.expectLabelOrType());
+                }
+                this.expect("RPAREN");
+                if (labelsList.length === 1) {
+                    return { type: "labelPredicate", variable, label: labelsList[0] };
+                }
+                else {
+                    return { type: "labelPredicate", variable, labels: labelsList };
+                }
+            }
+            // Regular parenthesized expression
             this.advance(); // consume (
             const expr = this.parseExpression();
             this.expect("RPAREN");

@@ -858,6 +858,25 @@ describe("Parser", () => {
 
       expect(returnClause.distinct).toBe(true);
     });
+
+    it("parses label predicate expression (n:Label)", () => {
+      const query = expectSuccess("MATCH (n) RETURN (n:Foo)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items).toHaveLength(1);
+      expect(returnClause.items[0].expression.type).toBe("labelPredicate");
+      expect(returnClause.items[0].expression.variable).toBe("n");
+      expect(returnClause.items[0].expression.label).toBe("Foo");
+    });
+
+    it("parses label predicate with multiple labels", () => {
+      const query = expectSuccess("MATCH (n) RETURN (n:Foo:Bar)");
+      const returnClause = query.clauses[1] as ReturnClause;
+
+      expect(returnClause.items[0].expression.type).toBe("labelPredicate");
+      expect(returnClause.items[0].expression.variable).toBe("n");
+      expect(returnClause.items[0].expression.labels).toEqual(["Foo", "Bar"]);
+    });
   });
 
   describe("Parameters", () => {

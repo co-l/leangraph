@@ -788,6 +788,30 @@ describe("Translator", () => {
     });
   });
 
+  describe("Label predicate expressions", () => {
+    it("generates SQL for label predicate (n:Label)", () => {
+      const result = translateCypher("MATCH (n) RETURN (n:Foo)");
+
+      expect(result.statements).toHaveLength(1);
+      // Uses json_each to check if label array contains the value
+      expect(result.statements[0].sql).toContain("json_each");
+      expect(result.statements[0].sql).toContain("value = 'Foo'");
+      // Column name should be (n:Foo)
+      expect(result.returnColumns).toContain("(n:Foo)");
+    });
+
+    it("generates SQL for label predicate with multiple labels", () => {
+      const result = translateCypher("MATCH (n) RETURN (n:Foo:Bar)");
+
+      expect(result.statements).toHaveLength(1);
+      // Multiple labels use AND - all must be present
+      expect(result.statements[0].sql).toContain("value = 'Foo'");
+      expect(result.statements[0].sql).toContain("value = 'Bar'");
+      // Column name should be (n:Foo:Bar)
+      expect(result.returnColumns).toContain("(n:Foo:Bar)");
+    });
+  });
+
   describe("Aggregation functions", () => {
     it("generates SUM for property", () => {
       const result = translateCypher("MATCH (n:Order) RETURN SUM(n.amount)");

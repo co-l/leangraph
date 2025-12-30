@@ -65,7 +65,7 @@ export interface ObjectProperty {
     value: Expression;
 }
 export interface Expression {
-    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary";
+    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate";
     variable?: string;
     property?: string;
     value?: PropertyValue;
@@ -86,6 +86,8 @@ export interface Expression {
     filterCondition?: WhereCondition;
     mapExpr?: Expression;
     predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
+    label?: string;
+    labels?: string[];
 }
 export interface ReturnItem {
     expression: Expression;

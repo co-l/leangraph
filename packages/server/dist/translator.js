@@ -1683,12 +1683,78 @@ export class Translator {
                 // TOSTRING: convert value to string
                 if (expr.functionName === "TOSTRING") {
                     if (expr.args && expr.args.length > 0) {
+                        const arg = expr.args[0];
+                        // Special case: if the argument is a boolean literal, return 'true' or 'false' directly
+                        if (arg.type === "literal" && typeof arg.value === "boolean") {
+                            return {
+                                sql: arg.value ? "'true'" : "'false'",
+                                tables,
+                                params
+                            };
+                        }
+                        const argResult = this.translateFunctionArg(arg);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // Simple CAST to TEXT - let SQLite handle the conversion
+                        return {
+                            sql: `CAST(${argResult.sql} AS TEXT)`,
+                            tables,
+                            params
+                        };
+                    }
+                    throw new Error("toString requires an argument");
+                }
+                // ============================================================================
+                // Type conversion functions
+                // ============================================================================
+                // TOINTEGER: convert value to integer
+                if (expr.functionName === "TOINTEGER") {
+                    if (expr.args && expr.args.length > 0) {
                         const argResult = this.translateFunctionArg(expr.args[0]);
                         tables.push(...argResult.tables);
                         params.push(...argResult.params);
-                        return { sql: `CAST(${argResult.sql} AS TEXT)`, tables, params };
+                        // Use SQLite's NULLIF + CAST pattern to return NULL for invalid conversions
+                        // SQLite returns 0 for invalid string casts, so we use a subquery to handle this
+                        // For simple cases, CAST works; for complex cases we use IIF (SQLite 3.32+)
+                        return {
+                            sql: `(SELECT CASE WHEN v IS NULL THEN NULL WHEN typeof(v) IN ('integer', 'real') THEN CAST(v AS INTEGER) WHEN typeof(v) = 'text' AND v GLOB '[+-][0-9]*' THEN CAST(CAST(v AS REAL) AS INTEGER) WHEN typeof(v) = 'text' AND v GLOB '[0-9]*' THEN CAST(CAST(v AS REAL) AS INTEGER) ELSE NULL END FROM (SELECT ${argResult.sql} AS v))`,
+                            tables,
+                            params
+                        };
                     }
-                    throw new Error("toString requires an argument");
+                    throw new Error("toInteger requires an argument");
+                }
+                // TOFLOAT: convert value to float
+                if (expr.functionName === "TOFLOAT") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // Use subquery to evaluate argument once
+                        return {
+                            sql: `(SELECT CASE WHEN v IS NULL THEN NULL WHEN typeof(v) IN ('integer', 'real') THEN CAST(v AS REAL) WHEN typeof(v) = 'text' AND v GLOB '[+-][0-9.]*' THEN CAST(v AS REAL) WHEN typeof(v) = 'text' AND v GLOB '[0-9.]*' THEN CAST(v AS REAL) ELSE NULL END FROM (SELECT ${argResult.sql} AS v))`,
+                            tables,
+                            params
+                        };
+                    }
+                    throw new Error("toFloat requires an argument");
+                }
+                // TOBOOLEAN: convert value to boolean
+                if (expr.functionName === "TOBOOLEAN") {
+                    if (expr.args && expr.args.length > 0) {
+                        const argResult = this.translateFunctionArg(expr.args[0]);
+                        tables.push(...argResult.tables);
+                        params.push(...argResult.params);
+                        // Convert 'true'/'false' strings (case insensitive) to 1/0
+                        // Return NULL for invalid values
+                        // Use subquery to evaluate argument once
+                        return {
+                            sql: `(SELECT CASE WHEN v IS NULL THEN NULL WHEN v = 1 OR LOWER(v) = 'true' THEN 1 WHEN v = 0 OR LOWER(v) = 'false' THEN 0 ELSE NULL END FROM (SELECT ${argResult.sql} AS v))`,
+                            tables,
+                            params
+                        };
+                    }
+                    throw new Error("toBoolean requires an argument");
                 }
                 // ============================================================================
                 // Null/scalar functions

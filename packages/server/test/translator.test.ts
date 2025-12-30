@@ -1338,6 +1338,90 @@ describe("Translator", () => {
     });
   });
 
+  describe("Type conversion functions", () => {
+    it("generates CAST AS INTEGER for toInteger()", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN toInteger(n.quantity)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("CAST(");
+      expect(result.statements[0].sql).toContain("AS INTEGER");
+      expect(result.returnColumns).toEqual(["tointeger"]);
+    });
+
+    it("handles toInteger with string literal", () => {
+      const result = translateCypher("RETURN toInteger('42')");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("CAST(");
+      expect(result.statements[0].sql).toContain("AS INTEGER");
+    });
+
+    it("handles toInteger with alias", () => {
+      const result = translateCypher("MATCH (n:Person) RETURN toInteger(n.age) AS ageInt");
+
+      expect(result.statements[0].sql).toContain('AS "ageInt"');
+      expect(result.returnColumns).toEqual(["ageInt"]);
+    });
+
+    it("generates CAST AS REAL for toFloat()", () => {
+      const result = translateCypher("MATCH (n:Product) RETURN toFloat(n.price)");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("CAST(");
+      expect(result.statements[0].sql).toContain("AS REAL");
+      expect(result.returnColumns).toEqual(["tofloat"]);
+    });
+
+    it("handles toFloat with string literal", () => {
+      const result = translateCypher("RETURN toFloat('3.14')");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("CAST(");
+      expect(result.statements[0].sql).toContain("AS REAL");
+    });
+
+    it("handles toFloat with alias", () => {
+      const result = translateCypher("MATCH (n:Product) RETURN toFloat(n.price) AS priceFloat");
+
+      expect(result.statements[0].sql).toContain('AS "priceFloat"');
+      expect(result.returnColumns).toEqual(["priceFloat"]);
+    });
+
+    it("generates CASE expression for toBoolean()", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN toBoolean(n.active)");
+
+      expect(result.statements).toHaveLength(1);
+      // toBoolean should use CASE to handle 'true'/'false' strings
+      expect(result.statements[0].sql).toContain("CASE");
+      expect(result.returnColumns).toEqual(["toboolean"]);
+    });
+
+    it("handles toBoolean with string literal", () => {
+      const result = translateCypher("RETURN toBoolean('true')");
+
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toContain("CASE");
+    });
+
+    it("handles toBoolean with alias", () => {
+      const result = translateCypher("MATCH (n:Item) RETURN toBoolean(n.active) AS isActive");
+
+      expect(result.statements[0].sql).toContain('AS "isActive"');
+      expect(result.returnColumns).toEqual(["isActive"]);
+    });
+
+    it("handles type conversion in arithmetic expressions", () => {
+      const result = translateCypher("RETURN toInteger('10') + toInteger('5')");
+
+      expect(result.statements).toHaveLength(1);
+      // Should have two toInteger subqueries
+      const sql = result.statements[0].sql;
+      // Each toInteger generates a subquery with (SELECT CASE...)
+      const subqueryCount = (sql.match(/\(SELECT CASE/g) || []).length;
+      expect(subqueryCount).toBe(2);
+    });
+  });
+
   describe("Null/scalar functions", () => {
     it("generates COALESCE for coalesce()", () => {
       const result = translateCypher("MATCH (n:Person) RETURN coalesce(n.nickname, n.name)");

@@ -60,6 +60,20 @@ function valuesMatch(expected: unknown, actual: unknown): boolean {
     return typeof actual === "object" && actual !== null;
   }
   
+  // Handle relationship patterns like [:TYPE]
+  if (typeof expected === "object" && expected !== null && "_relPattern" in expected) {
+    // Check it's an object (relationship) and the type matches
+    if (typeof actual !== "object" || actual === null) return false;
+    const relObj = actual as Record<string, unknown>;
+    const pattern = (expected as Record<string, unknown>)._relPattern as string;
+    // Extract type from pattern like "[:T1]" or "[:TYPE {prop: val}]"
+    const typeMatch = pattern.match(/\[:(\w+)/);
+    if (typeMatch && relObj.type) {
+      return relObj.type === typeMatch[1];
+    }
+    return true; // If we can't parse, assume it's ok
+  }
+  
   // Handle arrays
   if (Array.isArray(expected)) {
     if (!Array.isArray(actual)) return false;

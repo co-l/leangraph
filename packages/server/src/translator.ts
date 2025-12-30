@@ -743,7 +743,7 @@ export class Translator {
       sourceAlias: string;
       targetAlias: string;
       edgeAlias: string;
-      edge: { type?: string; properties?: Record<string, PropertyValue>; minHops?: number; maxHops?: number };
+      edge: { type?: string; properties?: Record<string, PropertyValue>; minHops?: number; maxHops?: number; direction?: "left" | "right" | "none" };
       optional?: boolean;
       sourceIsNew?: boolean;
       targetIsNew?: boolean;
@@ -795,9 +795,18 @@ export class Translator {
         let edgeOnConditions: string[] = [];
         let edgeOnParams: unknown[] = [];
         
+        // Check if this is an undirected/bidirectional pattern (direction: "none")
+        const isUndirected = relPattern.edge.direction === "none";
+        
         // Add edge join - need to determine direction based on whether source/target already exist
-        if (addedNodeAliases.has(relPattern.targetAlias) && !addedNodeAliases.has(relPattern.sourceAlias)) {
+        if (isUndirected) {
+          // For undirected patterns, match edges in either direction
+          edgeOnConditions.push(`(${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id OR ${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id)`);
+        } else if (addedNodeAliases.has(relPattern.targetAlias) && !addedNodeAliases.has(relPattern.sourceAlias)) {
           edgeOnConditions.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+        } else if (relPattern.edge.direction === "left") {
+          // Left-directed: (a)<-[:R]-(b) means edge goes from b to a, so source is target_id
+          edgeOnConditions.push(`${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id`);
         } else {
           edgeOnConditions.push(`${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id`);
         }
@@ -845,7 +854,16 @@ export class Translator {
 
         // Add target node join if not already added
         if (!addedNodeAliases.has(relPattern.targetAlias)) {
-          targetOnConditions.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+          // For undirected patterns, target could be on either side of the edge
+          if (isUndirected) {
+            // Target is whichever end of the edge is not the source
+            targetOnConditions.push(`((${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id) OR (${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id))`);
+          } else if (relPattern.edge.direction === "left") {
+            // Left-directed: target is at source_id side
+            targetOnConditions.push(`${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id`);
+          } else {
+            targetOnConditions.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+          }
           
           // For optional patterns, add label and property filters to ON clause
           const targetPattern = (this.ctx as any)[`pattern_${relPattern.targetAlias}`];
@@ -876,9 +894,17 @@ export class Translator {
           if (isOptional) {
             // For optional, we need to handle this in ON clause of edge
             // This is already handled above by adding to edgeOnConditions
-            whereParts.push(`(${relPattern.edgeAlias}.id IS NULL OR ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id)`);
+            if (isUndirected) {
+              whereParts.push(`(${relPattern.edgeAlias}.id IS NULL OR ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id OR ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id)`);
+            } else {
+              whereParts.push(`(${relPattern.edgeAlias}.id IS NULL OR ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id)`);
+            }
           } else {
-            whereParts.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+            if (isUndirected) {
+              whereParts.push(`(${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id OR ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id)`);
+            } else {
+              whereParts.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+            }
           }
         }
 

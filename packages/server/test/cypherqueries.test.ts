@@ -2568,6 +2568,68 @@ describe("CypherQueries.json Patterns", () => {
     });
   });
 
+  describe("Bidirectional Relationships", () => {
+    it("matches relationships in either direction with <-->", () => {
+      // Create A -> B relationship
+      exec("CREATE (a:Node {name: 'A'})-[:KNOWS]->(b:Node {name: 'B'})");
+
+      // <--> should match in either direction (same as --)
+      const result = exec(`
+        MATCH (a:Node {name: 'A'})<-->(b:Node {name: 'B'})
+        RETURN a.name AS a, b.name AS b
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].a).toBe("A");
+      expect(result.data[0].b).toBe("B");
+    });
+
+    it("matches with relationship type in bidirectional", () => {
+      exec("CREATE (a:Node {name: 'A'})-[:KNOWS]->(b:Node {name: 'B'})");
+
+      // Bidirectional without name filters matches both directions
+      // (A, B) and (B, A) since undirected pattern matches edge in either direction
+      const result = exec(`
+        MATCH (a:Node)<-[:KNOWS]->(b:Node)
+        RETURN a.name AS a, b.name AS b
+      `);
+
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map((r: any) => `${r.a}-${r.b}`).sort();
+      expect(names).toEqual(["A-B", "B-A"]);
+    });
+
+    it("bidirectional matches outgoing relationship", () => {
+      // Create A -> B relationship
+      exec("CREATE (a:Node {name: 'A'})-[:R]->(b:Node {name: 'B'})");
+
+      // Using -- (undirected) to match A -> B
+      const result = exec(`
+        MATCH (a:Node {name: 'A'})--(b:Node {name: 'B'})
+        RETURN a.name AS a, b.name AS b
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].a).toBe("A");
+      expect(result.data[0].b).toBe("B");
+    });
+
+    it("bidirectional matches incoming relationship", () => {
+      // Create A -> B relationship
+      exec("CREATE (a:Node {name: 'A'})-[:R]->(b:Node {name: 'B'})");
+
+      // Using -- (undirected) from B's perspective should also match
+      const result = exec(`
+        MATCH (b:Node {name: 'B'})--(a:Node {name: 'A'})
+        RETURN a.name AS a, b.name AS b
+      `);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].a).toBe("A");
+      expect(result.data[0].b).toBe("B");
+    });
+  });
+
   describe("SET with Expressions", () => {
     it("sets a property to an arithmetic expression", () => {
       // TCK pattern: SET n.num = n.num + 1

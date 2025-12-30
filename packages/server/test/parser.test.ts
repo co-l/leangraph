@@ -1003,9 +1003,13 @@ describe("Parser", () => {
       expect(error.message).toContain("Unterminated string");
     });
 
-    it("reports error for invalid relationship arrows", () => {
-      const error = expectError("CREATE (a)<-[:KNOWS]->(b)");
-      expect(error.message).toContain("arrows on both sides");
+    it("parses bidirectional relationship pattern <-->", () => {
+      // <--> is valid Cypher meaning "either direction" (same as --)
+      const query = expectSuccess("CREATE (a)<-[:KNOWS]->(b)");
+      expect(query.clauses).toHaveLength(1);
+      const create = query.clauses[0] as { type: string; patterns: Array<{ edge: { direction: string } }> };
+      expect(create.type).toBe("CREATE");
+      expect(create.patterns[0].edge.direction).toBe("none"); // Bidirectional = none
     });
   });
 

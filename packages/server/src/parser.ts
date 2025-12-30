@@ -1265,9 +1265,11 @@ export class Parser {
     if (this.check("ARROW_RIGHT")) {
       this.advance();
       if (direction === "left") {
-        throw new Error("Invalid relationship pattern: cannot have arrows on both sides");
+        // <--> pattern means "either direction" (bidirectional), same as --
+        direction = "none";
+      } else {
+        direction = "right";
       }
-      direction = "right";
       edge.direction = direction;
     } else {
       this.expect("DASH");

@@ -106,6 +106,9 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match6 - Match named paths scenarios|6",
   "clauses/match > Match6 - Match named paths scenarios|7",
   "clauses/match > Match6 - Match named paths scenarios|9",
+  // Match7|8,9: multi-hop optional match patterns
+  "clauses/match > Match7 - Optional match|8",
+  "clauses/match > Match7 - Optional match|9",
   "clauses/match > Match7 - Optional match|10",
   "clauses/match > Match7 - Optional match|11",
   "clauses/match > Match7 - Optional match|12",
@@ -128,8 +131,7 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match7 - Optional match|4",
 
 
-  "clauses/match > Match7 - Optional match|8",
-  "clauses/match > Match7 - Optional match|9",
+
   "clauses/match > Match8 - Match clause interoperation with other clauses|2",
   "clauses/match > Match8 - Match clause interoperation with other clauses|3",
   "clauses/match > Match9 - Match deprecated scenarios|1",

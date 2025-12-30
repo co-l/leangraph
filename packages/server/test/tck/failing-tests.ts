@@ -112,6 +112,8 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match7 - Optional match|10",
   "clauses/match > Match7 - Optional match|11",
   "clauses/match > Match7 - Optional match|12",
+
+  // Match7|14,15: variable length optional patterns
   "clauses/match > Match7 - Optional match|14",
   "clauses/match > Match7 - Optional match|15",
   "clauses/match > Match7 - Optional match|16",
@@ -317,6 +319,8 @@ export const FAILING_TESTS = new Set([
   "clauses/with > With4 - Variable aliasing|6",
   "clauses/with > With4 - Variable aliasing|7",
 
+
+  // With6|1: GROUP BY issue with aggregation
   "clauses/with > With6 - Implicit grouping with aggregates|1",
   "clauses/with > With6 - Implicit grouping with aggregates|2",
   "clauses/with > With6 - Implicit grouping with aggregates|3",

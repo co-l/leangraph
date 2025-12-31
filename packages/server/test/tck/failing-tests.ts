@@ -43,8 +43,9 @@ export const FAILING_TESTS = new Set([
   "clauses/create > Create6 - Persistence of create clause side effects|5",
   "clauses/create > Create6 - Persistence of create clause side effects|6",
   "clauses/create > Create6 - Persistence of create clause side effects|7",
-  "clauses/create > Create6 - Persistence of create clause side effects|8",
-  "clauses/create > Create6 - Persistence of create clause side effects|9",
+  // Create6|8,9: Now work
+  // "clauses/create > Create6 - Persistence of create clause side effects|8",
+  // "clauses/create > Create6 - Persistence of create clause side effects|9",
 
 
 
@@ -181,12 +182,15 @@ export const FAILING_TESTS = new Set([
   "clauses/merge > Merge5 - Merge relationships|6",
   "clauses/merge > Merge5 - Merge relationships|7",
   "clauses/merge > Merge5 - Merge relationships|8",
-  "clauses/merge > Merge6 - Merge relationships - on create|1",
+  // Merge6|1: Now works (empty result)
+  // "clauses/merge > Merge6 - Merge relationships - on create|1",
+  // Merge6|2: result value mismatch (count returns empty)
   "clauses/merge > Merge6 - Merge relationships - on create|2",
   "clauses/merge > Merge6 - Merge relationships - on create|3",
   "clauses/merge > Merge6 - Merge relationships - on create|4",
   "clauses/merge > Merge6 - Merge relationships - on create|5",
   "clauses/merge > Merge6 - Merge relationships - on create|6",
+  // Merge7|3: result value mismatch
   "clauses/merge > Merge7 - Merge relationships - on match|3",
   "clauses/merge > Merge7 - Merge relationships - on match|4",
   "clauses/merge > Merge7 - Merge relationships - on match|5",
@@ -275,20 +279,23 @@ export const FAILING_TESTS = new Set([
   // "clauses/set > Set5 - Set multiple properties with a map|4",
   "clauses/set > Set6 - Persistence of set clause side effects|1",
   "clauses/set > Set6 - Persistence of set clause side effects|10",
-  "clauses/set > Set6 - Persistence of set clause side effects|11",
+  // Set6|11: Now works
+  // "clauses/set > Set6 - Persistence of set clause side effects|11",
   "clauses/set > Set6 - Persistence of set clause side effects|12",
   "clauses/set > Set6 - Persistence of set clause side effects|13",
   "clauses/set > Set6 - Persistence of set clause side effects|14",
   "clauses/set > Set6 - Persistence of set clause side effects|15",
   "clauses/set > Set6 - Persistence of set clause side effects|16",
   "clauses/set > Set6 - Persistence of set clause side effects|17",
-  "clauses/set > Set6 - Persistence of set clause side effects|18",
+  // Set6|18: Now works
+  // "clauses/set > Set6 - Persistence of set clause side effects|18",
   "clauses/set > Set6 - Persistence of set clause side effects|19",
   "clauses/set > Set6 - Persistence of set clause side effects|2",
   "clauses/set > Set6 - Persistence of set clause side effects|20",
   "clauses/set > Set6 - Persistence of set clause side effects|21",
   "clauses/set > Set6 - Persistence of set clause side effects|3",
-  "clauses/set > Set6 - Persistence of set clause side effects|4",
+  // Set6|4: Now works
+  // "clauses/set > Set6 - Persistence of set clause side effects|4",
   "clauses/set > Set6 - Persistence of set clause side effects|5",
   "clauses/set > Set6 - Persistence of set clause side effects|6",
   "clauses/set > Set6 - Persistence of set clause side effects|7",

@@ -1859,9 +1859,9 @@ export class Parser {
         }
       }
       
-      // Regular parenthesized expression
+      // Regular parenthesized expression - use full expression parsing including AND/OR
       this.advance(); // consume (
-      const expr = this.parseExpression();
+      const expr = this.parseOrExpression();
       this.expect("RPAREN");
       return expr;
     }

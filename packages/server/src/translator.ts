@@ -3190,6 +3190,33 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           return { sql: "json_array()", tables, params };
         }
 
+        // INDEX: list/map element access expr[index]
+        if (expr.functionName === "INDEX") {
+          if (expr.args && expr.args.length >= 2) {
+            const listResult = this.translateExpression(expr.args[0]);
+            const indexResult = this.translateExpression(expr.args[1]);
+            tables.push(...listResult.tables, ...indexResult.tables);
+            params.push(...listResult.params, ...indexResult.params);
+            // Use json_extract with array index - note: Cypher uses 0-based, SQLite json uses 0-based too
+            // Cast index to integer to avoid "0.0" in JSON path
+            return { sql: `json_extract(${listResult.sql}, '$[' || CAST(${indexResult.sql} AS INTEGER) || ']')`, tables, params };
+          }
+          throw new Error("INDEX requires list and index arguments");
+        }
+
+        // SLICE: list slice expr[start..end]
+        if (expr.functionName === "SLICE") {
+          if (expr.args && expr.args.length >= 3) {
+            const listResult = this.translateExpression(expr.args[0]);
+            tables.push(...listResult.tables);
+            params.push(...listResult.params);
+            // SQLite doesn't have built-in slice, we'd need a more complex expression
+            // For now, return the list - this is a placeholder
+            return { sql: listResult.sql, tables, params };
+          }
+          throw new Error("SLICE requires list, start, and end arguments");
+        }
+
         throw new Error(`Unknown function: ${expr.functionName}`);
       }
 

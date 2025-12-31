@@ -243,6 +243,7 @@ export declare class Parser {
     private parseAdditiveExpression;
     private parseMultiplicativeExpression;
     private parseExponentialExpression;
+    private parsePostfixExpression;
     private parsePrimaryExpression;
     private parseCaseExpression;
     private parseObjectLiteral;

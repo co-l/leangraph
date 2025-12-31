@@ -1823,15 +1823,62 @@ export class Parser {
 
   // Handle ^ (exponentiation - highest precedence among arithmetic operators)
   private parseExponentialExpression(): Expression {
-    let left = this.parsePrimaryExpression();
+    let left = this.parsePostfixExpression();
 
     while (this.check("CARET")) {
       this.advance(); // consume ^
-      const right = this.parsePrimaryExpression();
+      const right = this.parsePostfixExpression();
       left = { type: "binary", operator: "^", left, right };
     }
 
     return left;
+  }
+
+  // Handle postfix operations: list indexing like expr[0] or expr[1..3]
+  private parsePostfixExpression(): Expression {
+    let expr = this.parsePrimaryExpression();
+
+    // Handle list/map indexing: expr[index] or expr[start..end]
+    while (this.check("LBRACKET")) {
+      this.advance(); // consume [
+      
+      // Check for slice syntax [start..end]
+      if (this.check("DOT")) {
+        // [..end] - from start
+        this.advance(); // consume first .
+        this.expect("DOT"); // consume second .
+        const endExpr = this.parseExpression();
+        this.expect("RBRACKET");
+        expr = { type: "function", functionName: "SLICE", args: [expr, { type: "literal", value: null }, endExpr] };
+      } else {
+        const indexExpr = this.parseExpression();
+        
+        if (this.check("DOT")) {
+          // Check for slice: [start..end]
+          this.advance(); // consume first .
+          if (this.check("DOT")) {
+            this.advance(); // consume second .
+            if (this.check("RBRACKET")) {
+              // [start..] - to end
+              this.expect("RBRACKET");
+              expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, { type: "literal", value: null }] };
+            } else {
+              const endExpr = this.parseExpression();
+              this.expect("RBRACKET");
+              expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, endExpr] };
+            }
+          } else {
+            throw new Error("Expected '..' for slice syntax");
+          }
+        } else {
+          // Simple index: [index]
+          this.expect("RBRACKET");
+          expr = { type: "function", functionName: "INDEX", args: [expr, indexExpr] };
+        }
+      }
+    }
+
+    return expr;
   }
 
   // Parse primary expressions (atoms)

@@ -142,19 +142,14 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match9 - Match deprecated scenarios|5",
   "clauses/match > Match9 - Match deprecated scenarios|8",
   "clauses/match > Match9 - Match deprecated scenarios|9",
+  // Merge1|8-14: Complex MERGE scenarios (WITH, multiple MERGE, paths, DELETE+MERGE)
+  "clauses/merge > Merge1 - Merge node|8",
+  "clauses/merge > Merge1 - Merge node|9",
   "clauses/merge > Merge1 - Merge node|10",
   "clauses/merge > Merge1 - Merge node|11",
   "clauses/merge > Merge1 - Merge node|12",
   "clauses/merge > Merge1 - Merge node|13",
   "clauses/merge > Merge1 - Merge node|14",
-  "clauses/merge > Merge1 - Merge node|2",
-  "clauses/merge > Merge1 - Merge node|3",
-  "clauses/merge > Merge1 - Merge node|4",
-  "clauses/merge > Merge1 - Merge node|5",
-  "clauses/merge > Merge1 - Merge node|6",
-  "clauses/merge > Merge1 - Merge node|7",
-  "clauses/merge > Merge1 - Merge node|8",
-  "clauses/merge > Merge1 - Merge node|9",
   "clauses/merge > Merge2 - Merge node - on create|1",
   "clauses/merge > Merge2 - Merge node - on create|2",
   "clauses/merge > Merge2 - Merge node - on create|3",
@@ -248,15 +243,12 @@ export const FAILING_TESTS = new Set([
   "clauses/return > Return6 - Implicit grouping with aggregates|18",
 
 
-  "clauses/set > Set1 - Set a Property|1",
-  "clauses/set > Set1 - Set a Property|10",
-  "clauses/set > Set1 - Set a Property|11",
-  "clauses/set > Set1 - Set a Property|2",
-  "clauses/set > Set1 - Set a Property|3",
-  "clauses/set > Set1 - Set a Property|4",
+  // Set1|5,6,7: List property operations and list comprehensions (need list + operator and list comprehensions)
   "clauses/set > Set1 - Set a Property|5",
   "clauses/set > Set1 - Set a Property|6",
   "clauses/set > Set1 - Set a Property|7",
+  // Set1|10: expects TypeError for nested map in list, we don't validate types the same way
+  "clauses/set > Set1 - Set a Property|10",
   "clauses/set > Set2 - Set a Property to Null|1",
   "clauses/set > Set2 - Set a Property to Null|2",
   "clauses/set > Set2 - Set a Property to Null|3",
@@ -295,18 +287,22 @@ export const FAILING_TESTS = new Set([
   "clauses/set > Set6 - Persistence of set clause side effects|7",
   "clauses/set > Set6 - Persistence of set clause side effects|8",
   "clauses/set > Set6 - Persistence of set clause side effects|9",
+  // With1|3: Relationship variable aliasing in WITH then re-matching
+  "clauses/with > With1 - Forward single variable|3",
+  // With2|1,2: Complex expression forwarding with joins and nested maps
+  "clauses/with > With2 - Forward single expression|1",
+  "clauses/with > With2 - Forward single expression|2",
   // Unwind1|4,5,6 need WITH + collect + UNWIND chains
   "clauses/unwind > Unwind1|4",
   "clauses/unwind > Unwind1|5",
   "clauses/unwind > Unwind1|6",
   "clauses/unwind > Unwind1|12",
   "clauses/unwind > Unwind1|14",
-  "clauses/with > With1 - Forward single variable|3",
-  "clauses/with > With1 - Forward single variable|4",
-  "clauses/with > With2 - Forward single expression|1",
-  "clauses/with > With2 - Forward single expression|2",
 
-  // With3|1: WITH forwarding multiple variables then re-matching
+
+
+
+  // With3|1: Forwarding multiple node/relationship variables and re-matching
   "clauses/with > With3 - Forward multiple expressions|1",
   "clauses/with > With4 - Variable aliasing|6",
   "clauses/with > With4 - Variable aliasing|7",

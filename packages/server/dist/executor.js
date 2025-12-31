@@ -579,10 +579,11 @@ export class Executor {
         // Check if this MERGE needs special handling:
         // 1. Has relationship patterns
         // 2. Has ON CREATE SET or ON MATCH SET
+        // 3. Has RETURN clause (translator can't handle MERGE + RETURN properly for new nodes)
         const hasRelationshipPattern = mergeClause.patterns.some(p => this.isRelationshipPattern(p));
         const hasSetClauses = mergeClause.onCreateSet || mergeClause.onMatchSet;
-        if (!hasRelationshipPattern && !hasSetClauses) {
-            // Simple node MERGE without SET clauses - let translator handle it
+        if (!hasRelationshipPattern && !hasSetClauses && !returnClause) {
+            // Simple node MERGE without SET clauses and no RETURN - let translator handle it
             return null;
         }
         // Execute MERGE with special handling
@@ -678,8 +679,12 @@ export class Executor {
             conditionParams.push(value);
         }
         // Try to find existing node
-        const findSql = `SELECT id, label, properties FROM nodes WHERE ${conditions.join(" AND ")}`;
-        const findResult = this.db.execute(findSql, conditionParams);
+        // When MERGE has no label and no properties, we're just creating an empty node
+        let findResult = { rows: [] };
+        if (conditions.length > 0) {
+            const findSql = `SELECT id, label, properties FROM nodes WHERE ${conditions.join(" AND ")}`;
+            findResult = this.db.execute(findSql, conditionParams);
+        }
         let nodeId;
         let wasCreated = false;
         if (findResult.rows.length === 0) {
@@ -1038,6 +1043,25 @@ export class Executor {
                     resultRow[alias] = node.properties[item.expression.property];
                 }
             }
+            else if (item.expression.type === "function") {
+                // Handle function expressions like count(*), labels(n)
+                const funcName = item.expression.functionName?.toUpperCase();
+                if (funcName === "COUNT") {
+                    // count(*) on MERGE results - count the matched/created nodes
+                    resultRow[alias] = 1; // MERGE always results in exactly one node
+                }
+                else if (funcName === "LABELS") {
+                    // labels(n) function
+                    const args = item.expression.args;
+                    if (args && args.length > 0 && args[0].type === "variable") {
+                        const node = matchedNodes.get(args[0].variable);
+                        if (node) {
+                            const label = this.normalizeLabelForOutput(node.label);
+                            resultRow[alias] = Array.isArray(label) ? label : (label ? [label] : []);
+                        }
+                    }
+                }
+            }
             else if (item.expression.type === "comparison") {
                 // Handle comparison expressions like: l.created_at = $createdAt
                 const left = this.evaluateReturnExpression(item.expression.left, matchedNodes, params);
@@ -1359,12 +1383,14 @@ export class Executor {
             // Check if RETURN references any newly created variables (not in matched vars)
             const returnVars = this.collectReturnVariables(returnClause);
             const referencesCreatedVars = returnVars.some(v => !allMatchedVars.has(v));
-            if (referencesCreatedVars) {
-                // RETURN references created nodes - use buildReturnResults with resolved IDs
+            // If SET was executed, we need to use buildReturnResults to get updated values
+            // because re-running MATCH with original WHERE conditions may not find the updated nodes
+            if (referencesCreatedVars || setClauses.length > 0) {
+                // RETURN references created nodes or data was modified - use buildReturnResults with resolved IDs
                 return this.buildReturnResults(returnClause, allResolvedIds);
             }
             else {
-                // RETURN only references matched nodes - use translator-based approach
+                // RETURN only references matched nodes and no mutations - use translator-based approach
                 const fullQuery = {
                     clauses: [...matchClauses, returnClause],
                 };

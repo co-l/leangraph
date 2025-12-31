@@ -79,7 +79,8 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match4 - Match variable length patterns scenarios|8",
   // Match5|1,4,5,7,9,10,14,15,17,18,22,24: Now work with Background parsing support
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|1",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|2",
+  // Match5|2: Now works with *.. parsing fix
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|2",
   // Match5|3: Now works with *0 zero-length path handling
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|3",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|4",
@@ -100,12 +101,12 @@ export const FAILING_TESTS = new Set([
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|16",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|17",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|18",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|19",
-  // Match5|20: Now works with *0 handling after fixed pattern
+  // Match5|19,20,21,22,23,24: Now work with fixed patterns after variable-length
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|19",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|20",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|21",
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|21",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|22",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|23",
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|23",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|24",
   "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|25",
   "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|26",

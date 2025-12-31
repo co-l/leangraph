@@ -1362,13 +1362,15 @@ export class Parser {
       return;
     }
 
-    // Check for ..N pattern (*..3)
+    // Check for ..N pattern (*..3) or just *.. (unbounded from 1)
     if (this.check("DOT")) {
       this.advance(); // first dot
       this.expect("DOT"); // second dot
+      edge.minHops = 1;
       if (this.check("NUMBER")) {
-        edge.minHops = 1;
         edge.maxHops = parseInt(this.advance().value, 10);
+      } else {
+        edge.maxHops = undefined; // unbounded
       }
       return;
     }

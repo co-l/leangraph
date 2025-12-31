@@ -34,6 +34,15 @@ export declare class Executor {
      */
     private evaluateWithWhereCondition;
     /**
+     * Evaluate a WITH clause WHERE condition using captured property values
+     * This is used for patterns like: WITH n.num AS num ... DELETE n ... WITH num WHERE num % 2 = 0
+     */
+    private evaluateWithWhereConditionWithPropertyAliases;
+    /**
+     * Evaluate an expression using captured property values (for property alias references)
+     */
+    private evaluateExpressionWithPropertyAliases;
+    /**
      * Evaluate an expression for filtering in UNWIND+CREATE+WITH context
      */
     private evaluateExpressionForFilter;

@@ -419,6 +419,87 @@ export class Executor {
         return true;
     }
     /**
+     * Evaluate a WITH clause WHERE condition using captured property values
+     * This is used for patterns like: WITH n.num AS num ... DELETE n ... WITH num WHERE num % 2 = 0
+     */
+    evaluateWithWhereConditionWithPropertyAliases(condition, resolvedIds, capturedPropertyValues, propertyAliasMap, params) {
+        if (condition.type === "comparison") {
+            const left = condition.left;
+            const right = condition.right;
+            const operator = condition.operator;
+            const leftValue = this.evaluateExpressionWithPropertyAliases(left, resolvedIds, capturedPropertyValues, propertyAliasMap, params);
+            const rightValue = this.evaluateExpressionWithPropertyAliases(right, resolvedIds, capturedPropertyValues, propertyAliasMap, params);
+            switch (operator) {
+                case "=": return leftValue === rightValue;
+                case "<>": return leftValue !== rightValue;
+                case "<": return leftValue < rightValue;
+                case ">": return leftValue > rightValue;
+                case "<=": return leftValue <= rightValue;
+                case ">=": return leftValue >= rightValue;
+                default: return true;
+            }
+        }
+        else if (condition.type === "and") {
+            return condition.conditions.every((c) => this.evaluateWithWhereConditionWithPropertyAliases(c, resolvedIds, capturedPropertyValues, propertyAliasMap, params));
+        }
+        else if (condition.type === "or") {
+            return condition.conditions.some((c) => this.evaluateWithWhereConditionWithPropertyAliases(c, resolvedIds, capturedPropertyValues, propertyAliasMap, params));
+        }
+        return true;
+    }
+    /**
+     * Evaluate an expression using captured property values (for property alias references)
+     */
+    evaluateExpressionWithPropertyAliases(expr, resolvedIds, capturedPropertyValues, propertyAliasMap, params) {
+        if (expr.type === "literal") {
+            return expr.value;
+        }
+        else if (expr.type === "variable") {
+            const varName = expr.variable;
+            // Check if this is a property alias
+            if (propertyAliasMap.has(varName)) {
+                return capturedPropertyValues[varName];
+            }
+            // Otherwise it might be a node ID
+            return resolvedIds[varName];
+        }
+        else if (expr.type === "property") {
+            const variable = expr.variable;
+            const property = expr.property;
+            const id = resolvedIds[variable];
+            if (id) {
+                // Try nodes first, then edges
+                let result = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
+                if (result.rows.length === 0) {
+                    result = this.db.execute("SELECT properties FROM edges WHERE id = ?", [id]);
+                }
+                if (result.rows.length > 0) {
+                    const props = typeof result.rows[0].properties === "string"
+                        ? JSON.parse(result.rows[0].properties)
+                        : result.rows[0].properties;
+                    return props[property];
+                }
+            }
+            return null;
+        }
+        else if (expr.type === "binary") {
+            const left = this.evaluateExpressionWithPropertyAliases(expr.left, resolvedIds, capturedPropertyValues, propertyAliasMap, params);
+            const right = this.evaluateExpressionWithPropertyAliases(expr.right, resolvedIds, capturedPropertyValues, propertyAliasMap, params);
+            switch (expr.operator) {
+                case "+": return left + right;
+                case "-": return left - right;
+                case "*": return left * right;
+                case "/": return left / right;
+                case "%": return left % right;
+                default: return null;
+            }
+        }
+        else if (expr.type === "parameter") {
+            return params[expr.name];
+        }
+        return null;
+    }
+    /**
      * Evaluate an expression for filtering in UNWIND+CREATE+WITH context
      */
     evaluateExpressionForFilter(expr, createdIds, params) {
@@ -2215,7 +2296,9 @@ export class Executor {
                 // e.g., WITH n.num AS num -> capturedPropertyValues["num"] = value
                 const capturedPropertyValues = {};
                 for (const [alias, _] of propertyAliasMap) {
-                    capturedPropertyValues[alias] = row[`_prop_${alias}`];
+                    const rawValue = row[`_prop_${alias}`];
+                    // Parse JSON values if they're strings (SQLite returns JSON as strings)
+                    capturedPropertyValues[alias] = this.deepParseJson(rawValue);
                 }
                 // Execute CREATE with resolved IDs (this mutates resolvedIds to include new node IDs)
                 for (const createClause of createClauses) {
@@ -2246,8 +2329,29 @@ export class Executor {
             // because aliased variables need to be resolved from our ID map
             // For DELETE, nodes are gone so we can't query them - we need to return based on original match count
             if (referencesCreatedVars || referencesPropertyAliases || setClauses.length > 0 || deleteClauses.length > 0 || withClauses.length > 0) {
+                // Apply WITH clause WHERE filters to captured property values
+                // This handles patterns like: WITH n.num AS num ... DELETE n ... WITH num WHERE num % 2 = 0 ... RETURN num
+                let filteredResolvedIds = allResolvedIds;
+                let filteredPropertyValues = allCapturedPropertyValues;
+                for (const withClause of withClauses) {
+                    if (withClause.where) {
+                        // Filter the captured values based on the WITH WHERE condition
+                        const filteredPairs = [];
+                        for (let i = 0; i < filteredResolvedIds.length; i++) {
+                            const resolvedIds = filteredResolvedIds[i];
+                            const propertyValues = filteredPropertyValues[i] || {};
+                            // Check if this row passes the WITH WHERE filter
+                            const passes = this.evaluateWithWhereConditionWithPropertyAliases(withClause.where, resolvedIds, propertyValues, propertyAliasMap, params);
+                            if (passes) {
+                                filteredPairs.push({ resolvedIds, propertyValues });
+                            }
+                        }
+                        filteredResolvedIds = filteredPairs.map(p => p.resolvedIds);
+                        filteredPropertyValues = filteredPairs.map(p => p.propertyValues);
+                    }
+                }
                 // RETURN references created nodes, aliased vars, property aliases, or data was modified - use buildReturnResults with resolved IDs
-                return this.buildReturnResults(returnClause, allResolvedIds, allCapturedPropertyValues, propertyAliasMap);
+                return this.buildReturnResults(returnClause, filteredResolvedIds, filteredPropertyValues, propertyAliasMap);
             }
             else {
                 // RETURN only references matched nodes and no mutations - use translator-based approach
@@ -2439,40 +2543,49 @@ export class Executor {
             return [resultRow];
         }
         const results = [];
-        for (const resolvedIds of allResolvedIds) {
+        for (let i = 0; i < allResolvedIds.length; i++) {
+            const resolvedIds = allResolvedIds[i];
+            const capturedValues = allCapturedPropertyValues[i] || {};
             const resultRow = {};
             for (const item of returnClause.items) {
                 const alias = item.alias || this.getExpressionName(item.expression);
                 if (item.expression.type === "variable") {
                     const variable = item.expression.variable;
-                    const nodeId = resolvedIds[variable];
-                    if (nodeId) {
-                        // Query the node/edge by ID
-                        const nodeResult = this.db.execute("SELECT id, label, properties FROM nodes WHERE id = ?", [nodeId]);
-                        if (nodeResult.rows.length > 0) {
-                            const row = nodeResult.rows[0];
-                            resultRow[alias] = {
-                                id: row.id,
-                                label: this.normalizeLabelForOutput(row.label),
-                                properties: typeof row.properties === "string"
-                                    ? JSON.parse(row.properties)
-                                    : row.properties,
-                            };
-                        }
-                        else {
-                            // Try edges
-                            const edgeResult = this.db.execute("SELECT id, type, source_id, target_id, properties FROM edges WHERE id = ?", [nodeId]);
-                            if (edgeResult.rows.length > 0) {
-                                const row = edgeResult.rows[0];
+                    // Check if this variable is a property alias
+                    if (propertyAliasMap.has(variable)) {
+                        // Use the captured property value
+                        resultRow[alias] = capturedValues[variable];
+                    }
+                    else {
+                        const nodeId = resolvedIds[variable];
+                        if (nodeId) {
+                            // Query the node/edge by ID
+                            const nodeResult = this.db.execute("SELECT id, label, properties FROM nodes WHERE id = ?", [nodeId]);
+                            if (nodeResult.rows.length > 0) {
+                                const row = nodeResult.rows[0];
                                 resultRow[alias] = {
                                     id: row.id,
-                                    type: row.type,
-                                    source_id: row.source_id,
-                                    target_id: row.target_id,
+                                    label: this.normalizeLabelForOutput(row.label),
                                     properties: typeof row.properties === "string"
                                         ? JSON.parse(row.properties)
                                         : row.properties,
                                 };
+                            }
+                            else {
+                                // Try edges
+                                const edgeResult = this.db.execute("SELECT id, type, source_id, target_id, properties FROM edges WHERE id = ?", [nodeId]);
+                                if (edgeResult.rows.length > 0) {
+                                    const row = edgeResult.rows[0];
+                                    resultRow[alias] = {
+                                        id: row.id,
+                                        type: row.type,
+                                        source_id: row.source_id,
+                                        target_id: row.target_id,
+                                        properties: typeof row.properties === "string"
+                                            ? JSON.parse(row.properties)
+                                            : row.properties,
+                                    };
+                                }
                             }
                         }
                     }

@@ -18,7 +18,7 @@ export const FAILING_TESTS = new Set([
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|3",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|4",
   // Delete6|5: Complex WITH + DELETE + WITH + WHERE pattern (needs chained property alias handling)
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|5",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|5",
   // Delete6|6,7: Complex WITH + WHERE patterns
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|6",
   "clauses/delete > Delete6 - Persistence of delete clause side effects|7",
@@ -26,8 +26,8 @@ export const FAILING_TESTS = new Set([
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|9",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|10",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|11",
-  // Delete6|12: Complex WITH + DELETE + WITH + WHERE pattern (needs chained property alias handling)
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|12",
+  // Delete6|12: Now works with chained property alias WHERE filtering
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|12",
   // Delete6|13,14: Complex ORDER BY patterns
   "clauses/delete > Delete6 - Persistence of delete clause side effects|13",
   "clauses/delete > Delete6 - Persistence of delete clause side effects|14",

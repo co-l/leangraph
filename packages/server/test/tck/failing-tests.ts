@@ -231,18 +231,16 @@ export const FAILING_TESTS = new Set([
   "clauses/return > Return5 - Implicit grouping with distinct|4",
   // Return5|5: Now works (distinct on list values)
   // "clauses/return > Return5 - Implicit grouping with distinct|5",
-  // Return6|1,3,5,7,9,10,11,12,14,15,17,18,19,20,21: Now work
+  // Return6|1,3,5,7,8,9,10,11,12,14,15,17,18,19,20,21: Now work
   // Return6|2: column naming - expected "count(a) + 3" but we use "expr"
   "clauses/return > Return6 - Implicit grouping with aggregates|2",
   // Return6|4: integer division - 7251/60/60 should be 2 not 2.014
   "clauses/return > Return6 - Implicit grouping with aggregates|4",
   // Return6|6: parsing issue - comparison in map literal {foo: a.name='Andres'}
   "clauses/return > Return6 - Implicit grouping with aggregates|6",
-  // Return6|8: needs avg(length(p)) - path length in aggregate
-  "clauses/return > Return6 - Implicit grouping with aggregates|8",
-  // Return6|13: needs min(length(p)) - path length in aggregate  
+  // Return6|13: aggregate in GROUP BY - needs WITH/aggregate variable scoping
   "clauses/return > Return6 - Implicit grouping with aggregates|13",
-  // Return6|16: needs sum(expr) where expr is complex arithmetic
+  // Return6|16: aggregate function misuse - WITH variables as aggregate args
   "clauses/return > Return6 - Implicit grouping with aggregates|16",
 
 

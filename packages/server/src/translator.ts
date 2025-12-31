@@ -2305,9 +2305,26 @@ export class Translator {
                 tables,
                 params,
               };
+            } else if (arg.type === "function" || arg.type === "binary") {
+              // Handle aggregates on expressions like sum(n.x * n.y) or min(length(p))
+              const argResult = this.translateFunctionArg(arg);
+              tables.push(...argResult.tables);
+              params.push(...argResult.params);
+              return {
+                sql: `${expr.functionName}(${distinctKeyword}${argResult.sql})`,
+                tables,
+                params,
+              };
+            } else if (arg.type === "literal") {
+              // Handle literal values like sum(1)
+              return {
+                sql: `${expr.functionName}(${distinctKeyword}${arg.value})`,
+                tables,
+                params,
+              };
             }
           }
-          throw new Error(`${expr.functionName} requires a property or variable argument`);
+          throw new Error(`${expr.functionName} requires a property, variable, or expression argument`);
         }
         
         // Percentile functions: PERCENTILEDISC, PERCENTILECONT

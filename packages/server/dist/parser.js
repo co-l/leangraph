@@ -1004,6 +1004,28 @@ export class Parser {
         return properties;
     }
     parsePropertyValue() {
+        // Parse the primary property value first
+        let left = this.parsePrimaryPropertyValue();
+        // Check for binary operators: +, -, *, /, %
+        while (this.check("PLUS") || this.check("DASH") || this.check("STAR") || this.check("SLASH") || this.check("PERCENT")) {
+            const opToken = this.advance();
+            let operator;
+            if (opToken.type === "PLUS")
+                operator = "+";
+            else if (opToken.type === "DASH")
+                operator = "-";
+            else if (opToken.type === "STAR")
+                operator = "*";
+            else if (opToken.type === "SLASH")
+                operator = "/";
+            else
+                operator = "%";
+            const right = this.parsePrimaryPropertyValue();
+            left = { type: "binary", operator, left, right };
+        }
+        return left;
+    }
+    parsePrimaryPropertyValue() {
         const token = this.peek();
         if (token.type === "STRING") {
             this.advance();

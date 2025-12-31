@@ -35,7 +35,13 @@ export interface PropertyRef {
     variable: string;
     property: string;
 }
-export type PropertyValue = string | number | boolean | null | ParameterRef | VariableRef | PropertyRef | PropertyValue[];
+export interface BinaryPropertyValue {
+    type: "binary";
+    operator: "+" | "-" | "*" | "/" | "%" | "^";
+    left: PropertyValue;
+    right: PropertyValue;
+}
+export type PropertyValue = string | number | boolean | null | ParameterRef | VariableRef | PropertyRef | BinaryPropertyValue | PropertyValue[];
 export interface WhereCondition {
     type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate";
     left?: Expression;
@@ -224,6 +230,7 @@ export declare class Parser {
     private parseVariableLengthSpec;
     private parseProperties;
     private parsePropertyValue;
+    private parsePrimaryPropertyValue;
     private parseArray;
     private parseWhereCondition;
     private parseOrCondition;

@@ -49,11 +49,12 @@ export const FAILING_TESTS = new Set([
   // Create6|8,9: Now work with SKIP/LIMIT fix in tryCreateReturnExecution
   // "clauses/create > Create6 - Persistence of create clause side effects|8",
   // "clauses/create > Create6 - Persistence of create clause side effects|9",
-  // Create6|10-14: Complex UNWIND+CREATE+WITH patterns (relationships)
-  "clauses/create > Create6 - Persistence of create clause side effects|10",
-  "clauses/create > Create6 - Persistence of create clause side effects|11",
-  "clauses/create > Create6 - Persistence of create clause side effects|12",
-  "clauses/create > Create6 - Persistence of create clause side effects|13",
+  // Create6|10-13: Now work with edge property access fix
+  // "clauses/create > Create6 - Persistence of create clause side effects|10",
+  // "clauses/create > Create6 - Persistence of create clause side effects|11",
+  // "clauses/create > Create6 - Persistence of create clause side effects|12",
+  // "clauses/create > Create6 - Persistence of create clause side effects|13",
+  // Create6|14: WITH aggregation pattern - needs special handling
   "clauses/create > Create6 - Persistence of create clause side effects|14",
 
 

@@ -48,6 +48,13 @@ export interface PropertyRef {
   property: string;
 }
 
+export interface BinaryPropertyValue {
+  type: "binary";
+  operator: "+" | "-" | "*" | "/" | "%" | "^";
+  left: PropertyValue;
+  right: PropertyValue;
+}
+
 export type PropertyValue =
   | string
   | number
@@ -56,6 +63,7 @@ export type PropertyValue =
   | ParameterRef
   | VariableRef
   | PropertyRef
+  | BinaryPropertyValue
   | PropertyValue[];
 
 export interface WhereCondition {
@@ -1427,6 +1435,27 @@ export class Parser {
   }
 
   private parsePropertyValue(): PropertyValue {
+    // Parse the primary property value first
+    let left = this.parsePrimaryPropertyValue();
+    
+    // Check for binary operators: +, -, *, /, %
+    while (this.check("PLUS") || this.check("DASH") || this.check("STAR") || this.check("SLASH") || this.check("PERCENT")) {
+      const opToken = this.advance();
+      let operator: "+" | "-" | "*" | "/" | "%";
+      if (opToken.type === "PLUS") operator = "+";
+      else if (opToken.type === "DASH") operator = "-";
+      else if (opToken.type === "STAR") operator = "*";
+      else if (opToken.type === "SLASH") operator = "/";
+      else operator = "%";
+      
+      const right = this.parsePrimaryPropertyValue();
+      left = { type: "binary", operator, left, right };
+    }
+    
+    return left;
+  }
+
+  private parsePrimaryPropertyValue(): PropertyValue {
     const token = this.peek();
 
     if (token.type === "STRING") {

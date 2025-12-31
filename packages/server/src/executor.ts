@@ -326,15 +326,24 @@ export class Executor {
                     const id = createdIds.get(variable);
                     
                     if (id) {
-                      const nodeResult = this.db.execute(
+                      // Try nodes first, then edges
+                      let result = this.db.execute(
                         "SELECT properties FROM nodes WHERE id = ?",
                         [id]
                       );
                       
-                      if (nodeResult.rows.length > 0) {
-                        const props = typeof nodeResult.rows[0].properties === "string"
-                          ? JSON.parse(nodeResult.rows[0].properties)
-                          : nodeResult.rows[0].properties;
+                      if (result.rows.length === 0) {
+                        // Try edges table
+                        result = this.db.execute(
+                          "SELECT properties FROM edges WHERE id = ?",
+                          [id]
+                        );
+                      }
+                      
+                      if (result.rows.length > 0) {
+                        const props = typeof result.rows[0].properties === "string"
+                          ? JSON.parse(result.rows[0].properties)
+                          : result.rows[0].properties;
                         value = props[property];
                       }
                     }
@@ -384,16 +393,25 @@ export class Executor {
                   }
                 }
               } else if (item.expression.type === "property") {
-                // Handle property access like n.num
+                // Handle property access like n.num or r.prop
                 const variable = item.expression.variable!;
                 const property = item.expression.property!;
                 const id = createdIds.get(variable);
                 
                 if (id) {
-                  const nodeResult = this.db.execute(
+                  // Try nodes first, then edges
+                  let nodeResult = this.db.execute(
                     "SELECT properties FROM nodes WHERE id = ?",
                     [id]
                   );
+                  
+                  if (nodeResult.rows.length === 0) {
+                    // Try edges table
+                    nodeResult = this.db.execute(
+                      "SELECT properties FROM edges WHERE id = ?",
+                      [id]
+                    );
+                  }
                   
                   if (nodeResult.rows.length > 0) {
                     const props = typeof nodeResult.rows[0].properties === "string"
@@ -527,15 +545,24 @@ export class Executor {
       const id = createdIds.get(variable);
       
       if (id) {
-        const nodeResult = this.db.execute(
+        // Try nodes first, then edges
+        let result = this.db.execute(
           "SELECT properties FROM nodes WHERE id = ?",
           [id]
         );
         
-        if (nodeResult.rows.length > 0) {
-          const props = typeof nodeResult.rows[0].properties === "string"
-            ? JSON.parse(nodeResult.rows[0].properties)
-            : nodeResult.rows[0].properties;
+        if (result.rows.length === 0) {
+          // Try edges table
+          result = this.db.execute(
+            "SELECT properties FROM edges WHERE id = ?",
+            [id]
+          );
+        }
+        
+        if (result.rows.length > 0) {
+          const props = typeof result.rows[0].properties === "string"
+            ? JSON.parse(result.rows[0].properties)
+            : result.rows[0].properties;
           return props[property];
         }
       }
@@ -899,7 +926,7 @@ export class Executor {
   }
 
   /**
-   * Resolve properties, including unwind variable references
+   * Resolve properties, including unwind variable references and binary expressions
    */
   private resolvePropertiesWithUnwind(
     props: Record<string, unknown>,
@@ -908,24 +935,60 @@ export class Executor {
   ): Record<string, unknown> {
     const resolved: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(props)) {
-      if (
-        typeof value === "object" &&
-        value !== null &&
-        "type" in value
-      ) {
-        if (value.type === "parameter" && "name" in value) {
-          resolved[key] = params[value.name as string];
-        } else if (value.type === "variable" && "name" in value) {
-          // This is an unwind variable reference
-          resolved[key] = unwindContext[value.name as string];
-        } else {
-          resolved[key] = value;
-        }
-      } else {
-        resolved[key] = value;
-      }
+      resolved[key] = this.resolvePropertyValueWithUnwind(value, params, unwindContext);
     }
     return resolved;
+  }
+
+  /**
+   * Resolve a single property value, handling binary expressions recursively
+   */
+  private resolvePropertyValueWithUnwind(
+    value: unknown,
+    params: Record<string, unknown>,
+    unwindContext: Record<string, unknown>
+  ): unknown {
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      "type" in value
+    ) {
+      const typedValue = value as { type: string; name?: string; variable?: string; property?: string; operator?: string; left?: unknown; right?: unknown };
+      
+      if (typedValue.type === "parameter" && typedValue.name) {
+        return params[typedValue.name];
+      } else if (typedValue.type === "variable" && typedValue.name) {
+        // This is an unwind variable reference
+        return unwindContext[typedValue.name];
+      } else if (typedValue.type === "property" && typedValue.variable && typedValue.property) {
+        // Property access: x.prop - look up variable value and get property
+        const varValue = unwindContext[typedValue.variable];
+        if (varValue && typeof varValue === "object" && typedValue.property in (varValue as Record<string, unknown>)) {
+          return (varValue as Record<string, unknown>)[typedValue.property];
+        }
+        return null;
+      } else if (typedValue.type === "binary" && typedValue.operator && typedValue.left !== undefined && typedValue.right !== undefined) {
+        // Binary expression: evaluate left and right, then apply operator
+        const leftVal = this.resolvePropertyValueWithUnwind(typedValue.left, params, unwindContext);
+        const rightVal = this.resolvePropertyValueWithUnwind(typedValue.right, params, unwindContext);
+        
+        // Both must be numbers for arithmetic operations
+        const leftNum = typeof leftVal === "number" ? leftVal : Number(leftVal);
+        const rightNum = typeof rightVal === "number" ? rightVal : Number(rightVal);
+        
+        switch (typedValue.operator) {
+          case "+": return leftNum + rightNum;
+          case "-": return leftNum - rightNum;
+          case "*": return leftNum * rightNum;
+          case "/": return leftNum / rightNum;
+          case "%": return leftNum % rightNum;
+          case "^": return Math.pow(leftNum, rightNum);
+          default: return null;
+        }
+      }
+      return value;
+    }
+    return value;
   }
 
   /**
@@ -3011,27 +3074,14 @@ export class Executor {
   }
 
   /**
-   * Resolve parameter references in properties
+   * Resolve parameter references and binary expressions in properties
    */
   private resolveProperties(
     props: Record<string, unknown>,
     params: Record<string, unknown>
   ): Record<string, unknown> {
-    const resolved: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(props)) {
-      if (
-        typeof value === "object" &&
-        value !== null &&
-        "type" in value &&
-        value.type === "parameter" &&
-        "name" in value
-      ) {
-        resolved[key] = params[value.name as string];
-      } else {
-        resolved[key] = value;
-      }
-    }
-    return resolved;
+    // Use the unwind version with empty context for non-unwind cases
+    return this.resolvePropertiesWithUnwind(props, params, {});
   }
 
   /**

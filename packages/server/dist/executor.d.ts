@@ -65,9 +65,13 @@ export declare class Executor {
      */
     private generateCartesianProduct;
     /**
-     * Resolve properties, including unwind variable references
+     * Resolve properties, including unwind variable references and binary expressions
      */
     private resolvePropertiesWithUnwind;
+    /**
+     * Resolve a single property value, handling binary expressions recursively
+     */
+    private resolvePropertyValueWithUnwind;
     /**
      * Execute CREATE relationship pattern with unwind context
      */
@@ -193,7 +197,7 @@ export declare class Executor {
      */
     private createRelationshipWithResolvedIds;
     /**
-     * Resolve parameter references in properties
+     * Resolve parameter references and binary expressions in properties
      */
     private resolveProperties;
     /**

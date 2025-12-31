@@ -42,8 +42,9 @@ export const FAILING_TESTS = new Set([
   // "clauses/create > Create6 - Persistence of create clause side effects|3",
   // "clauses/create > Create6 - Persistence of create clause side effects|4",
   // "clauses/create > Create6 - Persistence of create clause side effects|5",
-  // Create6|6,7: Complex UNWIND+CREATE+WITH patterns
-  "clauses/create > Create6 - Persistence of create clause side effects|6",
+  // Create6|6: Now works with aggregate function support in UNWIND+CREATE
+  // "clauses/create > Create6 - Persistence of create clause side effects|6",
+  // Create6|7: Complex UNWIND+CREATE+WITH patterns (WITH aggregation)
   "clauses/create > Create6 - Persistence of create clause side effects|7",
   // Create6|8,9: Now work with SKIP/LIMIT fix in tryCreateReturnExecution
   // "clauses/create > Create6 - Persistence of create clause side effects|8",
@@ -79,24 +80,29 @@ export const FAILING_TESTS = new Set([
   // Match5|1,4,5,7,9,10,14,15,17,18,22,24: Now work with Background parsing support
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|1",
   "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|2",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|3",
+  // Match5|3: Now works with *0 zero-length path handling
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|3",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|4",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|5",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|6",
+  // Match5|6: Now works with minHops=0 handling
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|6",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|7",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|8",
+  // Match5|8: Now works with *0..0 handling
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|8",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|9",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|10",
-  // Match5|12,13: Empty interval edge cases
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|12",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|13",
+  // Match5|12,13: Now work with empty interval handling
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|12",
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|13",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|14",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|15",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|16",
+  // Match5|16: Now works with *0.. handling
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|16",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|17",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|18",
   "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|19",
-  "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|20",
+  // Match5|20: Now works with *0 handling after fixed pattern
+  // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|20",
   "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|21",
   // "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|22",
   "clauses/match > Match5 - Match variable length patterns over given graphs scenarios|23",

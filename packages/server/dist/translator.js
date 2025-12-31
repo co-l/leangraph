@@ -1456,17 +1456,47 @@ export class Translator {
         if (!pathCteName) {
             pathCteName = `path_${this.ctx.aliasCounter++}`;
         }
-        // Base condition for edges
-        let edgeCondition = "1=1";
-        if (edgeType) {
-            edgeCondition = "type = ?";
-            allParams.push(edgeType);
+        // Handle empty intervals (minHops > maxHops) - should return no results
+        if (minHops > maxHops) {
+            return {
+                statements: [{ sql: `SELECT 1 WHERE 0`, params: [] }],
+                returnColumns,
+            };
         }
         // Build the CTE
         // The depth represents the number of edges traversed
+        // For minHops=0, we need to include the source node as a potential end node (depth 0)
         // For *2, we want exactly 2 edges, so depth should stop at maxHops
         // The condition is p.depth < maxHops to allow one more recursion step
-        const cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth) AS (
+        let cte;
+        if (minHops === 0 && maxHops === 0) {
+            // Special case: *0 means zero-length path, source = target
+            // No CTE needed - we'll handle this by making source = target
+            cte = "";
+        }
+        else if (minHops === 0) {
+            // Need to include zero-length paths (source = target) plus longer paths
+            cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth) AS (
+  SELECT id, id, 0 FROM nodes
+  UNION ALL
+  SELECT p.start_id, e.target_id, p.depth + 1
+  FROM ${pathCteName} p
+  JOIN edges e ON p.end_id = e.source_id
+  WHERE p.depth < ?${edgeType ? " AND e.type = ?" : ""}
+)`;
+            allParams.push(maxHops);
+            if (edgeType) {
+                allParams.push(edgeType);
+            }
+        }
+        else {
+            // Base condition for edges (only used in normal CTE case)
+            let edgeCondition = "1=1";
+            if (edgeType) {
+                edgeCondition = "type = ?";
+                allParams.push(edgeType);
+            }
+            cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth) AS (
   SELECT source_id, target_id, 1 FROM edges WHERE ${edgeCondition}
   UNION ALL
   SELECT p.start_id, e.target_id, p.depth + 1
@@ -1474,10 +1504,11 @@ export class Translator {
   JOIN edges e ON p.end_id = e.source_id
   WHERE p.depth < ?${edgeType ? " AND e.type = ?" : ""}
 )`;
-        // For maxHops=2, we need depth to reach 2, so recursion limit should be maxHops
-        allParams.push(maxHops);
-        if (edgeType) {
-            allParams.push(edgeType);
+            // For maxHops=2, we need depth to reach 2, so recursion limit should be maxHops
+            allParams.push(maxHops);
+            if (edgeType) {
+                allParams.push(edgeType);
+            }
         }
         // Build FROM and JOIN clauses for fixed-length patterns before the variable-length
         const fromParts = [];
@@ -1547,21 +1578,37 @@ export class Translator {
                 }
             }
         }
-        // Add the CTE to FROM (it acts like a table)
-        fromParts.push(pathCteName);
-        // Add the target node of the variable-length path
-        if (!addedNodeAliases.has(varLengthTargetAlias)) {
-            fromParts.push(`nodes ${varLengthTargetAlias}`);
-            addedNodeAliases.add(varLengthTargetAlias);
+        // Handle zero-length path specially (no CTE needed, source = target)
+        if (minHops === 0 && maxHops === 0) {
+            // For *0, the target is the same as the source
+            // If source and target have different aliases, make them the same node
+            if (varLengthSourceAlias !== varLengthTargetAlias) {
+                // Add constraint that source = target
+                whereParts.push(`${varLengthSourceAlias}.id = ${varLengthTargetAlias}.id`);
+            }
+            // Add the target node if not already added
+            if (!addedNodeAliases.has(varLengthTargetAlias)) {
+                fromParts.push(`nodes ${varLengthTargetAlias}`);
+                addedNodeAliases.add(varLengthTargetAlias);
+            }
         }
-        // Connect source node to path start
-        whereParts.push(`${varLengthSourceAlias}.id = ${pathCteName}.start_id`);
-        // Connect target node to path end
-        whereParts.push(`${varLengthTargetAlias}.id = ${pathCteName}.end_id`);
-        // Apply min depth constraint
-        if (minHops > 1) {
-            whereParts.push(`${pathCteName}.depth >= ?`);
-            allParams.push(minHops);
+        else {
+            // Add the CTE to FROM (it acts like a table)
+            fromParts.push(pathCteName);
+            // Add the target node of the variable-length path
+            if (!addedNodeAliases.has(varLengthTargetAlias)) {
+                fromParts.push(`nodes ${varLengthTargetAlias}`);
+                addedNodeAliases.add(varLengthTargetAlias);
+            }
+            // Connect source node to path start
+            whereParts.push(`${varLengthSourceAlias}.id = ${pathCteName}.start_id`);
+            // Connect target node to path end
+            whereParts.push(`${varLengthTargetAlias}.id = ${pathCteName}.end_id`);
+            // Apply min depth constraint
+            if (minHops > 1) {
+                whereParts.push(`${pathCteName}.depth >= ?`);
+                allParams.push(minHops);
+            }
         }
         // Add target label/property filters for the variable-length pattern
         const targetPattern = this.ctx[`pattern_${varLengthTargetAlias}`];

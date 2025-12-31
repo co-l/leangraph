@@ -182,6 +182,11 @@ export class Executor {
         const unwindValues = this.evaluateUnwindExpressions(unwindClauses, params);
         // Generate all combinations (cartesian product) of UNWIND values
         const combinations = this.generateCartesianProduct(unwindValues);
+        // Check if RETURN has aggregate functions
+        const hasAggregates = returnClause?.items.some(item => item.expression.type === "function" &&
+            ["sum", "count", "avg", "min", "max", "collect"].includes(item.expression.functionName?.toLowerCase() || ""));
+        // For aggregates, collect intermediate values
+        const aggregateValues = new Map();
         this.db.transaction(() => {
             for (const combination of combinations) {
                 // Build a map of unwind variable -> current value
@@ -209,60 +214,139 @@ export class Executor {
                 }
                 // Handle RETURN if present
                 if (returnClause) {
-                    const resultRow = {};
-                    for (const item of returnClause.items) {
-                        const alias = item.alias || this.getExpressionName(item.expression);
-                        if (item.expression.type === "variable") {
-                            const variable = item.expression.variable;
-                            const id = createdIds.get(variable);
-                            if (id) {
-                                const nodeResult = this.db.execute("SELECT id, label, properties FROM nodes WHERE id = ?", [id]);
-                                if (nodeResult.rows.length > 0) {
-                                    const row = nodeResult.rows[0];
-                                    resultRow[alias] = {
-                                        id: row.id,
-                                        label: this.normalizeLabelForOutput(row.label),
-                                        properties: typeof row.properties === "string"
-                                            ? JSON.parse(row.properties)
-                                            : row.properties,
-                                    };
-                                }
-                            }
+                    // Check WITH filter first
+                    let passesWithFilter = true;
+                    for (const withClause of withClauses) {
+                        if (withClause.where) {
+                            passesWithFilter = this.evaluateWithWhereCondition(withClause.where, createdIds, params);
+                            if (!passesWithFilter)
+                                break;
                         }
-                        else if (item.expression.type === "property") {
-                            // Handle property access like n.num
-                            const variable = item.expression.variable;
-                            const property = item.expression.property;
-                            const id = createdIds.get(variable);
-                            if (id) {
-                                const nodeResult = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
-                                if (nodeResult.rows.length > 0) {
-                                    const props = typeof nodeResult.rows[0].properties === "string"
-                                        ? JSON.parse(nodeResult.rows[0].properties)
-                                        : nodeResult.rows[0].properties;
-                                    resultRow[alias] = props[property];
+                    }
+                    if (!passesWithFilter)
+                        continue;
+                    if (hasAggregates) {
+                        // Collect values for aggregation
+                        for (const item of returnClause.items) {
+                            const alias = item.alias || this.getExpressionName(item.expression);
+                            if (item.expression.type === "function") {
+                                const funcName = item.expression.functionName?.toLowerCase();
+                                const args = item.expression.args || [];
+                                if (args.length > 0) {
+                                    const arg = args[0];
+                                    let value;
+                                    if (arg.type === "property") {
+                                        const variable = arg.variable;
+                                        const property = arg.property;
+                                        const id = createdIds.get(variable);
+                                        if (id) {
+                                            const nodeResult = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
+                                            if (nodeResult.rows.length > 0) {
+                                                const props = typeof nodeResult.rows[0].properties === "string"
+                                                    ? JSON.parse(nodeResult.rows[0].properties)
+                                                    : nodeResult.rows[0].properties;
+                                                value = props[property];
+                                            }
+                                        }
+                                    }
+                                    if (value !== undefined) {
+                                        if (!aggregateValues.has(alias)) {
+                                            aggregateValues.set(alias, []);
+                                        }
+                                        aggregateValues.get(alias).push(value);
+                                    }
+                                }
+                                else if (funcName === "count") {
+                                    // count(*) - just count iterations
+                                    if (!aggregateValues.has(alias)) {
+                                        aggregateValues.set(alias, []);
+                                    }
+                                    aggregateValues.get(alias).push(1);
                                 }
                             }
                         }
                     }
-                    if (Object.keys(resultRow).length > 0) {
-                        // Check if WITH clause has a WHERE condition that should filter this row
-                        let passesWithFilter = true;
-                        for (const withClause of withClauses) {
-                            if (withClause.where) {
-                                // Evaluate the WHERE condition against the created node(s)
-                                passesWithFilter = this.evaluateWithWhereCondition(withClause.where, createdIds, params);
-                                if (!passesWithFilter)
-                                    break;
+                    else {
+                        // Non-aggregate case - build result row as before
+                        const resultRow = {};
+                        for (const item of returnClause.items) {
+                            const alias = item.alias || this.getExpressionName(item.expression);
+                            if (item.expression.type === "variable") {
+                                const variable = item.expression.variable;
+                                const id = createdIds.get(variable);
+                                if (id) {
+                                    const nodeResult = this.db.execute("SELECT id, label, properties FROM nodes WHERE id = ?", [id]);
+                                    if (nodeResult.rows.length > 0) {
+                                        const row = nodeResult.rows[0];
+                                        resultRow[alias] = {
+                                            id: row.id,
+                                            label: this.normalizeLabelForOutput(row.label),
+                                            properties: typeof row.properties === "string"
+                                                ? JSON.parse(row.properties)
+                                                : row.properties,
+                                        };
+                                    }
+                                }
+                            }
+                            else if (item.expression.type === "property") {
+                                // Handle property access like n.num
+                                const variable = item.expression.variable;
+                                const property = item.expression.property;
+                                const id = createdIds.get(variable);
+                                if (id) {
+                                    const nodeResult = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
+                                    if (nodeResult.rows.length > 0) {
+                                        const props = typeof nodeResult.rows[0].properties === "string"
+                                            ? JSON.parse(nodeResult.rows[0].properties)
+                                            : nodeResult.rows[0].properties;
+                                        resultRow[alias] = props[property];
+                                    }
+                                }
                             }
                         }
-                        if (passesWithFilter) {
+                        if (Object.keys(resultRow).length > 0) {
                             results.push(resultRow);
                         }
                     }
                 }
             }
         });
+        // Compute aggregate results if needed
+        if (hasAggregates && returnClause) {
+            const aggregateResult = {};
+            for (const item of returnClause.items) {
+                const alias = item.alias || this.getExpressionName(item.expression);
+                if (item.expression.type === "function") {
+                    const funcName = item.expression.functionName?.toLowerCase();
+                    const values = aggregateValues.get(alias) || [];
+                    switch (funcName) {
+                        case "sum":
+                            aggregateResult[alias] = values.reduce((a, b) => a + b, 0);
+                            break;
+                        case "count":
+                            aggregateResult[alias] = values.length;
+                            break;
+                        case "avg":
+                            aggregateResult[alias] = values.length > 0
+                                ? values.reduce((a, b) => a + b, 0) / values.length
+                                : null;
+                            break;
+                        case "min":
+                            aggregateResult[alias] = values.length > 0 ? Math.min(...values) : null;
+                            break;
+                        case "max":
+                            aggregateResult[alias] = values.length > 0 ? Math.max(...values) : null;
+                            break;
+                        case "collect":
+                            aggregateResult[alias] = values;
+                            break;
+                    }
+                }
+            }
+            if (Object.keys(aggregateResult).length > 0) {
+                results.push(aggregateResult);
+            }
+        }
         // Apply SKIP and LIMIT if present in RETURN clause
         let finalResults = results;
         if (returnClause) {

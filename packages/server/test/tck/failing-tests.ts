@@ -29,7 +29,7 @@ export const FAILING_TESTS = new Set([
   // Delete6|12: Now works with chained property alias WHERE filtering
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|12",
   // Delete6|13,14: Complex ORDER BY patterns
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|13",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|13",
   "clauses/delete > Delete6 - Persistence of delete clause side effects|14",
   // Delete4|2: Now works with undirected variable-length CTE fix
   // "clauses/delete > Delete4 - Delete clause interoperation with other clauses|2",

@@ -9,7 +9,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "dev": "pnpm --filter nicefox-graphdb-server dev",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "tck": "npx tsx packages/server/test/tck/run-test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -60,7 +60,7 @@ export const FAILING_TESTS = new Set([
   // "clauses/create > Create6 - Persistence of create clause side effects|12",
   // "clauses/create > Create6 - Persistence of create clause side effects|13",
   // Create6|14: WITH aggregation pattern - needs special handling
-  "clauses/create > Create6 - Persistence of create clause side effects|14",
+  // "clauses/create > Create6 - Persistence of create clause side effects|14",
 
 
 

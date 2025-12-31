@@ -2782,11 +2782,23 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 if (expr.functionName === "SLICE") {
                     if (expr.args && expr.args.length >= 3) {
                         const listResult = this.translateExpression(expr.args[0]);
-                        tables.push(...listResult.tables);
-                        params.push(...listResult.params);
-                        // SQLite doesn't have built-in slice, we'd need a more complex expression
-                        // For now, return the list - this is a placeholder
-                        return { sql: listResult.sql, tables, params };
+                        const startResult = this.translateExpression(expr.args[1]);
+                        const endResult = this.translateExpression(expr.args[2]);
+                        tables.push(...listResult.tables, ...startResult.tables, ...endResult.tables);
+                        params.push(...listResult.params, ...startResult.params, ...endResult.params);
+                        // For slice, we use a subquery to generate the slice
+                        // Cypher slice is [start..end] where end is exclusive
+                        // null start means 0, null end means array length
+                        const startSql = startResult.sql === "?" && expr.args[1].value === null ? "0" : `CAST(${startResult.sql} AS INTEGER)`;
+                        const endSql = endResult.sql === "?" && expr.args[2].value === null
+                            ? `json_array_length(${listResult.sql})`
+                            : `CAST(${endResult.sql} AS INTEGER)`;
+                        // Use subquery with json_each to build sliced array
+                        return {
+                            sql: `(SELECT json_group_array(j.value) FROM json_each(${listResult.sql}) j WHERE j.key >= ${startSql} AND j.key < ${endSql})`,
+                            tables,
+                            params
+                        };
                     }
                     throw new Error("SLICE requires list, start, and end arguments");
                 }

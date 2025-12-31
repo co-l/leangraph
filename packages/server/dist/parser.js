@@ -247,7 +247,9 @@ class Tokenizer {
             this.pos++;
             this.column++;
         }
-        if (this.input[this.pos] === ".") {
+        // Only read decimal part if . is followed by a digit (not another .)
+        // This prevents "1..2" from being tokenized as "1." + "." + "2"
+        if (this.input[this.pos] === "." && this.isDigit(this.input[this.pos + 1])) {
             value += ".";
             this.pos++;
             this.column++;

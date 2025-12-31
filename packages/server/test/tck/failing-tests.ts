@@ -11,19 +11,21 @@ export const FAILING_TESTS = new Set([
   "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|5",
   "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|6",
   "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|7",
-  // Delete6|1,2,5,8,9,12: Now work
+  // Delete6|1,2,3,4,5,8,9,10,11,12: Now work with SKIP/LIMIT/literal fix
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|1",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|2",
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|3",
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|4",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|3",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|4",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|5",
+  // Delete6|6,7: Complex WITH + WHERE patterns
   "clauses/delete > Delete6 - Persistence of delete clause side effects|6",
   "clauses/delete > Delete6 - Persistence of delete clause side effects|7",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|8",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|9",
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|10",
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|11",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|10",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|11",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|12",
+  // Delete6|13,14: Complex ORDER BY patterns
   "clauses/delete > Delete6 - Persistence of delete clause side effects|13",
   "clauses/delete > Delete6 - Persistence of delete clause side effects|14",
   // Create3|5,6: Now work with WITH alias handling for CREATE
@@ -113,7 +115,7 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match6 - Match named paths scenarios|7",
   "clauses/match > Match6 - Match named paths scenarios|9",
   "clauses/match > Match7 - Optional match|3",
-  // Match7|4,8,16,18,29,30: r variable loses binding after WITH
+  // Match7|4,8: edge variable reuse with direction constraints - more complex
   "clauses/match > Match7 - Optional match|4",
   "clauses/match > Match7 - Optional match|8",
   "clauses/match > Match7 - Optional match|9",
@@ -124,6 +126,7 @@ export const FAILING_TESTS = new Set([
   // Match7|14,15: variable length optional patterns
   "clauses/match > Match7 - Optional match|14",
   "clauses/match > Match7 - Optional match|15",
+  // Match7|16,18: path constraints - more complex
   "clauses/match > Match7 - Optional match|16",
   "clauses/match > Match7 - Optional match|17",
   "clauses/match > Match7 - Optional match|18",
@@ -135,6 +138,7 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match7 - Optional match|25",
   "clauses/match > Match7 - Optional match|28",
   "clauses/match > Match7 - Optional match|29",
+  // Match7|30 - needs more constraints
   "clauses/match > Match7 - Optional match|30",
   "clauses/match > Match7 - Optional match|31",
 
@@ -279,30 +283,37 @@ export const FAILING_TESTS = new Set([
   // "clauses/set > Set5 - Set multiple properties with a map|2",
   // "clauses/set > Set5 - Set multiple properties with a map|3",
   // "clauses/set > Set5 - Set multiple properties with a map|4",
-  "clauses/set > Set6 - Persistence of set clause side effects|1",
-  "clauses/set > Set6 - Persistence of set clause side effects|10",
-  // Set6|11: Now works
-  // "clauses/set > Set6 - Persistence of set clause side effects|11",
-  "clauses/set > Set6 - Persistence of set clause side effects|12",
-  "clauses/set > Set6 - Persistence of set clause side effects|13",
-  "clauses/set > Set6 - Persistence of set clause side effects|14",
-  "clauses/set > Set6 - Persistence of set clause side effects|15",
-  "clauses/set > Set6 - Persistence of set clause side effects|16",
-  "clauses/set > Set6 - Persistence of set clause side effects|17",
-  // Set6|18: Now works
-  // "clauses/set > Set6 - Persistence of set clause side effects|18",
-  "clauses/set > Set6 - Persistence of set clause side effects|19",
-  "clauses/set > Set6 - Persistence of set clause side effects|2",
-  "clauses/set > Set6 - Persistence of set clause side effects|20",
-  "clauses/set > Set6 - Persistence of set clause side effects|21",
-  "clauses/set > Set6 - Persistence of set clause side effects|3",
+  // Set6|1,2,3: Now work with SKIP/LIMIT fix in buildReturnResults
+  // "clauses/set > Set6 - Persistence of set clause side effects|1",
+  // "clauses/set > Set6 - Persistence of set clause side effects|2",
+  // "clauses/set > Set6 - Persistence of set clause side effects|3",
   // Set6|4: Now works
   // "clauses/set > Set6 - Persistence of set clause side effects|4",
+  // Set6|5,6,7: Complex WITH + WHERE patterns
   "clauses/set > Set6 - Persistence of set clause side effects|5",
   "clauses/set > Set6 - Persistence of set clause side effects|6",
   "clauses/set > Set6 - Persistence of set clause side effects|7",
-  "clauses/set > Set6 - Persistence of set clause side effects|8",
-  "clauses/set > Set6 - Persistence of set clause side effects|9",
+  // Set6|8,9,10: Now work with SKIP/LIMIT fix
+  // "clauses/set > Set6 - Persistence of set clause side effects|8",
+  // "clauses/set > Set6 - Persistence of set clause side effects|9",
+  // "clauses/set > Set6 - Persistence of set clause side effects|10",
+  // Set6|11: Now works
+  // "clauses/set > Set6 - Persistence of set clause side effects|11",
+  // Set6|12: Now works with SKIP/LIMIT fix
+  // "clauses/set > Set6 - Persistence of set clause side effects|12",
+  // Set6|13: Complex WITH + ORDER BY pattern
+  "clauses/set > Set6 - Persistence of set clause side effects|13",
+  // Set6|14,15,16,17: Now work with SKIP/LIMIT fix
+  // "clauses/set > Set6 - Persistence of set clause side effects|14",
+  // "clauses/set > Set6 - Persistence of set clause side effects|15",
+  // "clauses/set > Set6 - Persistence of set clause side effects|16",
+  // "clauses/set > Set6 - Persistence of set clause side effects|17",
+  // Set6|18: Now works
+  // "clauses/set > Set6 - Persistence of set clause side effects|18",
+  // Set6|19,20,21: Complex WHERE/ORDER BY patterns
+  "clauses/set > Set6 - Persistence of set clause side effects|19",
+  "clauses/set > Set6 - Persistence of set clause side effects|20",
+  "clauses/set > Set6 - Persistence of set clause side effects|21",
   // With1|3: Relationship variable aliasing in WITH then re-matching
   "clauses/with > With1 - Forward single variable|3",
   // With2|1,2: Complex expression forwarding with joins and nested maps

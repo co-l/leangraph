@@ -1969,9 +1969,10 @@ export class Executor {
         !allMatchedVars.has(v) && !aliasMap.has(v)
       );
       
-      // If SET was executed or WITH clauses are present, we need to use buildReturnResults
+      // If SET or DELETE was executed or WITH clauses are present, we need to use buildReturnResults
       // because aliased variables need to be resolved from our ID map
-      if (referencesCreatedVars || setClauses.length > 0 || withClauses.length > 0) {
+      // For DELETE, nodes are gone so we can't query them - we need to return based on original match count
+      if (referencesCreatedVars || setClauses.length > 0 || deleteClauses.length > 0 || withClauses.length > 0) {
         // RETURN references created nodes, aliased vars, or data was modified - use buildReturnResults with resolved IDs
         return this.buildReturnResults(returnClause, allResolvedIds);
       } else {
@@ -2163,6 +2164,9 @@ export class Executor {
           // Handle count(*) or count(n) - for MATCH+SET+RETURN patterns
           // If we're in buildReturnResults, return the number of rows we processed
           resultRow[alias] = allResolvedIds.length;
+        } else if (item.expression.type === "literal") {
+          // Handle literal values like RETURN 42 AS num
+          resultRow[alias] = item.expression.value;
         }
       }
       
@@ -2171,7 +2175,21 @@ export class Executor {
       }
     }
     
-    return results;
+    // Apply SKIP and LIMIT to the results
+    let finalResults = results;
+    
+    const skip = returnClause.skip ?? 0;
+    const limit = returnClause.limit;
+    
+    if (skip > 0) {
+      finalResults = finalResults.slice(skip);
+    }
+    
+    if (limit !== undefined) {
+      finalResults = finalResults.slice(0, limit);
+    }
+    
+    return finalResults;
   }
 
   /**

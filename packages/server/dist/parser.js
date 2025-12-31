@@ -155,6 +155,12 @@ class Tokenizer {
             "*": "STAR",
             "|": "PIPE",
         };
+        // Number - includes floats starting with . like .5
+        // Check this before single char tokens so ".5" is parsed as number not DOT
+        // But don't match "..3" as ".3" - only match if there's no preceding dot
+        if (this.isDigit(char) || (char === "-" && this.isDigit(this.input[this.pos + 1])) || (char === "." && this.isDigit(this.input[this.pos + 1]) && (this.pos === 0 || this.input[this.pos - 1] !== "."))) {
+            return this.readNumber(startPos, startLine, startColumn);
+        }
         if (singleCharTokens[char]) {
             this.pos++;
             this.column++;
@@ -170,10 +176,6 @@ class Tokenizer {
         // String
         if (char === "'" || char === '"') {
             return this.readString(char, startPos, startLine, startColumn);
-        }
-        // Number
-        if (this.isDigit(char) || (char === "-" && this.isDigit(this.input[this.pos + 1]))) {
-            return this.readNumber(startPos, startLine, startColumn);
         }
         // Identifier or keyword
         if (this.isIdentifierStart(char)) {
@@ -227,6 +229,18 @@ class Tokenizer {
             value += "-";
             this.pos++;
             this.column++;
+        }
+        // Handle numbers starting with . like .5
+        if (this.input[this.pos] === ".") {
+            value += "0.";
+            this.pos++;
+            this.column++;
+            while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
+                value += this.input[this.pos];
+                this.pos++;
+                this.column++;
+            }
+            return { type: "NUMBER", value, position: startPos, line: startLine, column: startColumn };
         }
         while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
             value += this.input[this.pos];

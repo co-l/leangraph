@@ -546,12 +546,41 @@ export class Parser {
         }
         this.expect("KEYWORD", "DELETE");
         const variables = [];
-        variables.push(this.expectIdentifier());
+        const expressions = [];
+        // Parse first delete target (can be simple variable or complex expression)
+        this.parseDeleteTarget(variables, expressions);
         while (this.check("COMMA")) {
             this.advance();
-            variables.push(this.expectIdentifier());
+            this.parseDeleteTarget(variables, expressions);
         }
-        return { type: "DELETE", variables, detach };
+        const result = { type: "DELETE", variables, detach };
+        if (expressions.length > 0) {
+            result.expressions = expressions;
+        }
+        return result;
+    }
+    parseDeleteTarget(variables, expressions) {
+        // Check if this is a simple variable or a complex expression
+        // Look ahead to see if it's identifier followed by [ (list access) or . (property access)
+        const token = this.peek();
+        if (token.type === "IDENTIFIER") {
+            const nextToken = this.tokens[this.pos + 1];
+            if (nextToken && (nextToken.type === "LBRACKET" || nextToken.type === "DOT")) {
+                // This is a list access expression like friends[$index]
+                // or a property access expression like nodes.key
+                const expr = this.parseExpression();
+                expressions.push(expr);
+            }
+            else {
+                // Simple variable name
+                variables.push(this.advance().value);
+            }
+        }
+        else {
+            // Other expression types - parse as expression
+            const expr = this.parseExpression();
+            expressions.push(expr);
+        }
     }
     parseReturn() {
         this.expect("KEYWORD", "RETURN");
@@ -1376,47 +1405,57 @@ export class Parser {
         }
         return left;
     }
-    // Handle postfix operations: list indexing like expr[0] or expr[1..3]
+    // Handle postfix operations: list indexing like expr[0] or expr[1..3], and chained property access like a.b.c
     parsePostfixExpression() {
         let expr = this.parsePrimaryExpression();
-        // Handle list/map indexing: expr[index] or expr[start..end]
-        while (this.check("LBRACKET")) {
-            this.advance(); // consume [
-            // Check for slice syntax [start..end]
+        // Handle list/map indexing: expr[index] or expr[start..end], and chained property access: expr.prop
+        while (this.check("LBRACKET") || this.check("DOT")) {
             if (this.check("DOT")) {
-                // [..end] - from start
-                this.advance(); // consume first .
-                this.expect("DOT"); // consume second .
-                const endExpr = this.parseExpression();
-                this.expect("RBRACKET");
-                expr = { type: "function", functionName: "SLICE", args: [expr, { type: "literal", value: null }, endExpr] };
+                this.advance(); // consume .
+                // Property access - property names can be keywords too
+                const property = this.expectIdentifierOrKeyword();
+                // Convert to propertyAccess expression for chained access
+                expr = { type: "propertyAccess", object: expr, property };
             }
             else {
-                const indexExpr = this.parseExpression();
+                // LBRACKET
+                this.advance(); // consume [
+                // Check for slice syntax [start..end]
                 if (this.check("DOT")) {
-                    // Check for slice: [start..end]
+                    // [..end] - from start
                     this.advance(); // consume first .
+                    this.expect("DOT"); // consume second .
+                    const endExpr = this.parseExpression();
+                    this.expect("RBRACKET");
+                    expr = { type: "function", functionName: "SLICE", args: [expr, { type: "literal", value: null }, endExpr] };
+                }
+                else {
+                    const indexExpr = this.parseExpression();
                     if (this.check("DOT")) {
-                        this.advance(); // consume second .
-                        if (this.check("RBRACKET")) {
-                            // [start..] - to end
-                            this.expect("RBRACKET");
-                            expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, { type: "literal", value: null }] };
+                        // Check for slice: [start..end]
+                        this.advance(); // consume first .
+                        if (this.check("DOT")) {
+                            this.advance(); // consume second .
+                            if (this.check("RBRACKET")) {
+                                // [start..] - to end
+                                this.expect("RBRACKET");
+                                expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, { type: "literal", value: null }] };
+                            }
+                            else {
+                                const endExpr = this.parseExpression();
+                                this.expect("RBRACKET");
+                                expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, endExpr] };
+                            }
                         }
                         else {
-                            const endExpr = this.parseExpression();
-                            this.expect("RBRACKET");
-                            expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, endExpr] };
+                            throw new Error("Expected '..' for slice syntax");
                         }
                     }
                     else {
-                        throw new Error("Expected '..' for slice syntax");
+                        // Simple index: [index]
+                        this.expect("RBRACKET");
+                        expr = { type: "function", functionName: "INDEX", args: [expr, indexExpr] };
                     }
-                }
-                else {
-                    // Simple index: [index]
-                    this.expect("RBRACKET");
-                    expr = { type: "function", functionName: "INDEX", args: [expr, indexExpr] };
                 }
             }
         }

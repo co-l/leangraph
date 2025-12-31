@@ -3,14 +3,15 @@ export const FAILING_TESTS = new Set([
   // "clauses/create > Create1 - Creating nodes|12",
   // Delete4|1: Now works with aggregate detection in buildReturnResults
   // "clauses/delete > Delete4 - Delete clause interoperation with other clauses|1",
-  "clauses/delete > Delete4 - Delete clause interoperation with other clauses|2",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|1",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|2",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|3",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|4",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|5",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|6",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|7",
+  // Delete4|2: Now works with undirected variable-length CTE fix
+  // "clauses/delete > Delete4 - Delete clause interoperation with other clauses|2",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|1",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|2",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|3",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|4",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|5",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|6",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|7",
   // Delete6|1,2,3,4,5,8,9,10,11,12: Now work with SKIP/LIMIT/literal fix
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|1",
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|2",
@@ -28,6 +29,8 @@ export const FAILING_TESTS = new Set([
   // Delete6|13,14: Complex ORDER BY patterns
   "clauses/delete > Delete6 - Persistence of delete clause side effects|13",
   "clauses/delete > Delete6 - Persistence of delete clause side effects|14",
+  // Delete4|2: Now works with undirected variable-length CTE fix
+  // "clauses/delete > Delete4 - Delete clause interoperation with other clauses|2",
   // Create3|5,6: Now work with WITH alias handling for CREATE
   // "clauses/create > Create3 - Interoperation with other clauses|5",
   // "clauses/create > Create3 - Interoperation with other clauses|6",
@@ -201,8 +204,8 @@ export const FAILING_TESTS = new Set([
   // "clauses/merge > Merge5 - Merge relationships|2",
   // Merge5|3: value mismatch
   "clauses/merge > Merge5 - Merge relationships|3",
-  // Merge5|4: CREATE+MERGE pattern (needs different handling)
-  "clauses/merge > Merge5 - Merge relationships|4",
+  // Merge5|4: Now works with CREATE+MERGE handling fix
+  // "clauses/merge > Merge5 - Merge relationships|4",
   // "clauses/merge > Merge5 - Merge relationships|5",
   // "clauses/merge > Merge5 - Merge relationships|6",
   // "clauses/merge > Merge5 - Merge relationships|7",

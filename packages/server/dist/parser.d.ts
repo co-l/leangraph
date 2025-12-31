@@ -71,7 +71,7 @@ export interface ObjectProperty {
     value: Expression;
 }
 export interface Expression {
-    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate";
+    type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate" | "propertyAccess";
     variable?: string;
     property?: string;
     value?: PropertyValue;
@@ -94,6 +94,7 @@ export interface Expression {
     predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
     label?: string;
     labels?: string[];
+    object?: Expression;
 }
 export interface ReturnItem {
     expression: Expression;
@@ -130,6 +131,7 @@ export interface SetClause {
 export interface DeleteClause {
     type: "DELETE";
     variables: string[];
+    expressions?: Expression[];
     detach?: boolean;
 }
 export interface ReturnClause {
@@ -209,6 +211,7 @@ export declare class Parser {
     private parseSet;
     private parseSetAssignments;
     private parseDelete;
+    private parseDeleteTarget;
     private parseReturn;
     private parseWith;
     private parseUnwind;

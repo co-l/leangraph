@@ -67,6 +67,19 @@ export class Executor {
                     },
                 };
             }
+            // 2.4. Check for MATCH+WITH(COLLECT)+DELETE[expr] pattern
+            const collectDeleteResult = this.tryCollectDeleteExecution(parseResult.query, params);
+            if (collectDeleteResult !== null) {
+                const endTime = performance.now();
+                return {
+                    success: true,
+                    data: collectDeleteResult,
+                    meta: {
+                        count: collectDeleteResult.length,
+                        time_ms: Math.round((endTime - startTime) * 100) / 100,
+                    },
+                };
+            }
             // 2.5. Check for CREATE...RETURN pattern (needs special handling)
             const createReturnResult = this.tryCreateReturnExecution(parseResult.query, params);
             if (createReturnResult !== null) {
@@ -652,6 +665,169 @@ export class Executor {
         return results;
     }
     /**
+     * Handle MATCH+WITH(COLLECT)+DELETE[expr] pattern
+     * This handles queries like:
+     *   MATCH (:User)-[:FRIEND]->(n)
+     *   WITH collect(n) AS friends
+     *   DETACH DELETE friends[$friendIndex]
+     */
+    tryCollectDeleteExecution(query, params) {
+        const clauses = query.clauses;
+        // Find the pattern: MATCH + WITH (containing COLLECT) + DELETE
+        let matchClauses = [];
+        let withClause = null;
+        let deleteClause = null;
+        for (const clause of clauses) {
+            if (clause.type === "MATCH" || clause.type === "OPTIONAL_MATCH") {
+                matchClauses.push(clause);
+            }
+            else if (clause.type === "WITH") {
+                withClause = clause;
+            }
+            else if (clause.type === "DELETE") {
+                deleteClause = clause;
+            }
+            else {
+                // Unsupported clause in this pattern
+                return null;
+            }
+        }
+        // Must have MATCH, WITH, and DELETE with expressions
+        if (matchClauses.length === 0 || !withClause || !deleteClause) {
+            return null;
+        }
+        // DELETE must have expressions (not just simple variables)
+        if (!deleteClause.expressions || deleteClause.expressions.length === 0) {
+            return null;
+        }
+        // WITH must have exactly one item that's a COLLECT function
+        if (withClause.items.length !== 1) {
+            return null;
+        }
+        const withItem = withClause.items[0];
+        if (withItem.expression.type !== "function" ||
+            withItem.expression.functionName?.toUpperCase() !== "COLLECT") {
+            return null;
+        }
+        const collectAlias = withItem.alias;
+        if (!collectAlias) {
+            return null;
+        }
+        // Execute in phases:
+        // Phase 1: Run MATCH to get individual node IDs, then collect them manually
+        const collectArg = withItem.expression.args?.[0];
+        if (!collectArg) {
+            return null;
+        }
+        // The collect arg should be a variable like 'n'
+        if (collectArg.type !== "variable") {
+            return null;
+        }
+        const collectVarName = collectArg.variable;
+        // Build a MATCH...RETURN query that returns the node IDs individually
+        const matchQuery = {
+            clauses: [
+                ...matchClauses,
+                {
+                    type: "RETURN",
+                    items: [{
+                            expression: {
+                                type: "function",
+                                functionName: "ID",
+                                args: [collectArg],
+                            },
+                            alias: "_nodeId",
+                        }],
+                },
+            ],
+        };
+        // Translate and execute the match query
+        const translator = new Translator(params);
+        const matchTranslation = translator.translate(matchQuery);
+        let collectedIds = [];
+        for (const stmt of matchTranslation.statements) {
+            const result = this.db.execute(stmt.sql, stmt.params);
+            for (const row of result.rows) {
+                const nodeId = row["_nodeId"];
+                if (typeof nodeId === "string") {
+                    collectedIds.push(nodeId);
+                }
+            }
+        }
+        // Phase 2: Evaluate each delete expression and delete the nodes
+        const context = {
+            [collectAlias]: collectedIds,
+        };
+        this.db.transaction(() => {
+            for (const expr of deleteClause.expressions) {
+                // Evaluate the expression to get the node ID
+                const nodeId = this.evaluateDeleteExpression(expr, params, context);
+                if (nodeId) {
+                    if (deleteClause.detach) {
+                        // DETACH DELETE: First delete all edges connected to this node
+                        this.db.execute("DELETE FROM edges WHERE source_id = ? OR target_id = ?", [nodeId, nodeId]);
+                    }
+                    // Try deleting from nodes first
+                    const nodeResult = this.db.execute("DELETE FROM nodes WHERE id = ?", [nodeId]);
+                    if (nodeResult.changes === 0) {
+                        // Try deleting from edges
+                        this.db.execute("DELETE FROM edges WHERE id = ?", [nodeId]);
+                    }
+                }
+            }
+        });
+        // Return empty result (DELETE doesn't return rows)
+        return [];
+    }
+    /**
+     * Evaluate a DELETE expression (like friends[$index]) with collected context
+     */
+    evaluateDeleteExpression(expr, params, context) {
+        if (expr.type === "variable") {
+            const value = context[expr.variable];
+            if (typeof value === "string") {
+                return value;
+            }
+            return null;
+        }
+        if (expr.type === "function" && expr.functionName === "INDEX") {
+            // List access: list[index]
+            const listExpr = expr.args[0];
+            const indexExpr = expr.args[1];
+            // Get the list
+            let list;
+            if (listExpr.type === "variable") {
+                list = context[listExpr.variable];
+            }
+            else {
+                // Unsupported list expression
+                return null;
+            }
+            // Get the index
+            let index;
+            if (indexExpr.type === "literal") {
+                index = indexExpr.value;
+            }
+            else if (indexExpr.type === "parameter") {
+                index = params[indexExpr.name];
+            }
+            else {
+                // Unsupported index expression
+                return null;
+            }
+            // Handle negative indices
+            if (index < 0) {
+                index = list.length + index;
+            }
+            if (index >= 0 && index < list.length) {
+                const value = list[index];
+                return typeof value === "string" ? value : null;
+            }
+            return null;
+        }
+        return null;
+    }
+    /**
      * Evaluate UNWIND expressions to get the arrays to iterate over
      */
     evaluateUnwindExpressions(unwindClauses, params) {
@@ -873,6 +1049,10 @@ export class Executor {
                 // If there's a MATCH, this is not a pure CREATE...RETURN pattern
                 return null;
             }
+            else if (clause.type === "MERGE") {
+                // If there's a MERGE, let tryMergeExecution handle it
+                return null;
+            }
         }
         if (createClauses.length === 0 || !returnClause)
             return null;
@@ -987,6 +1167,7 @@ export class Executor {
     tryMergeExecution(query, params) {
         const clauses = query.clauses;
         let matchClauses = [];
+        let createClauses = [];
         let withClauses = [];
         let mergeClause = null;
         let returnClause = null;
@@ -999,6 +1180,9 @@ export class Executor {
             }
             else if (clause.type === "MATCH") {
                 matchClauses.push(clause);
+            }
+            else if (clause.type === "CREATE") {
+                createClauses.push(clause);
             }
             else if (clause.type === "WITH") {
                 withClauses.push(clause);
@@ -1022,15 +1206,39 @@ export class Executor {
             return null;
         }
         // Execute MERGE with special handling
-        return this.executeMergeWithSetClauses(matchClauses, withClauses, mergeClause, returnClause, params);
+        return this.executeMergeWithSetClauses(matchClauses, createClauses, withClauses, mergeClause, returnClause, params);
     }
     /**
      * Execute a MERGE clause with ON CREATE SET and/or ON MATCH SET
      */
-    executeMergeWithSetClauses(matchClauses, withClauses, mergeClause, returnClause, params) {
-        // Track matched nodes from MATCH clauses
+    executeMergeWithSetClauses(matchClauses, createClauses, withClauses, mergeClause, returnClause, params) {
+        // Track matched/created nodes 
         const matchedNodes = new Map();
-        // Execute MATCH clauses first to get referenced nodes
+        // Execute CREATE clauses first to create nodes
+        for (const createClause of createClauses) {
+            for (const pattern of createClause.patterns) {
+                if (this.isRelationshipPattern(pattern)) {
+                    // Skip relationship patterns for now - just focus on node creation
+                    continue;
+                }
+                const nodePattern = pattern;
+                const props = this.resolveProperties(nodePattern.properties || {}, params);
+                const id = crypto.randomUUID();
+                const labelJson = nodePattern.label ? JSON.stringify([nodePattern.label]) : "[]";
+                this.db.execute("INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)", [id, labelJson, JSON.stringify(props)]);
+                if (nodePattern.variable) {
+                    const labelStr = Array.isArray(nodePattern.label)
+                        ? nodePattern.label.join(":")
+                        : (nodePattern.label || "");
+                    matchedNodes.set(nodePattern.variable, {
+                        id,
+                        label: labelStr,
+                        properties: props,
+                    });
+                }
+            }
+        }
+        // Execute MATCH clauses to get referenced nodes
         for (const matchClause of matchClauses) {
             for (const pattern of matchClause.patterns) {
                 if (this.isRelationshipPattern(pattern)) {
@@ -1639,8 +1847,20 @@ export class Executor {
                 return expr.variable;
             case "property":
                 return `${expr.variable}_${expr.property}`;
-            case "function":
-                return expr.functionName.toLowerCase();
+            case "function": {
+                // Build function expression like count(a) or count(*)
+                const funcName = expr.functionName.toLowerCase();
+                if (expr.args && expr.args.length > 0) {
+                    const argNames = expr.args.map(arg => {
+                        if (arg.type === "variable")
+                            return arg.variable;
+                        return "?";
+                    });
+                    return `${funcName}(${argNames.join(", ")})`;
+                }
+                // Empty args for count(*) or similar
+                return `${funcName}(*)`;
+            }
             default:
                 return "expr";
         }

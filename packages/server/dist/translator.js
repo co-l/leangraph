@@ -1511,6 +1511,8 @@ export class Translator {
         // The condition is p.depth < maxHops to allow one more recursion step
         // We also track edge_ids as a JSON array of edge objects for variable-length edge variables
         let cte;
+        // Check if this is an undirected pattern
+        const isUndirected = varLengthPattern.edge.direction === "none";
         if (minHops === 0 && maxHops === 0) {
             // Special case: *0 means zero-length path, source = target
             // No CTE needed - we'll handle this by making source = target
@@ -1518,7 +1520,33 @@ export class Translator {
         }
         else if (minHops === 0) {
             // Need to include zero-length paths (source = target) plus longer paths
-            cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
+            if (isUndirected) {
+                // For undirected with minHops=0, traverse edges in both directions with edge tracking
+                if (edgeType) {
+                    cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
+  SELECT id, id, 0, json_array() FROM nodes
+  UNION ALL
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  FROM ${pathCteName} p
+  JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
+  WHERE p.depth < ? AND e.type = ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+)`;
+                    allParams.push(maxHops, edgeType);
+                }
+                else {
+                    cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
+  SELECT id, id, 0, json_array() FROM nodes
+  UNION ALL
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  FROM ${pathCteName} p
+  JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
+  WHERE p.depth < ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+)`;
+                    allParams.push(maxHops);
+                }
+            }
+            else {
+                cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
   SELECT id, id, 0, json_array() FROM nodes
   UNION ALL
   SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
@@ -1526,9 +1554,10 @@ export class Translator {
   JOIN edges e ON p.end_id = e.source_id
   WHERE p.depth < ?${edgeType ? " AND e.type = ?" : ""}
 )`;
-            allParams.push(maxHops);
-            if (edgeType) {
-                allParams.push(edgeType);
+                allParams.push(maxHops);
+                if (edgeType) {
+                    allParams.push(edgeType);
+                }
             }
         }
         else {
@@ -1538,7 +1567,41 @@ export class Translator {
                 edgeCondition = "type = ?";
                 allParams.push(edgeType);
             }
-            cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
+            if (isUndirected) {
+                // For undirected patterns, treat each edge as traversable in both directions
+                // We use a single recursive query that can traverse edges in either direction
+                // The base case includes both directions, and recursive step does too
+                // We need to avoid revisiting the same edge (tracked in edge_ids)
+                if (edgeType) {
+                    cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
+  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges WHERE ${edgeCondition}
+  UNION ALL
+  SELECT target_id, source_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges WHERE type = ?
+  UNION ALL
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  FROM ${pathCteName} p
+  JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
+  WHERE p.depth < ? AND e.type = ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+)`;
+                    allParams.push(edgeType); // for reverse base case
+                    allParams.push(maxHops, edgeType); // for recursive
+                }
+                else {
+                    cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
+  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges
+  UNION ALL
+  SELECT target_id, source_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges
+  UNION ALL
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  FROM ${pathCteName} p
+  JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
+  WHERE p.depth < ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+)`;
+                    allParams.push(maxHops); // for recursive
+                }
+            }
+            else {
+                cte = `WITH RECURSIVE ${pathCteName}(start_id, end_id, depth, edge_ids) AS (
   SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges WHERE ${edgeCondition}
   UNION ALL
   SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
@@ -1546,10 +1609,11 @@ export class Translator {
   JOIN edges e ON p.end_id = e.source_id
   WHERE p.depth < ?${edgeType ? " AND e.type = ?" : ""}
 )`;
-            // For maxHops=2, we need depth to reach 2, so recursion limit should be maxHops
-            allParams.push(maxHops);
-            if (edgeType) {
-                allParams.push(edgeType);
+                // For maxHops=2, we need depth to reach 2, so recursion limit should be maxHops
+                allParams.push(maxHops);
+                if (edgeType) {
+                    allParams.push(edgeType);
+                }
             }
         }
         // Build FROM and JOIN clauses for fixed-length patterns before the variable-length
@@ -3156,6 +3220,19 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 const labelChecks = labelsToCheck.map(l => `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${l}')`).join(' AND ');
                 return {
                     sql: `(${labelChecks})`,
+                    tables,
+                    params,
+                };
+            }
+            case "propertyAccess": {
+                // Chained property access: obj.prop1.prop2
+                // Recursively translate the object expression, then access the property
+                const objectResult = this.translateExpression(expr.object);
+                tables.push(...objectResult.tables);
+                params.push(...objectResult.params);
+                // Access property from the result using json_extract
+                return {
+                    sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
                     tables,
                     params,
                 };

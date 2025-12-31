@@ -1,8 +1,8 @@
 # NiceFox GraphDB - TCK Compliance Guide
 
 ## Current Status
-- **Passing**: 1383 tests (87.7%)
-- **Failing**: 193 tests (skipped in test suite)
+- **Passing**: 1391 tests (88.3%)
+- **Failing**: 185 tests (skipped in test suite)
 - **Total**: 1576 tests
 
 ## TDD Workflow

@@ -49,6 +49,18 @@ export declare class Executor {
      */
     private tryCollectUnwindExecution;
     /**
+     * Handle MATCH+WITH(COLLECT)+DELETE[expr] pattern
+     * This handles queries like:
+     *   MATCH (:User)-[:FRIEND]->(n)
+     *   WITH collect(n) AS friends
+     *   DETACH DELETE friends[$friendIndex]
+     */
+    private tryCollectDeleteExecution;
+    /**
+     * Evaluate a DELETE expression (like friends[$index]) with collected context
+     */
+    private evaluateDeleteExpression;
+    /**
      * Evaluate UNWIND expressions to get the arrays to iterate over
      */
     private evaluateUnwindExpressions;

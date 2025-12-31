@@ -30,7 +30,7 @@ export const FAILING_TESTS = new Set([
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|12",
   // Delete6|13,14: Complex ORDER BY patterns
   // "clauses/delete > Delete6 - Persistence of delete clause side effects|13",
-  "clauses/delete > Delete6 - Persistence of delete clause side effects|14",
+  // "clauses/delete > Delete6 - Persistence of delete clause side effects|14",
   // Delete4|2: Now works with undirected variable-length CTE fix
   // "clauses/delete > Delete4 - Delete clause interoperation with other clauses|2",
   // Create3|5,6: Now work with WITH alias handling for CREATE
@@ -49,8 +49,8 @@ export const FAILING_TESTS = new Set([
   // "clauses/create > Create6 - Persistence of create clause side effects|5",
   // Create6|6: Now works with aggregate function support in UNWIND+CREATE
   // "clauses/create > Create6 - Persistence of create clause side effects|6",
-  // Create6|7: Complex UNWIND+CREATE+WITH patterns (WITH aggregation)
-  "clauses/create > Create6 - Persistence of create clause side effects|7",
+  // Create6|7: Complex UNWIND+CREATE+WITH patterns (WITH aggregation) - Now works
+  // "clauses/create > Create6 - Persistence of create clause side effects|7",
   // Create6|8,9: Now work with SKIP/LIMIT fix in tryCreateReturnExecution
   // "clauses/create > Create6 - Persistence of create clause side effects|8",
   // "clauses/create > Create6 - Persistence of create clause side effects|9",

@@ -198,8 +198,43 @@ export class Executor {
         // Check if RETURN has aggregate functions
         const hasAggregates = returnClause?.items.some(item => item.expression.type === "function" &&
             ["sum", "count", "avg", "min", "max", "collect"].includes(item.expression.functionName?.toLowerCase() || ""));
+        // Check if any WITH clause has aggregate functions
+        const hasWithAggregates = withClauses.some(clause => clause.items.some(item => item.expression.type === "function" &&
+            ["sum", "count", "avg", "min", "max", "collect"].includes(item.expression.functionName?.toLowerCase() || "")));
+        // Extract WITH aggregate info
+        const withAggregateMap = new Map();
+        for (const withClause of withClauses) {
+            for (const item of withClause.items) {
+                if (item.alias && item.expression.type === "function") {
+                    const funcName = item.expression.functionName?.toLowerCase();
+                    if (funcName && ["sum", "count", "avg", "min", "max", "collect"].includes(funcName)) {
+                        const args = item.expression.args || [];
+                        if (args.length > 0) {
+                            const arg = args[0];
+                            if (arg.type === "variable") {
+                                withAggregateMap.set(item.alias, {
+                                    functionName: funcName,
+                                    argVariable: arg.variable,
+                                });
+                            }
+                            else if (arg.type === "property") {
+                                withAggregateMap.set(item.alias, {
+                                    functionName: funcName,
+                                    argVariable: arg.variable,
+                                    argProperty: arg.property,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Check if RETURN references WITH aggregate aliases
+        const returnsWithAggregateAliases = returnClause?.items.some(item => item.expression.type === "variable" && withAggregateMap.has(item.expression.variable)) || false;
         // For aggregates, collect intermediate values
         const aggregateValues = new Map();
+        // Also collect values for WITH aggregates
+        const withAggregateValues = new Map();
         this.db.transaction(() => {
             for (const combination of combinations) {
                 // Build a map of unwind variable -> current value
@@ -238,48 +273,77 @@ export class Executor {
                     }
                     if (!passesWithFilter)
                         continue;
-                    if (hasAggregates) {
-                        // Collect values for aggregation
-                        for (const item of returnClause.items) {
-                            const alias = item.alias || this.getExpressionName(item.expression);
-                            if (item.expression.type === "function") {
-                                const funcName = item.expression.functionName?.toLowerCase();
-                                const args = item.expression.args || [];
-                                if (args.length > 0) {
-                                    const arg = args[0];
-                                    let value;
-                                    if (arg.type === "property") {
-                                        const variable = arg.variable;
-                                        const property = arg.property;
-                                        const id = createdIds.get(variable);
-                                        if (id) {
-                                            // Try nodes first, then edges
-                                            let result = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
-                                            if (result.rows.length === 0) {
-                                                // Try edges table
-                                                result = this.db.execute("SELECT properties FROM edges WHERE id = ?", [id]);
-                                            }
-                                            if (result.rows.length > 0) {
-                                                const props = typeof result.rows[0].properties === "string"
-                                                    ? JSON.parse(result.rows[0].properties)
-                                                    : result.rows[0].properties;
-                                                value = props[property];
-                                            }
+                    if (hasAggregates || hasWithAggregates) {
+                        // Collect values for WITH aggregates
+                        if (hasWithAggregates) {
+                            for (const [alias, aggInfo] of withAggregateMap) {
+                                let value;
+                                if (aggInfo.argProperty) {
+                                    const id = createdIds.get(aggInfo.argVariable);
+                                    if (id) {
+                                        let result = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
+                                        if (result.rows.length === 0) {
+                                            result = this.db.execute("SELECT properties FROM edges WHERE id = ?", [id]);
+                                        }
+                                        if (result.rows.length > 0) {
+                                            const props = typeof result.rows[0].properties === "string"
+                                                ? JSON.parse(result.rows[0].properties)
+                                                : result.rows[0].properties;
+                                            value = props[aggInfo.argProperty];
                                         }
                                     }
-                                    if (value !== undefined) {
+                                }
+                                if (value !== undefined) {
+                                    if (!withAggregateValues.has(alias)) {
+                                        withAggregateValues.set(alias, []);
+                                    }
+                                    withAggregateValues.get(alias).push(value);
+                                }
+                            }
+                        }
+                        // Collect values for RETURN aggregates
+                        if (hasAggregates) {
+                            for (const item of returnClause.items) {
+                                const alias = item.alias || this.getExpressionName(item.expression);
+                                if (item.expression.type === "function") {
+                                    const funcName = item.expression.functionName?.toLowerCase();
+                                    const args = item.expression.args || [];
+                                    if (args.length > 0) {
+                                        const arg = args[0];
+                                        let value;
+                                        if (arg.type === "property") {
+                                            const variable = arg.variable;
+                                            const property = arg.property;
+                                            const id = createdIds.get(variable);
+                                            if (id) {
+                                                // Try nodes first, then edges
+                                                let result = this.db.execute("SELECT properties FROM nodes WHERE id = ?", [id]);
+                                                if (result.rows.length === 0) {
+                                                    // Try edges table
+                                                    result = this.db.execute("SELECT properties FROM edges WHERE id = ?", [id]);
+                                                }
+                                                if (result.rows.length > 0) {
+                                                    const props = typeof result.rows[0].properties === "string"
+                                                        ? JSON.parse(result.rows[0].properties)
+                                                        : result.rows[0].properties;
+                                                    value = props[property];
+                                                }
+                                            }
+                                        }
+                                        if (value !== undefined) {
+                                            if (!aggregateValues.has(alias)) {
+                                                aggregateValues.set(alias, []);
+                                            }
+                                            aggregateValues.get(alias).push(value);
+                                        }
+                                    }
+                                    else if (funcName === "count") {
+                                        // count(*) - just count iterations
                                         if (!aggregateValues.has(alias)) {
                                             aggregateValues.set(alias, []);
                                         }
-                                        aggregateValues.get(alias).push(value);
+                                        aggregateValues.get(alias).push(1);
                                     }
-                                }
-                                else if (funcName === "count") {
-                                    // count(*) - just count iterations
-                                    if (!aggregateValues.has(alias)) {
-                                        aggregateValues.set(alias, []);
-                                    }
-                                    aggregateValues.get(alias).push(1);
                                 }
                             }
                         }
@@ -334,6 +398,44 @@ export class Executor {
                 }
             }
         });
+        // Compute WITH aggregate results if RETURN references them
+        if (returnsWithAggregateAliases && returnClause) {
+            const withAggregateResult = {};
+            for (const item of returnClause.items) {
+                if (item.expression.type === "variable") {
+                    const alias = item.expression.variable;
+                    if (withAggregateMap.has(alias)) {
+                        const aggInfo = withAggregateMap.get(alias);
+                        const values = withAggregateValues.get(alias) || [];
+                        switch (aggInfo.functionName) {
+                            case "sum":
+                                withAggregateResult[alias] = values.reduce((a, b) => a + b, 0);
+                                break;
+                            case "count":
+                                withAggregateResult[alias] = values.length;
+                                break;
+                            case "avg":
+                                withAggregateResult[alias] = values.length > 0
+                                    ? values.reduce((a, b) => a + b, 0) / values.length
+                                    : null;
+                                break;
+                            case "min":
+                                withAggregateResult[alias] = values.length > 0 ? Math.min(...values) : null;
+                                break;
+                            case "max":
+                                withAggregateResult[alias] = values.length > 0 ? Math.max(...values) : null;
+                                break;
+                            case "collect":
+                                withAggregateResult[alias] = values;
+                                break;
+                        }
+                    }
+                }
+            }
+            if (Object.keys(withAggregateResult).length > 0) {
+                results.push(withAggregateResult);
+            }
+        }
         // Compute aggregate results if needed
         if (hasAggregates && returnClause) {
             const aggregateResult = {};

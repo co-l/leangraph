@@ -19,9 +19,33 @@ packages/server/src/
 ```bash
 pnpm test              # Run all tests
 pnpm test -- --run     # Run once (no watch)
+pnpm tck 'Return6|11'  # Run single TCK test
+pnpm tck 'Match3' -l   # List matching TCK tests
+pnpm tck 'Return6|11' --sql  # Show generated SQL
 ```
 
 Use TDD: write failing tests first, then implement.
+
+### TCK Test Tool
+
+Quick way to run individual openCypher TCK tests:
+
+```bash
+pnpm tck <pattern> [options]
+
+Options:
+  -v, --verbose    Show detailed test info
+  -l, --list       List matching tests
+  --sql            Show generated SQL
+  -f, --force      Run even if in failing list
+```
+
+Examples:
+```bash
+pnpm tck 'Return6|11'           # Exact test by number
+pnpm tck 'Counting matches'     # Match by name
+pnpm tck 'Match3' --list        # List all Match3 tests
+```
 
 ## Next Implementation Priorities
 

@@ -208,7 +208,7 @@ export const FAILING_TESTS = new Set([
   // "clauses/return > Return2 - Return single expression (correctly projecting an expression)|11",
   // Return2|12: Now works (list of nodes/relationships)
   // "clauses/return > Return2 - Return single expression (correctly projecting an expression)|12",
-  // Return2|13: column naming for map of nodes/rels
+  // Return2|13: value format mismatch (map of nodes/rels)
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|13",
   // Return2|14: type of deleted relationship - needs DETACH DELETE return
   "clauses/return > Return2 - Return single expression (correctly projecting an expression)|14",
@@ -219,7 +219,7 @@ export const FAILING_TESTS = new Set([
   "clauses/return > Return4 - Column renaming|6",
   // Return4|8: Now works (column renaming for aggregations - uses MATCH () count)
   // "clauses/return > Return4 - Column renaming|8",
-  // Return4|9: subexpression column naming issue
+  // Return4|9: subexpression column naming issue (value format mismatch)
   "clauses/return > Return4 - Column renaming|9",
   // Return4|11: list comprehension
   "clauses/return > Return4 - Column renaming|11",
@@ -227,7 +227,7 @@ export const FAILING_TESTS = new Set([
   // With5|2: value comparison issue with lists in maps
   "clauses/with > With5 - Implicit grouping with DISTINCT|2",
 
-  // Return5|4: nested maps in DISTINCT inside aggregation
+  // Return5|4: value format mismatch (nested maps)
   "clauses/return > Return5 - Implicit grouping with distinct|4",
   // Return5|5: Now works (distinct on list values)
   // "clauses/return > Return5 - Implicit grouping with distinct|5",

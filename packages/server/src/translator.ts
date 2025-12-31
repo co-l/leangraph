@@ -3353,14 +3353,86 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
     params.push(...leftResult.params, ...rightResult.params);
 
     // Check if this is list concatenation (+ operator with arrays)
-    if (expr.operator === "+" && this.isListExpression(expr.left!) && this.isListExpression(expr.right!)) {
-      // Use JSON function to concatenate arrays
+    const leftIsList = this.isListExpression(expr.left!);
+    const rightIsList = this.isListExpression(expr.right!);
+    
+    
+    if (expr.operator === "+" && leftIsList && rightIsList) {
+      // Both are lists: list + list concatenation
       // Pattern: (SELECT json_group_array(value) FROM (SELECT value FROM json_each(left) UNION ALL SELECT value FROM json_each(right)))
       const leftArraySql = this.wrapForArray(expr.left!, leftResult.sql);
       const rightArraySql = this.wrapForArray(expr.right!, rightResult.sql);
       
       return {
         sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftArraySql}) UNION ALL SELECT value FROM json_each(${rightArraySql})))`,
+        tables,
+        params,
+      };
+    }
+    
+    if (expr.operator === "+" && leftIsList && !rightIsList) {
+      // list + scalar: append scalar to list
+      const leftArraySql = this.wrapForArray(expr.left!, leftResult.sql);
+      const rightScalarSql = rightResult.sql;
+      
+      return {
+        sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftArraySql}) UNION ALL SELECT json(${rightScalarSql})))`,
+        tables,
+        params,
+      };
+    }
+    
+    // For property + literal list (where left is property and right is known list)
+    // Must check before scalar+list since property is not detected as list
+    if (expr.operator === "+" && expr.left!.type === "property" && rightIsList) {
+      const leftPropSql = this.wrapForArray(expr.left!, leftResult.sql);
+      const rightArraySql = this.wrapForArray(expr.right!, rightResult.sql);
+      
+      return {
+        sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftPropSql}) UNION ALL SELECT value FROM json_each(${rightArraySql})))`,
+        tables,
+        params,
+      };
+    }
+    
+    // For literal list + property (where right is property and left is known list)
+    // Must check before list+scalar since property is not detected as list
+    if (expr.operator === "+" && leftIsList && expr.right!.type === "property") {
+      const leftArraySql = this.wrapForArray(expr.left!, leftResult.sql);
+      const rightPropSql = this.wrapForArray(expr.right!, rightResult.sql);
+      
+      return {
+        sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftArraySql}) UNION ALL SELECT value FROM json_each(${rightPropSql})))`,
+        tables,
+        params,
+      };
+    }
+    
+    if (expr.operator === "+" && !leftIsList && rightIsList) {
+      // scalar + list: prepend scalar to list (only for non-property scalars)
+      const leftScalarSql = leftResult.sql;
+      const rightArraySql = this.wrapForArray(expr.right!, rightResult.sql);
+      
+      return {
+        sql: `(SELECT json_group_array(value) FROM (SELECT json(${leftScalarSql}) as value UNION ALL SELECT value FROM json_each(${rightArraySql})))`,
+        tables,
+        params,
+      };
+    }
+    
+    // For property + property, use a WITH subquery to avoid duplicate parameter references
+    if (expr.operator === "+" && expr.left!.type === "property" && expr.right!.type === "property") {
+      const leftPropSql = this.wrapForArray(expr.left!, leftResult.sql);
+      const rightPropSql = this.wrapForArray(expr.right!, rightResult.sql);
+      
+      // Use CASE with json_type to handle runtime type detection
+      // If both are arrays, concatenate them. Otherwise fall through to arithmetic.
+      return {
+        sql: `(CASE 
+          WHEN json_type(${leftPropSql}) = 'array' AND json_type(${rightPropSql}) = 'array' THEN
+            (SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftPropSql}) UNION ALL SELECT value FROM json_each(${rightPropSql})))
+          ELSE (COALESCE(${leftPropSql}, 0) + COALESCE(${rightPropSql}, 0))
+        END)`,
         tables,
         params,
       };
@@ -3408,13 +3480,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return this.isListExpression(originalExpr);
       }
     }
-    if (expr.type === "property") {
-      // Properties that access array fields - we assume it could be a list
-      // In a full implementation, you'd track types, but for now assume + with property could be list concat
-      return true;
-    }
+    // Note: we cannot assume property access is a list - it could be a number or string.
+    // Property access will only be treated as a list if combined with an explicit list literal
+    // in translateBinaryExpression.
     if (expr.type === "binary" && expr.operator === "+") {
-      // Nested binary + could be chained list concatenation
+      // Nested binary + could be chained list concatenation, but only if one side is definitely a list
       return this.isListExpression(expr.left!) || this.isListExpression(expr.right!);
     }
     if (expr.type === "function") {

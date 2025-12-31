@@ -1,6 +1,6 @@
 export const FAILING_TESTS = new Set([
-  // Create1|12: Multiple labels (:A:B:C) not supported
-  "clauses/create > Create1 - Creating nodes|12",
+  // Create1|12: Multiple labels (:A:B:C) - now works
+  // "clauses/create > Create1 - Creating nodes|12",
   "clauses/delete > Delete4 - Delete clause interoperation with other clauses|1",
   "clauses/delete > Delete4 - Delete clause interoperation with other clauses|2",
   "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|1",
@@ -142,10 +142,11 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match9 - Match deprecated scenarios|5",
   "clauses/match > Match9 - Match deprecated scenarios|8",
   "clauses/match > Match9 - Match deprecated scenarios|9",
-  // Merge1|8-14: Complex MERGE scenarios (WITH, multiple MERGE, paths, DELETE+MERGE)
+  // Merge1|8-9, 11-14: Complex MERGE scenarios (WITH, multiple MERGE, paths, DELETE+MERGE)
   "clauses/merge > Merge1 - Merge node|8",
   "clauses/merge > Merge1 - Merge node|9",
-  "clauses/merge > Merge1 - Merge node|10",
+  // Merge1|10: Multiple labels - now works
+  // "clauses/merge > Merge1 - Merge node|10",
   "clauses/merge > Merge1 - Merge node|11",
   "clauses/merge > Merge1 - Merge node|12",
   "clauses/merge > Merge1 - Merge node|13",
@@ -209,8 +210,8 @@ export const FAILING_TESTS = new Set([
   "clauses/return > Return4 - Column renaming|4",
   // Return4|6: aggregation in expression
   "clauses/return > Return4 - Column renaming|6",
-  // Return4|8: id() function
-  "clauses/return > Return4 - Column renaming|8",
+  // Return4|8: Now works (column renaming for aggregations - uses MATCH () count)
+  // "clauses/return > Return4 - Column renaming|8",
   // Return4|9: path variable renaming 
   "clauses/return > Return4 - Column renaming|9",
   // Return4|11: list comprehension
@@ -221,8 +222,8 @@ export const FAILING_TESTS = new Set([
 
   // Return5|4: nested maps in DISTINCT inside aggregation
   "clauses/return > Return5 - Implicit grouping with distinct|4",
-  // Return5|5: distinct on nulls
-  "clauses/return > Return5 - Implicit grouping with distinct|5",
+  // Return5|5: Now works (distinct on list values)
+  // "clauses/return > Return5 - Implicit grouping with distinct|5",
   // Return6|1 and |7 now work with GROUP BY fix
   "clauses/return > Return6 - Implicit grouping with aggregates|2",
   "clauses/return > Return6 - Implicit grouping with aggregates|3",
@@ -230,9 +231,12 @@ export const FAILING_TESTS = new Set([
   "clauses/return > Return6 - Implicit grouping with aggregates|5",
   "clauses/return > Return6 - Implicit grouping with aggregates|6",
   "clauses/return > Return6 - Implicit grouping with aggregates|8",
-  "clauses/return > Return6 - Implicit grouping with aggregates|10",
-  "clauses/return > Return6 - Implicit grouping with aggregates|11",
-  "clauses/return > Return6 - Implicit grouping with aggregates|12",
+  // Return6|10: Now works
+  // "clauses/return > Return6 - Implicit grouping with aggregates|10",
+  // Return6|11: Now works (anonymous pattern MATCH () RETURN count(*))
+  // "clauses/return > Return6 - Implicit grouping with aggregates|11",
+  // Return6|12: Now works
+  // "clauses/return > Return6 - Implicit grouping with aggregates|12",
   "clauses/return > Return6 - Implicit grouping with aggregates|13",
   "clauses/return > Return6 - Implicit grouping with aggregates|16",
   "clauses/return > Return6 - Implicit grouping with aggregates|18",
@@ -244,23 +248,27 @@ export const FAILING_TESTS = new Set([
   "clauses/set > Set1 - Set a Property|7",
   // Set1|10: expects TypeError for nested map in list, we don't validate types the same way
   "clauses/set > Set1 - Set a Property|10",
-  "clauses/set > Set2 - Set a Property to Null|1",
-  "clauses/set > Set2 - Set a Property to Null|2",
-  "clauses/set > Set2 - Set a Property to Null|3",
-  "clauses/set > Set3 - Set a Label|1",
-  "clauses/set > Set3 - Set a Label|2",
-  "clauses/set > Set3 - Set a Label|3",
-  "clauses/set > Set3 - Set a Label|4",
-  "clauses/set > Set3 - Set a Label|5",
-  "clauses/set > Set3 - Set a Label|6",
-  "clauses/set > Set3 - Set a Label|7",
-  "clauses/set > Set4 - Set all properties with a map|1",
-  "clauses/set > Set4 - Set all properties with a map|2",
-  "clauses/set > Set4 - Set all properties with a map|3",
-  "clauses/set > Set4 - Set all properties with a map|4",
-  "clauses/set > Set5 - Set multiple properties with a map|2",
-  "clauses/set > Set5 - Set multiple properties with a map|3",
-  "clauses/set > Set5 - Set multiple properties with a map|4",
+  // Set2|1-3: Now work with property removal on null
+  // "clauses/set > Set2 - Set a Property to Null|1",
+  // "clauses/set > Set2 - Set a Property to Null|2",
+  // "clauses/set > Set2 - Set a Property to Null|3",
+  // Set3|1-7: Testing now
+  // "clauses/set > Set3 - Set a Label|1",
+  // "clauses/set > Set3 - Set a Label|2",
+  // "clauses/set > Set3 - Set a Label|3",
+  // "clauses/set > Set3 - Set a Label|4",
+  // "clauses/set > Set3 - Set a Label|5",
+  // "clauses/set > Set3 - Set a Label|6",
+  // "clauses/set > Set3 - Set a Label|7",
+  // Set4|1-4: Now work
+  // "clauses/set > Set4 - Set all properties with a map|1",
+  // "clauses/set > Set4 - Set all properties with a map|2",
+  // "clauses/set > Set4 - Set all properties with a map|3",
+  // "clauses/set > Set4 - Set all properties with a map|4",
+  // Set5|2-4: Now work
+  // "clauses/set > Set5 - Set multiple properties with a map|2",
+  // "clauses/set > Set5 - Set multiple properties with a map|3",
+  // "clauses/set > Set5 - Set multiple properties with a map|4",
   "clauses/set > Set6 - Persistence of set clause side effects|1",
   "clauses/set > Set6 - Persistence of set clause side effects|10",
   "clauses/set > Set6 - Persistence of set clause side effects|11",
@@ -323,11 +331,12 @@ export const FAILING_TESTS = new Set([
   "expressions/aggregation > Aggregation2 - Min and Max|12",
   // Aggregation3|1 now works
   "expressions/aggregation > Aggregation3 - Sum|2",
-  "expressions/aggregation > Aggregation5 - Collect|1",
-  "expressions/aggregation > Aggregation5 - Collect|2",
+  // Aggregation5|1-2: Now work with null filtering
+  // "expressions/aggregation > Aggregation5 - Collect|1",
+  // "expressions/aggregation > Aggregation5 - Collect|2",
   "expressions/aggregation > Aggregation6 - Percentiles|5",
   // Aggregation8|1 and |2 now work with DISTINCT count
-  // Aggregation8|3 and |4 fail because collect doesn't filter nulls properly
-  "expressions/aggregation > Aggregation8 - DISTINCT|3",
-  "expressions/aggregation > Aggregation8 - DISTINCT|4",
+  // Aggregation8|3 and |4 now work with null filtering in collect(DISTINCT)
+  // "expressions/aggregation > Aggregation8 - DISTINCT|3",
+  // "expressions/aggregation > Aggregation8 - DISTINCT|4",
 ]);

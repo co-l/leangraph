@@ -40,6 +40,14 @@ export declare class Executor {
      */
     private evaluateUnwindExpressions;
     /**
+     * Evaluate an expression that should return a list
+     */
+    private evaluateListExpression;
+    /**
+     * Evaluate a simple expression (literals, parameters, basic arithmetic)
+     */
+    private evaluateSimpleExpression;
+    /**
      * Generate cartesian product of arrays
      */
     private generateCartesianProduct;

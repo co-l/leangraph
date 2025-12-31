@@ -255,6 +255,13 @@ export class Translator {
         if (node.variable) {
             this.ctx.variables.set(node.variable, { type: "node", alias });
         }
+        else {
+            // Track anonymous node patterns so they can be included in FROM clause
+            if (!this.ctx.anonymousNodePatterns) {
+                this.ctx.anonymousNodePatterns = [];
+            }
+            this.ctx.anonymousNodePatterns.push({ alias, optional });
+        }
         // Store pattern info for later
         this.ctx[`pattern_${alias}`] = node;
         // Track if this node pattern is optional
@@ -482,11 +489,20 @@ export class Translator {
             }
             else {
                 const value = this.evaluateExpression(assignment.value);
-                // Use json_set to update the property
-                statements.push({
-                    sql: `UPDATE ${table} SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
-                    params: [JSON.stringify(value), varInfo.alias],
-                });
+                // If value is null, remove the property instead of setting it to null
+                if (value === null) {
+                    statements.push({
+                        sql: `UPDATE ${table} SET properties = json_remove(properties, '$.${assignment.property}') WHERE id = ?`,
+                        params: [varInfo.alias],
+                    });
+                }
+                else {
+                    // Use json_set to update the property
+                    statements.push({
+                        sql: `UPDATE ${table} SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+                        params: [JSON.stringify(value), varInfo.alias],
+                    });
+                }
             }
         }
         return statements;
@@ -960,6 +976,21 @@ export class Translator {
                                     whereParams.push(value);
                                 }
                             }
+                        }
+                    }
+                }
+            }
+            // Also add anonymous node patterns (e.g., MATCH () RETURN count(*))
+            const anonymousPatterns = this.ctx.anonymousNodePatterns;
+            if (anonymousPatterns) {
+                for (const { alias, optional } of anonymousPatterns) {
+                    if (!optional) {
+                        if (fromParts.length === 0) {
+                            fromParts.push(`nodes ${alias}`);
+                        }
+                        else {
+                            // Cross join for additional anonymous nodes
+                            fromParts.push(`nodes ${alias}`);
                         }
                     }
                 }
@@ -2034,9 +2065,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                                 // Build JSON array from GROUP_CONCAT(DISTINCT ...)
                                 // The trick: '[' || GROUP_CONCAT(DISTINCT json_quote(value)) || ']'
                                 // json_quote properly escapes strings for JSON
+                                // Filter nulls: CASE WHEN value IS NULL THEN NULL ELSE json_quote(value) END
+                                // GROUP_CONCAT ignores nulls
                                 const extractExpr = `json_extract(${varInfo.alias}.properties, '$.${arg.property}')`;
                                 return {
-                                    sql: `json('[' || GROUP_CONCAT(DISTINCT json_quote(${extractExpr})) || ']')`,
+                                    sql: `COALESCE(json('[' || GROUP_CONCAT(DISTINCT CASE WHEN ${extractExpr} IS NOT NULL THEN json_quote(${extractExpr}) END) || ']'), json('[]'))`,
                                     tables,
                                     params,
                                 };
@@ -2056,8 +2089,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                                     tables.push(unwindClause.alias);
                                     // For UNWIND variables, collect the raw values from json_each
                                     if (useDistinct) {
+                                        // Filter nulls using CASE WHEN ... IS NOT NULL
                                         return {
-                                            sql: `json('[' || GROUP_CONCAT(DISTINCT json_quote(${unwindClause.alias}.value)) || ']')`,
+                                            sql: `COALESCE(json('[' || GROUP_CONCAT(DISTINCT CASE WHEN ${unwindClause.alias}.value IS NOT NULL THEN json_quote(${unwindClause.alias}.value) END) || ']'), json('[]'))`,
                                             tables,
                                             params,
                                         };
@@ -2074,9 +2108,14 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                                 throw new Error(`Unknown variable: ${arg.variable}`);
                             }
                             tables.push(varInfo.alias);
-                            // For full variable, collect as JSON objects (DISTINCT on objects is complex, skip for now)
+                            // For full variable, collect as JSON objects
+                            // Filter out nulls: use CASE WHEN id IS NOT NULL to skip nulls
+                            // Since json_group_array doesn't filter nulls directly, we use 
+                            // (SELECT json_group_array(...) FROM json_each('[...]') WHERE value NOT LIKE '{"id":null%')
+                            // But simpler: use CASE to return NULL and filter with json_remove at end
+                            // Actually simplest: just check id IS NOT NULL in the aggregation using GROUP_CONCAT pattern
                             return {
-                                sql: `json_group_array(json_object('id', ${varInfo.alias}.id, 'label', ${varInfo.alias}.label, 'properties', ${varInfo.alias}.properties))`,
+                                sql: `COALESCE((SELECT json_group_array(json_object('id', x.id, 'label', x.label, 'properties', x.properties)) FROM (SELECT ${varInfo.alias}.id, ${varInfo.alias}.label, ${varInfo.alias}.properties) AS x WHERE x.id IS NOT NULL), json('[]'))`,
                                 tables,
                                 params,
                             };

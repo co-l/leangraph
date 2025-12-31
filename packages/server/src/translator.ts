@@ -3844,14 +3844,27 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
     const params: unknown[] = [];
 
     // Handle IS NULL / IS NOT NULL (no right side)
+    // Wrap in CASE to return JSON boolean true/false instead of SQLite's 0/1
     if (expr.comparisonOperator === "IS NULL" || expr.comparisonOperator === "IS NOT NULL") {
       const leftResult = this.translateExpression(expr.left!);
       tables.push(...leftResult.tables);
       params.push(...leftResult.params);
       
-      const leftSql = this.wrapForComparison(expr.left!, leftResult.sql);
+      // For node/edge variables, check .id IS NULL instead of the full json_object
+      // (json_object never returns NULL even with NULL column values)
+      let leftSql: string;
+      if (expr.left?.type === "variable") {
+        const varInfo = this.ctx.variables.get(expr.left.variable!);
+        if (varInfo && (varInfo.type === "node" || varInfo.type === "edge")) {
+          leftSql = `${varInfo.alias}.id`;
+        } else {
+          leftSql = this.wrapForComparison(expr.left!, leftResult.sql);
+        }
+      } else {
+        leftSql = this.wrapForComparison(expr.left!, leftResult.sql);
+      }
       return {
-        sql: `(${leftSql} ${expr.comparisonOperator})`,
+        sql: `CASE WHEN ${leftSql} ${expr.comparisonOperator} THEN json('true') ELSE json('false') END`,
         tables,
         params,
       };

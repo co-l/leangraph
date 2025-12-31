@@ -2702,11 +2702,11 @@ describe("CypherQueries.json Patterns", () => {
       
       expect(result.data).toHaveLength(2);
       // Node without name comes first (null sorts first)
-      expect(result.data[0].isNull).toBe(1); // SQLite returns 1 for true
-      expect(result.data[0].isNotNull).toBe(0);
+      expect(result.data[0].isNull).toBe(true); // Cypher returns boolean true/false
+      expect(result.data[0].isNotNull).toBe(false);
       expect(result.data[1].name).toBe("A");
-      expect(result.data[1].isNull).toBe(0);
-      expect(result.data[1].isNotNull).toBe(1);
+      expect(result.data[1].isNull).toBe(false);
+      expect(result.data[1].isNotNull).toBe(true);
     });
 
     it("uses IS NOT NULL on variable in expression", () => {
@@ -2721,9 +2721,9 @@ describe("CypherQueries.json Patterns", () => {
       
       expect(result.data).toHaveLength(2);
       expect(result.data[0].name).toBe("A");
-      expect(result.data[0].hasValue).toBe(1);
+      expect(result.data[0].hasValue).toBe(true);
       expect(result.data[1].name).toBe("B");
-      expect(result.data[1].hasValue).toBe(0);
+      expect(result.data[1].hasValue).toBe(false);
     });
   });
 

@@ -155,9 +155,10 @@ export const FAILING_TESTS = new Set([
   "clauses/match > Match7 - Optional match|24",
   "clauses/match > Match7 - Optional match|25",
   "clauses/match > Match7 - Optional match|28",
-  "clauses/match > Match7 - Optional match|29",
-  // Match7|30: value mismatch
-  "clauses/match > Match7 - Optional match|30",
+  // Match7|29: Now works
+  // "clauses/match > Match7 - Optional match|29",
+  // Match7|30: Now works with IS NULL returning true/false
+  // "clauses/match > Match7 - Optional match|30",
   "clauses/match > Match7 - Optional match|31",
 
 
@@ -202,7 +203,8 @@ export const FAILING_TESTS = new Set([
   "clauses/merge > Merge5 - Merge relationships|11",
   // "clauses/merge > Merge5 - Merge relationships|12",
   "clauses/merge > Merge5 - Merge relationships|13",
-  "clauses/merge > Merge5 - Merge relationships|14",
+  // Merge5|14: Now works
+  // "clauses/merge > Merge5 - Merge relationships|14",
   "clauses/merge > Merge5 - Merge relationships|15",
   "clauses/merge > Merge5 - Merge relationships|16",
   "clauses/merge > Merge5 - Merge relationships|17",

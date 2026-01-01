@@ -15,6 +15,14 @@ The workflow is simple:
 4. **Commit and push**
 5. **Repeat**
 
+### Tests to Skip
+
+Some tests require significant architectural changes. Skip these during normal TDD cycles:
+
+| Test | Reason |
+|------|--------|
+| `Match4\|4` | Requires sequential multi-phase execution. The setup query has chained UNWIND clauses where the second UNWIND (`range(0, size(nodeList)-2, 1)`) depends on `nodeList` from a previous WITH clause with `collect()`. This needs the executor to run phases sequentially and pass results between them. |
+
 ### Example
 
 ```typescript

@@ -1078,20 +1078,24 @@ export class Translator {
           addedNodeAliases.add(relPattern.targetAlias);
         } else {
           // Target was already added, but we need to ensure edge connects to it
-          // Add WHERE condition to connect edge's target to the existing node
+          // Add WHERE condition to connect edge to the existing node
+          // For left-directed edges, the pattern's target is the edge's source_id
+          const isLeftDirected = relPattern.edge.direction === "left";
+          const edgeColumn = isLeftDirected ? "source_id" : "target_id";
+          
           if (isOptional) {
             // For optional, we need to handle this in ON clause of edge
             // This is already handled above by adding to edgeOnConditions
             if (isUndirected) {
               whereParts.push(`(${relPattern.edgeAlias}.id IS NULL OR ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id OR ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id)`);
             } else {
-              whereParts.push(`(${relPattern.edgeAlias}.id IS NULL OR ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id)`);
+              whereParts.push(`(${relPattern.edgeAlias}.id IS NULL OR ${relPattern.edgeAlias}.${edgeColumn} = ${relPattern.targetAlias}.id)`);
             }
           } else {
             if (isUndirected) {
               whereParts.push(`(${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id OR ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id)`);
             } else {
-              whereParts.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+              whereParts.push(`${relPattern.edgeAlias}.${edgeColumn} = ${relPattern.targetAlias}.id`);
             }
           }
         }

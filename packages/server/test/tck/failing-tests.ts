@@ -135,7 +135,7 @@ export const FAILING_TESTS = new Set([
   // "clauses/match > Match6 - Match named paths scenarios|10",
   // "clauses/match > Match6 - Match named paths scenarios|11",
   // "clauses/match > Match6 - Match named paths scenarios|12",
-  "clauses/match > Match6 - Match named paths scenarios|13",
+  // "clauses/match > Match6 - Match named paths scenarios|13",
   "clauses/match > Match6 - Match named paths scenarios|14",
   // Match6|15: Now works
   // "clauses/match > Match6 - Match named paths scenarios|15",

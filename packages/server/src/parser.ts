@@ -730,12 +730,15 @@ export class Parser {
       patterns.push(...this.parsePatternChain());
     }
 
-    // Validate: CREATE requires relationship type
+    // Validate: CREATE requires relationship type and direction
     for (const pattern of patterns) {
       if ("edge" in pattern) {
         // This is a RelationshipPattern
         if (!pattern.edge.type && !pattern.edge.types) {
           throw new Error("A relationship type is required to create a relationship");
+        }
+        if (pattern.edge.direction === "none") {
+          throw new Error("Only directed relationships are supported in CREATE");
         }
       }
     }

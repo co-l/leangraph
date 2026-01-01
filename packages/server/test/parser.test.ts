@@ -137,9 +137,15 @@ describe("Parser", () => {
       expect(rel.edge.direction).toBe("left");
     });
 
-    it("parses undirected relationship", () => {
-      const query = expectSuccess("CREATE (a:Person)-[:KNOWS]-(b:Person)");
-      const clause = query.clauses[0] as CreateClause;
+    it("rejects undirected relationship in CREATE", () => {
+      // Undirected relationships are not allowed in CREATE - only MATCH
+      const error = expectError("CREATE (a:Person)-[:KNOWS]-(b:Person)");
+      expect(error.message).toContain("Only directed relationships are supported in CREATE");
+    });
+
+    it("parses undirected relationship in MATCH", () => {
+      const query = expectSuccess("MATCH (a:Person)-[:KNOWS]-(b:Person) RETURN a");
+      const clause = query.clauses[0] as MatchClause;
       const rel = clause.patterns[0] as RelationshipPattern;
 
       expect(rel.edge.direction).toBe("none");
@@ -1022,13 +1028,19 @@ describe("Parser", () => {
       expect(error.message).toContain("Unterminated string");
     });
 
-    it("parses bidirectional relationship pattern <-->", () => {
+    it("rejects bidirectional relationship pattern <--> in CREATE", () => {
+      // <--> means "either direction" (same as --), which is not allowed in CREATE
+      const error = expectError("CREATE (a)<-[:KNOWS]->(b)");
+      expect(error.message).toContain("Only directed relationships are supported in CREATE");
+    });
+
+    it("parses bidirectional relationship pattern <--> in MATCH", () => {
       // <--> is valid Cypher meaning "either direction" (same as --)
-      const query = expectSuccess("CREATE (a)<-[:KNOWS]->(b)");
-      expect(query.clauses).toHaveLength(1);
-      const create = query.clauses[0] as { type: string; patterns: Array<{ edge: { direction: string } }> };
-      expect(create.type).toBe("CREATE");
-      expect(create.patterns[0].edge.direction).toBe("none"); // Bidirectional = none
+      const query = expectSuccess("MATCH (a)<-[:KNOWS]->(b) RETURN a");
+      expect(query.clauses).toHaveLength(2);
+      const match = query.clauses[0] as { type: string; patterns: Array<{ edge: { direction: string } }> };
+      expect(match.type).toBe("MATCH");
+      expect(match.patterns[0].edge.direction).toBe("none"); // Bidirectional = none
     });
   });
 

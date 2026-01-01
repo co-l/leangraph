@@ -2,8 +2,8 @@
 
 ## Current Status (vs Neo4j 3.5 Baseline)
 - **Target**: 2703 tests (what Neo4j 3.5 passes)
-- **Passing**: 804 tests (29.7% of target)
-- **Failing**: 1880 tests (to be fixed)
+- **Passing**: 825 tests (30.5% of target)
+- **Failing**: 1878 tests (to be fixed)
 - **Not in baseline**: 19 tests (parser edge cases)
 
 ### What This Means
@@ -19,8 +19,11 @@ The workflow is simple:
 1. **Unskip the first test** in `packages/server/test/tck/failing-tests.ts` (comment out the first uncommented line)
 2. **Run tests** - `pnpm test -- --run` - see it fail
 3. **Fix the code** until green
-4. **Commit and push**
-5. **Repeat**
+4. **Uncomment all failing tests to see by chance if you didn't fix another one**
+5. **Comment actual failing tests**
+6. **Update this document**
+7. **Commit and push**
+
 
 ### Tests to Skip
 

@@ -598,9 +598,9 @@ export class Parser {
             }
         }
         else {
-            // Other expression types - parse as expression
-            const expr = this.parseExpression();
-            expressions.push(expr);
+            // DELETE requires a variable or variable-based expression (like list[index])
+            // Other expression types (literals, arithmetic, etc.) are not valid DELETE targets
+            throw new Error(`Type mismatch: expected Node or Relationship but was ${token.type === "NUMBER" ? "Integer" : token.type === "STRING" ? "String" : token.value}`);
         }
     }
     parseReturn() {

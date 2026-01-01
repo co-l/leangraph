@@ -18,7 +18,7 @@ export const FAILING_TESTS = new Set<string>([
   // "clauses/delete > Delete1 - Deleting nodes|8",
   // "clauses/delete > Delete2 - Deleting relationships|5",
   // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|8",
-  "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|9",
+  // "clauses/delete > Delete5 - Delete clause interoperation with built-in data types|9",
   "clauses/match > Match1 - Match nodes|10:1",
   "clauses/match > Match1 - Match nodes|10:10",
   "clauses/match > Match1 - Match nodes|10:11",

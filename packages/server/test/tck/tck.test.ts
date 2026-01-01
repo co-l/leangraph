@@ -249,8 +249,9 @@ function runScenario(scenario: TCKScenario, db: GraphDatabase, executor: Executo
   
   // Run the test query
   if (scenario.expectError) {
-    // Expect an error
-    expect(() => executor.execute(scenario.query)).toThrow();
+    // Expect an error - executor returns { success: false } instead of throwing
+    const result = executor.execute(scenario.query);
+    expect(result.success).toBe(false);
   } else {
     const result = executor.execute(scenario.query);
     

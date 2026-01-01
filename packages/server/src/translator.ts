@@ -153,7 +153,12 @@ export class Translator {
       if (this.isRelationshipPattern(pattern)) {
         statements.push(...this.translateCreateRelationship(pattern));
       } else {
-        statements.push(this.translateCreateNode(pattern));
+        // For standalone node patterns, check if the variable is already bound
+        const nodePattern = pattern as NodePattern;
+        if (nodePattern.variable && this.ctx.variables.has(nodePattern.variable)) {
+          throw new Error(`Variable \`${nodePattern.variable}\` already declared`);
+        }
+        statements.push(this.translateCreateNode(nodePattern));
       }
     }
 

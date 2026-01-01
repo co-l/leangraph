@@ -11,6 +11,7 @@ import { GraphDatabase } from "../../src/db";
 import { Executor } from "../../src/executor";
 import { parseAllFeatures, getStats, TCKScenario, ParsedFeature } from "./tck-parser";
 import { FAILING_TESTS } from "./failing-tests";
+import { NEO4J35_BASELINE } from "./neo4j35-baseline";
 
 const TCK_PATH = path.join(__dirname, "openCypher/tck/features");
 
@@ -18,13 +19,8 @@ const TCK_PATH = path.join(__dirname, "openCypher/tck/features");
 const allFeatures = parseAllFeatures(TCK_PATH);
 const stats = getStats(allFeatures);
 
-console.log(`\n📊 TCK Statistics:`);
-console.log(`   Total features: ${stats.totalFeatures}`);
-console.log(`   Total scenarios: ${stats.totalScenarios}`);
-console.log(`   With expected results: ${stats.withExpectedResults}`);
-console.log(`   With expected errors: ${stats.withExpectedErrors}`);
-console.log(`   With expected empty: ${stats.withExpectedEmpty}`);
-console.log(`   Expanded from outlines: ${stats.expandedFromOutlines}\n`);
+console.log(`\n📊 TCK Statistics (Neo4j 3.5 baseline):`);
+console.log(`   Target: ${NEO4J35_BASELINE.size} tests\n`);
 
 // Track results for summary
 const results = {
@@ -363,12 +359,28 @@ describe("openCypher TCK", () => {
         // Skip empty features
         if (feature.scenarios.length === 0) continue;
         
+        // Check if any scenarios are in the baseline
+        const hasBaselineTests = feature.scenarios.some(scenario => {
+          const testKey = scenario.exampleIndex !== undefined
+            ? `${category} > ${feature.name}|${scenario.index}:${scenario.exampleIndex}`
+            : `${category} > ${feature.name}|${scenario.index}`;
+          return NEO4J35_BASELINE.has(testKey);
+        });
+        
+        if (!hasBaselineTests) continue;
+        
         describe(feature.name, () => {
           for (const scenario of feature.scenarios) {
             // Build test key - include example index for expanded outline scenarios
             const testKey = scenario.exampleIndex !== undefined
               ? `${category} > ${feature.name}|${scenario.index}:${scenario.exampleIndex}`
               : `${category} > ${feature.name}|${scenario.index}`;
+            
+            // Not in Neo4j 3.5 baseline? Don't create a test at all
+            if (!NEO4J35_BASELINE.has(testKey)) {
+              continue;
+            }
+            
             const isKnownFailing = FAILING_TESTS.has(testKey);
             
             // Build test name - include example index for expanded outlines

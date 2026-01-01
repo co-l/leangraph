@@ -1,14 +1,13 @@
 # NiceFox GraphDB - TCK Compliance Guide
 
-## Current Status
-- **Passing**: 2010 tests (41.2%)
-- **Failing**: 2870 tests (skipped in test suite)
-- **Total**: 4880 tests
+## Current Status (vs Neo4j 3.5 Baseline)
+- **Target**: 2703 tests (what Neo4j 3.5 passes)
+- **Passing**: 804 tests (29.7% of target)
+- **Failing**: 1880 tests (to be fixed)
+- **Not in baseline**: 19 tests (parser edge cases)
 
-### Test Coverage
-- Scenario Outlines are now expanded (2558 tests from outlines)
-- Error expectation tests are now included (695 tests)
-- All TCK categories are covered except `clauses/call`
+### What This Means
+We only run tests that Neo4j 3.5 actually passes. This gives us a realistic, achievable target rather than chasing features that even Neo4j doesn't support.
 
 ### Excluded Categories
 - `clauses/call` - CALL procedures not yet supported

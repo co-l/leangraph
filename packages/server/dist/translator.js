@@ -113,8 +113,9 @@ export class Translator {
         if (rel.source.variable) {
             const existing = this.ctx.variables.get(rel.source.variable);
             if (existing) {
-                // Variable already bound - check for label conflict
-                if (rel.source.label) {
+                // Variable already bound - check for label or property conflict
+                // In CREATE, you cannot rebind a variable with new properties/labels
+                if (rel.source.label || rel.source.properties) {
                     throw new Error(`Variable \`${rel.source.variable}\` already declared`);
                 }
                 sourceId = existing.alias;
@@ -137,8 +138,9 @@ export class Translator {
         if (rel.target.variable) {
             const existing = this.ctx.variables.get(rel.target.variable);
             if (existing) {
-                // Variable already bound - check for label conflict
-                if (rel.target.label) {
+                // Variable already bound - check for label or property conflict
+                // In CREATE, you cannot rebind a variable with new properties/labels
+                if (rel.target.label || rel.target.properties) {
                     throw new Error(`Variable \`${rel.target.variable}\` already declared`);
                 }
                 targetId = existing.alias;

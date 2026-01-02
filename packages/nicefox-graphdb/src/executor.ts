@@ -1834,6 +1834,14 @@ export class Executor {
     }
     
     // Execute MATCH clauses to get referenced nodes
+    // First, extract id() conditions from WHERE clauses
+    const idConditions = new Map<string, string>(); // variable -> id value
+    for (const matchClause of matchClauses) {
+      if (matchClause.where) {
+        this.extractIdConditions(matchClause.where, idConditions, params);
+      }
+    }
+    
     for (const matchClause of matchClauses) {
       for (const pattern of matchClause.patterns) {
         if (this.isRelationshipPattern(pattern)) {
@@ -1848,6 +1856,12 @@ export class Executor {
         const conditions: string[] = [];
         const conditionParams: unknown[] = [];
         
+        // Check if we have an id() condition for this variable
+        if (nodePattern.variable && idConditions.has(nodePattern.variable)) {
+          conditions.push("id = ?");
+          conditionParams.push(idConditions.get(nodePattern.variable));
+        }
+        
         if (nodePattern.label) {
           const labelCondition = this.generateLabelCondition(nodePattern.label);
           conditions.push(labelCondition.sql);
@@ -1859,7 +1873,10 @@ export class Executor {
           conditionParams.push(value);
         }
         
-        const findSql = `SELECT id, label, properties FROM nodes WHERE ${conditions.join(" AND ")}`;
+        // Build the query - if no conditions, select all nodes (for cases like MATCH (a), (b))
+        const findSql = conditions.length > 0
+          ? `SELECT id, label, properties FROM nodes WHERE ${conditions.join(" AND ")}`
+          : `SELECT id, label, properties FROM nodes LIMIT 1`;
         const findResult = this.db.execute(findSql, conditionParams);
         
         if (findResult.rows.length > 0 && nodePattern.variable) {
@@ -2069,6 +2086,11 @@ export class Executor {
     const sourceVar = pattern.source.variable;
     const targetVar = pattern.target.variable;
     const edgeType = pattern.edge.type || "";
+    
+    // MERGE requires a relationship type
+    if (!edgeType) {
+      throw new Error("MERGE requires a relationship type");
+    }
     const edgeProps = this.resolveProperties(pattern.edge.properties || {}, params);
     const sourceProps = this.resolveProperties(pattern.source.properties || {}, params);
     const targetProps = this.resolveProperties(pattern.target.properties || {}, params);
@@ -4348,6 +4370,41 @@ export class Executor {
         sql: conditions.join(" AND "),
         params: labels
       };
+    }
+  }
+
+  /**
+   * Extract id() function conditions from a WHERE clause
+   * For conditions like: WHERE id(n) = $id
+   * Populates the idConditions map with variable -> id value mappings
+   */
+  private extractIdConditions(
+    where: WhereCondition,
+    idConditions: Map<string, string>,
+    params: Record<string, unknown>
+  ): void {
+    if (where.type === "and" && where.conditions) {
+      // Recursively process AND conditions
+      for (const condition of where.conditions) {
+        this.extractIdConditions(condition, idConditions, params);
+      }
+    } else if (where.type === "comparison" && where.operator === "=") {
+      // Check if left side is id() function call
+      if (where.left?.type === "function" && where.left.functionName === "ID") {
+        const arg = where.left.args?.[0];
+        if (arg?.type === "variable" && arg.variable) {
+          // Get the id value from the right side
+          let idValue: string | undefined;
+          if (where.right?.type === "parameter" && where.right.name) {
+            idValue = params[where.right.name] as string;
+          } else if (where.right?.type === "literal") {
+            idValue = where.right.value as string;
+          }
+          if (idValue !== undefined) {
+            idConditions.set(arg.variable, idValue);
+          }
+        }
+      }
     }
   }
 }

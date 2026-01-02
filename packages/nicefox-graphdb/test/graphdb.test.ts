@@ -124,12 +124,12 @@ describe("GraphDB Factory", () => {
       });
 
       it("updateNode should modify properties", async () => {
-        await db.execute('CREATE (n:User {id: "user1", name: "Eve", status: "inactive"})');
+        const nodeId = await db.createNode("User", { name: "Eve", status: "inactive" });
         
-        await db.updateNode("user1", { status: "active", verified: true });
+        await db.updateNode(nodeId, { status: "active", verified: true });
         
         const results = await db.query<{ status: string; verified: boolean }>(
-          'MATCH (n:User {id: "user1"}) RETURN n.status AS status, n.verified AS verified'
+          'MATCH (n:User {name: "Eve"}) RETURN n.status AS status, n.verified AS verified'
         );
         
         expect(results[0].status).toBe("active");
@@ -137,26 +137,26 @@ describe("GraphDB Factory", () => {
       });
 
       it("deleteNode should remove node and relationships", async () => {
-        await db.execute(`
-          CREATE (a:User {id: "del1", name: "ToDelete"})-[:KNOWS]->(b:User {name: "Friend"})
-        `);
+        const nodeId = await db.createNode("User", { name: "ToDelete" });
+        await db.createNode("User", { name: "Friend" });
+        await db.execute(
+          'MATCH (a:User {name: "ToDelete"}), (b:User {name: "Friend"}) CREATE (a)-[:KNOWS]->(b)'
+        );
         
-        await db.deleteNode("del1");
+        await db.deleteNode(nodeId);
         
-        const results = await db.query('MATCH (n:User {id: "del1"}) RETURN n');
+        const results = await db.query('MATCH (n:User {name: "ToDelete"}) RETURN n');
         expect(results).toHaveLength(0);
       });
 
       it("createEdge should create relationship between nodes", async () => {
-        await db.execute(`
-          CREATE (a:User {id: "edge1", name: "User1"}),
-                 (b:User {id: "edge2", name: "User2"})
-        `);
+        const nodeId1 = await db.createNode("User", { name: "User1" });
+        const nodeId2 = await db.createNode("User", { name: "User2" });
         
-        await db.createEdge("edge1", "FRIENDS_WITH", "edge2", { since: "2024" });
+        await db.createEdge(nodeId1, "FRIENDS_WITH", nodeId2, { since: "2024" });
         
         const results = await db.query<{ type: string }>(
-          'MATCH (a {id: "edge1"})-[r]->(b {id: "edge2"}) RETURN type(r) AS type'
+          'MATCH (a:User {name: "User1"})-[r]->(b:User {name: "User2"}) RETURN type(r) AS type'
         );
         
         expect(results).toHaveLength(1);

@@ -400,6 +400,17 @@ describe("Translator", () => {
 
       expect(result.statements[0].params).toContain("abc123");
     });
+
+    it("translates id() function in WHERE clause", () => {
+      const result = translateCypher(
+        "MATCH (n:Person) WHERE id(n) = $id RETURN n",
+        { id: "abc123" }
+      );
+
+      // Should use the internal .id column, not json_extract
+      expect(result.statements[0].sql).toMatch(/n\d+\.id = \?/);
+      expect(result.statements[0].params).toContain("abc123");
+    });
   });
 
   describe("SET", () => {

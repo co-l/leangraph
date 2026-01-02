@@ -116,7 +116,8 @@ export function createLocalClient(options: GraphDBOptions): GraphDBClient {
           : "";
 
       const cypher = `
-        MATCH (source {id: $sourceId}), (target {id: $targetId})
+        MATCH (source), (target)
+        WHERE id(source) = $sourceId AND id(target) = $targetId
         MERGE (source)-[:${type}${propAssignments}]->(target)
       `;
 
@@ -137,7 +138,7 @@ export function createLocalClient(options: GraphDBOptions): GraphDBClient {
     },
 
     async deleteNode(id: string): Promise<void> {
-      await this.execute("MATCH (n {id: $id}) DETACH DELETE n", { id });
+      await this.execute("MATCH (n) WHERE id(n) = $id DETACH DELETE n", { id });
     },
 
     async updateNode(
@@ -147,7 +148,7 @@ export function createLocalClient(options: GraphDBOptions): GraphDBClient {
       const propKeys = Object.keys(properties);
       const setClause = propKeys.map((k) => `n.${k} = $${k}`).join(", ");
 
-      const cypher = `MATCH (n {id: $id}) SET ${setClause}`;
+      const cypher = `MATCH (n) WHERE id(n) = $id SET ${setClause}`;
       await this.execute(cypher, { id, ...properties });
     },
 

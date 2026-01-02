@@ -3757,4 +3757,241 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
   });
+
+  describe("Additional Query Patterns", () => {
+    // datetime() function
+    it("supporte datetime() dans CREATE", () => {
+      const result = exec(`CREATE (n:Event {name: 'Test', createdAt: datetime()}) RETURN n`);
+      
+      expect(result.data).toHaveLength(1);
+      const node = result.data[0].n as Record<string, unknown>;
+      expect((node.properties as Record<string, unknown>).createdAt).toBeDefined();
+    });
+
+    it("supporte datetime() dans SET", () => {
+      exec(`CREATE (n:Event {name: 'Test'})`);
+      
+      const result = exec(`MATCH (n:Event {name: 'Test'}) SET n.updatedAt = datetime() RETURN n`);
+      
+      expect(result.data).toHaveLength(1);
+      const node = result.data[0].n as Record<string, unknown>;
+      expect((node.properties as Record<string, unknown>).updatedAt).toBeDefined();
+    });
+
+    // ORDER BY on node property
+    it("supporte ORDER BY sur propriété de noeud ASC", () => {
+      exec(`CREATE (n:Item {name: 'C', order: 3})`);
+      exec(`CREATE (n:Item {name: 'A', order: 1})`);
+      exec(`CREATE (n:Item {name: 'B', order: 2})`);
+      
+      const result = exec(`MATCH (n:Item) RETURN n ORDER BY n.order`);
+      
+      expect(result.data).toHaveLength(3);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('A');
+      expect(((result.data[1].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('B');
+      expect(((result.data[2].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('C');
+    });
+
+    it("supporte ORDER BY sur propriété de noeud DESC", () => {
+      exec(`CREATE (n:Item {name: 'A', order: 1})`);
+      exec(`CREATE (n:Item {name: 'B', order: 2})`);
+      exec(`CREATE (n:Item {name: 'C', order: 3})`);
+      
+      const result = exec(`MATCH (n:Item) RETURN n ORDER BY n.order DESC`);
+      
+      expect(result.data).toHaveLength(3);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('C');
+      expect(((result.data[1].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('B');
+      expect(((result.data[2].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('A');
+    });
+
+    it("supporte ORDER BY avec LIMIT", () => {
+      exec(`CREATE (n:Item {name: 'C', order: 3})`);
+      exec(`CREATE (n:Item {name: 'A', order: 1})`);
+      exec(`CREATE (n:Item {name: 'B', order: 2})`);
+      
+      const result = exec(`MATCH (n:Item) RETURN n ORDER BY n.order DESC LIMIT 1`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('C');
+    });
+
+    // WHERE with property comparison
+    it("supporte WHERE avec comparaison de propriété (<>)", () => {
+      exec(`CREATE (n:Session {status: 'active'})`);
+      exec(`CREATE (n:Session {status: 'completed'})`);
+      exec(`CREATE (n:Session {status: 'pending'})`);
+      
+      const result = exec(`MATCH (n:Session) WHERE n.status <> 'completed' RETURN n`);
+      
+      expect(result.data).toHaveLength(2);
+      const statuses = result.data.map(r => ((r.n as Record<string, unknown>).properties as Record<string, unknown>).status);
+      expect(statuses).toContain('active');
+      expect(statuses).toContain('pending');
+      expect(statuses).not.toContain('completed');
+    });
+
+    it("supporte WHERE avec comparaison de propriété (=)", () => {
+      exec(`CREATE (n:Session {status: 'active'})`);
+      exec(`CREATE (n:Session {status: 'completed'})`);
+      
+      const result = exec(`MATCH (n:Session) WHERE n.status = 'active' RETURN n`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).status).toBe('active');
+    });
+
+    it("supporte WHERE avec comparaison numérique (>)", () => {
+      exec(`CREATE (n:Item {name: 'A', quantity: 5})`);
+      exec(`CREATE (n:Item {name: 'B', quantity: 10})`);
+      exec(`CREATE (n:Item {name: 'C', quantity: 0})`);
+      
+      const result = exec(`MATCH (n:Item) WHERE n.quantity > 0 RETURN n`);
+      
+      expect(result.data).toHaveLength(2);
+      const names = result.data.map(r => ((r.n as Record<string, unknown>).properties as Record<string, unknown>).name);
+      expect(names).toContain('A');
+      expect(names).toContain('B');
+    });
+
+    it("supporte WHERE avec conditions multiples (AND)", () => {
+      exec(`CREATE (n:SessionItem {purchased: true, toBuy: 5})`);
+      exec(`CREATE (n:SessionItem {purchased: true, toBuy: 0})`);
+      exec(`CREATE (n:SessionItem {purchased: false, toBuy: 3})`);
+      
+      const result = exec(`MATCH (n:SessionItem) WHERE n.purchased = true AND n.toBuy > 0 RETURN n`);
+      
+      expect(result.data).toHaveLength(1);
+      const props = (result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>;
+      expect(props.purchased).toBe(true);
+      expect(props.toBuy).toBe(5);
+    });
+
+    it("supporte WHERE avec conditions multiples (OR)", () => {
+      exec(`CREATE (n:Item {status: 'active'})`);
+      exec(`CREATE (n:Item {status: 'pending'})`);
+      exec(`CREATE (n:Item {status: 'completed'})`);
+      
+      const result = exec(`MATCH (n:Item) WHERE n.status = 'active' OR n.status = 'pending' RETURN n`);
+      
+      expect(result.data).toHaveLength(2);
+    });
+
+    // count() aggregation
+    it("supporte count() dans RETURN", () => {
+      exec(`CREATE (n:Person {name: 'Alice'})`);
+      exec(`CREATE (n:Person {name: 'Bob'})`);
+      exec(`CREATE (n:Person {name: 'Charlie'})`);
+      
+      const result = exec(`MATCH (n:Person) RETURN count(n) AS count`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].count).toBe(3);
+    });
+
+    it("supporte count() avec WHERE", () => {
+      exec(`CREATE (n:Session {userId: 'user1', status: 'active'})`);
+      exec(`CREATE (n:Session {userId: 'user1', status: 'completed'})`);
+      exec(`CREATE (n:Session {userId: 'user2', status: 'active'})`);
+      
+      const result = exec(`MATCH (n:Session {userId: 'user1'}) WHERE n.status <> 'completed' RETURN count(n) AS count`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].count).toBe(1);
+    });
+
+    // DETACH DELETE with RETURN count
+    it("supporte DETACH DELETE avec RETURN count()", () => {
+      exec(`CREATE (n:Item {id: 'item1'})`);
+      exec(`CREATE (n:Item {id: 'item2'})`);
+      
+      const result = exec(`MATCH (n:Item {id: 'item1'}) DETACH DELETE n RETURN count(n) AS count`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].count).toBe(1);
+      
+      // Verify deletion
+      const remaining = exec(`MATCH (n:Item) RETURN n`);
+      expect(remaining.data).toHaveLength(1);
+      expect(((remaining.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).id).toBe('item2');
+    });
+
+    // Multi-line queries
+    it("supporte les requêtes multi-lignes", () => {
+      exec(`CREATE (n:Person {name: 'Alice'})`);
+      
+      const result = exec(`
+        MATCH (n:Person {name: 'Alice'})
+        RETURN n
+      `);
+      
+      expect(result.data).toHaveLength(1);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).name).toBe('Alice');
+    });
+
+    it("supporte les requêtes multi-lignes avec SET", () => {
+      exec(`CREATE (n:Person {name: 'Alice', age: 25})`);
+      
+      const result = exec(`
+        MATCH (n:Person {name: 'Alice'})
+        SET n.age = 26,
+            n.updated = true
+        RETURN n
+      `);
+      
+      expect(result.data).toHaveLength(1);
+      const props = (result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>;
+      expect(props.age).toBe(26);
+      expect(props.updated).toBe(true);
+    });
+
+    // Arithmetic in SET (i.currentQuantity + $toBuy)
+    it("supporte l'arithmétique dans SET", () => {
+      exec(`CREATE (n:Item {name: 'Apples', quantity: 5})`);
+      
+      const result = exec(`MATCH (n:Item {name: 'Apples'}) SET n.quantity = n.quantity + 3 RETURN n`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).quantity).toBe(8);
+    });
+
+    it("supporte l'arithmétique dans SET avec paramètre", () => {
+      exec(`CREATE (n:Item {name: 'Apples', quantity: 5})`);
+      
+      const result = exec(`MATCH (n:Item {name: 'Apples'}) SET n.quantity = n.quantity + $amount RETURN n`, { amount: 10 });
+      
+      expect(result.data).toHaveLength(1);
+      expect(((result.data[0].n as Record<string, unknown>).properties as Record<string, unknown>).quantity).toBe(15);
+    });
+
+    // max() aggregation for getNextOrders pattern
+    it("supporte max() dans RETURN", () => {
+      exec(`CREATE (n:Item {userId: 'user1', order: 1})`);
+      exec(`CREATE (n:Item {userId: 'user1', order: 5})`);
+      exec(`CREATE (n:Item {userId: 'user1', order: 3})`);
+      
+      const result = exec(`MATCH (n:Item {userId: 'user1'}) RETURN max(n.order) AS maxOrder`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].maxOrder).toBe(5);
+    });
+
+    it("supporte max() avec résultat null quand aucun noeud", () => {
+      const result = exec(`MATCH (n:Item {userId: 'nonexistent'}) RETURN max(n.order) AS maxOrder`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].maxOrder).toBeNull();
+    });
+
+    // Returning property directly (n.name AS name)
+    it("supporte RETURN avec alias de propriété", () => {
+      exec(`CREATE (n:Person {name: 'Alice', age: 30})`);
+      
+      const result = exec(`MATCH (n:Person) RETURN n.name AS name, n.age AS age`);
+      
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].name).toBe('Alice');
+      expect(result.data[0].age).toBe(30);
+    });
+  });
 });

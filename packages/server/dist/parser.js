@@ -1124,10 +1124,26 @@ export class Parser {
         if (token.type === "LBRACKET") {
             return this.parseArray();
         }
-        // Handle variable references (e.g., from UNWIND) or property access (e.g., person.bornIn)
+        // Handle variable references (e.g., from UNWIND), property access (e.g., person.bornIn), or function calls (e.g., datetime())
         if (token.type === "IDENTIFIER") {
             this.advance();
             const varName = token.value;
+            // Check for function call: identifier followed by LPAREN
+            if (this.check("LPAREN")) {
+                this.advance(); // consume LPAREN
+                const args = [];
+                // Parse function arguments
+                if (!this.check("RPAREN")) {
+                    do {
+                        if (args.length > 0) {
+                            this.expect("COMMA");
+                        }
+                        args.push(this.parsePropertyValue());
+                    } while (this.check("COMMA"));
+                }
+                this.expect("RPAREN");
+                return { type: "function", name: varName.toUpperCase(), args };
+            }
             // Check for property access: variable.property
             if (this.check("DOT")) {
                 this.advance(); // consume DOT

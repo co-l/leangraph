@@ -41,7 +41,12 @@ export interface BinaryPropertyValue {
     left: PropertyValue;
     right: PropertyValue;
 }
-export type PropertyValue = string | number | boolean | null | ParameterRef | VariableRef | PropertyRef | BinaryPropertyValue | PropertyValue[];
+export interface FunctionPropertyValue {
+    type: "function";
+    name: string;
+    args: PropertyValue[];
+}
+export type PropertyValue = string | number | boolean | null | ParameterRef | VariableRef | PropertyRef | BinaryPropertyValue | FunctionPropertyValue | PropertyValue[];
 export interface WhereCondition {
     type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate";
     left?: Expression;

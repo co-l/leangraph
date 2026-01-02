@@ -55,6 +55,12 @@ export interface BinaryPropertyValue {
   right: PropertyValue;
 }
 
+export interface FunctionPropertyValue {
+  type: "function";
+  name: string;
+  args: PropertyValue[];
+}
+
 export type PropertyValue =
   | string
   | number
@@ -64,6 +70,7 @@ export type PropertyValue =
   | VariableRef
   | PropertyRef
   | BinaryPropertyValue
+  | FunctionPropertyValue
   | PropertyValue[];
 
 export interface WhereCondition {
@@ -1568,10 +1575,29 @@ export class Parser {
       return this.parseArray();
     }
 
-    // Handle variable references (e.g., from UNWIND) or property access (e.g., person.bornIn)
+    // Handle variable references (e.g., from UNWIND), property access (e.g., person.bornIn), or function calls (e.g., datetime())
     if (token.type === "IDENTIFIER") {
       this.advance();
       const varName = token.value;
+      
+      // Check for function call: identifier followed by LPAREN
+      if (this.check("LPAREN")) {
+        this.advance(); // consume LPAREN
+        const args: PropertyValue[] = [];
+        
+        // Parse function arguments
+        if (!this.check("RPAREN")) {
+          do {
+            if (args.length > 0) {
+              this.expect("COMMA");
+            }
+            args.push(this.parsePropertyValue());
+          } while (this.check("COMMA"));
+        }
+        
+        this.expect("RPAREN");
+        return { type: "function", name: varName.toUpperCase(), args };
+      }
       
       // Check for property access: variable.property
       if (this.check("DOT")) {

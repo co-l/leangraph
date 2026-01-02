@@ -94,6 +94,10 @@ export declare class Executor {
      */
     private resolvePropertyValueWithUnwind;
     /**
+     * Evaluate a function call within a property value context
+     */
+    private evaluateFunctionInProperty;
+    /**
      * Execute CREATE relationship pattern with unwind context
      */
     private executeCreateRelationshipPatternWithUnwind;

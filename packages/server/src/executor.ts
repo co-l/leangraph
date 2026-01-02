@@ -1424,10 +1424,67 @@ export class Executor {
           case "^": return Math.pow(leftNum, rightNum);
           default: return null;
         }
+      } else if (typedValue.type === "function") {
+        // Function call in property value (e.g., datetime())
+        const funcValue = typedValue as { type: "function"; name: string; args?: unknown[] };
+        return this.evaluateFunctionInProperty(funcValue.name, funcValue.args || [], params, unwindContext);
       }
       return value;
     }
     return value;
+  }
+
+  /**
+   * Evaluate a function call within a property value context
+   */
+  private evaluateFunctionInProperty(
+    funcName: string,
+    args: unknown[],
+    params: Record<string, unknown>,
+    unwindContext: Record<string, unknown>
+  ): unknown {
+    const upperName = funcName.toUpperCase();
+    
+    switch (upperName) {
+      case "DATETIME": {
+        // datetime() returns current ISO datetime string
+        // datetime(string) parses the string
+        if (args.length > 0) {
+          const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          return String(arg);
+        }
+        return new Date().toISOString();
+      }
+      case "DATE": {
+        // date() returns current date string (YYYY-MM-DD)
+        // date(string) parses the string
+        if (args.length > 0) {
+          const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          return String(arg).split("T")[0];
+        }
+        return new Date().toISOString().split("T")[0];
+      }
+      case "TIME": {
+        // time() returns current time string (HH:MM:SS)
+        if (args.length > 0) {
+          const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          const str = String(arg);
+          const match = str.match(/(\d{2}:\d{2}:\d{2})/);
+          return match ? match[1] : str;
+        }
+        return new Date().toISOString().split("T")[1].split(".")[0];
+      }
+      case "TIMESTAMP": {
+        // timestamp() returns milliseconds since epoch
+        return Date.now();
+      }
+      case "RANDOMUUID": {
+        // randomUUID() returns a UUID v4
+        return crypto.randomUUID();
+      }
+      default:
+        throw new Error(`Unknown function in property value: ${funcName}`);
+    }
   }
 
   /**
@@ -3951,6 +4008,12 @@ export class Executor {
         return expr.value;
       case "parameter":
         return params[expr.name!];
+      case "function": {
+        // Evaluate function calls (e.g., datetime(), timestamp())
+        const funcName = expr.functionName!.toUpperCase();
+        const args = expr.args || [];
+        return this.evaluateFunctionInProperty(funcName, args, params, {});
+      }
       default:
         throw new Error(`Cannot evaluate expression of type ${expr.type}`);
     }
@@ -4049,6 +4112,12 @@ export class Executor {
           default:
             throw new Error(`Unknown binary operator: ${expr.operator}`);
         }
+      }
+      case "function": {
+        // Evaluate function calls (e.g., datetime(), timestamp())
+        const funcName = expr.functionName!.toUpperCase();
+        const args = expr.args || [];
+        return this.evaluateFunctionInProperty(funcName, args, params, {});
       }
       default:
         throw new Error(`Cannot evaluate expression of type ${expr.type}`);

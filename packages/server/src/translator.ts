@@ -372,7 +372,8 @@ export class Translator {
     (this.ctx as any).pathExpressions.push({
       variable: pathExpr.variable,
       alias: pathAlias,
-      nodeAliases: Array.from(new Set(nodeAliases)), // Remove duplicates
+      nodeAliases: Array.from(new Set(nodeAliases)), // Deduplicated for table joins
+      nodeSequence: nodeAliases, // Original order with duplicates for path output
       edgeAliases,
       patterns: pathExpr.patterns,
       optional,
@@ -2904,6 +2905,7 @@ export class Translator {
             variable: string;
             alias: string;
             nodeAliases: string[];
+            nodeSequence?: string[]; // Original order with duplicates for path output
             edgeAliases: string[];
             isVariableLength?: boolean;
             pathCteName?: string;
@@ -2931,12 +2933,15 @@ export class Translator {
               }
               
               // For fixed-length paths, build alternating [node, edge, node, edge, ...] array
+              // Use nodeAliases (deduplicated) for table joins, but nodeSequence for output order
               tables.push(...pathInfo.nodeAliases, ...pathInfo.edgeAliases);
               
               // Interleave nodes and edges: node0, edge0, node1, edge1, node2...
+              // Use nodeSequence which preserves duplicates for cyclic paths like (n)--(k)--(n)
+              const nodeSeq = pathInfo.nodeSequence || pathInfo.nodeAliases;
               const elements: string[] = [];
-              for (let i = 0; i < pathInfo.nodeAliases.length; i++) {
-                elements.push(`${pathInfo.nodeAliases[i]}.properties`);
+              for (let i = 0; i < nodeSeq.length; i++) {
+                elements.push(`${nodeSeq[i]}.properties`);
                 if (i < pathInfo.edgeAliases.length) {
                   elements.push(`${pathInfo.edgeAliases[i]}.properties`);
                 }
@@ -2953,11 +2958,13 @@ export class Translator {
         }
         
         tables.push(varInfo.alias);
-        // Neo4j 3.5 format: return only properties as flat object
+        // Neo4j 3.5 format: return properties with hidden _nf_id for identity
+        // The _nf_id ensures UNION/GROUP BY work correctly by node identity, not just properties
         // Users access id/labels/type via id(), labels(), type() functions
+        // Return NULL if the node/edge is NULL (OPTIONAL MATCH case)
         if (varInfo.type === "edge") {
           return {
-            sql: `${varInfo.alias}.properties`,
+            sql: `CASE WHEN ${varInfo.alias}.id IS NULL THEN NULL ELSE json_set(COALESCE(${varInfo.alias}.properties, '{}'), '$._nf_id', ${varInfo.alias}.id) END`,
             tables,
             params,
           };
@@ -2971,9 +2978,10 @@ export class Translator {
             params,
           };
         }
-        // Node: return properties directly
+        // Node: return properties with hidden _nf_id for identity
+        // Return NULL if the node is NULL (OPTIONAL MATCH case)
         return {
-          sql: `${varInfo.alias}.properties`,
+          sql: `CASE WHEN ${varInfo.alias}.id IS NULL THEN NULL ELSE json_set(COALESCE(${varInfo.alias}.properties, '{}'), '$._nf_id', ${varInfo.alias}.id) END`,
           tables,
           params,
         };

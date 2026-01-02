@@ -1,8 +1,25 @@
 {
   "name": "nicefox-graphdb",
   "version": "0.1.0",
-  "private": true,
+  "description": "SQLite-based graph database with Cypher query support",
   "type": "module",
+  "main": "packages/nicefox-graphdb/dist/index.js",
+  "types": "packages/nicefox-graphdb/dist/index.d.ts",
+  "bin": {
+    "nicefox-graphdb": "./packages/nicefox-graphdb/dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./packages/nicefox-graphdb/dist/index.d.ts",
+      "import": "./packages/nicefox-graphdb/dist/index.js",
+      "default": "./packages/nicefox-graphdb/dist/index.js"
+    }
+  },
+  "files": [
+    "packages/nicefox-graphdb/dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "prepare": "[ -d .git ] && cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit || true",
     "test": "vitest run",
@@ -11,10 +28,16 @@
     "dev": "pnpm --filter nicefox-graphdb-server dev",
     "build": "pnpm -r build",
     "tck": "npx tsx packages/server/test/tck/run-test.ts",
-    "publish:npm": "pnpm --filter nicefox-graphdb run build && (cd packages/nicefox-graphdb && npm publish --access public)",
-    "publish:npm:dry": "pnpm --filter nicefox-graphdb run build && (cd packages/nicefox-graphdb && npm pack --dry-run)"
+    "prepublishOnly": "pnpm --filter nicefox-graphdb run build"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "hono": "^4.0.0",
+    "@hono/node-server": "^1.13.0",
+    "commander": "^12.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.9",
     "typescript": "^5.3.0",
@@ -25,5 +48,28 @@
       "better-sqlite3",
       "esbuild"
     ]
+  },
+  "keywords": [
+    "graph",
+    "database",
+    "graphdb",
+    "cypher",
+    "sqlite",
+    "typescript",
+    "neo4j",
+    "query"
+  ],
+  "author": "Conrad Lelubre",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/co-l/nicefox-graphdb.git"
+  },
+  "homepage": "https://github.com/co-l/nicefox-graphdb#readme",
+  "bugs": {
+    "url": "https://github.com/co-l/nicefox-graphdb/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

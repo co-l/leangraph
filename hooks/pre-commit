@@ -1,8 +1,12 @@
 #!/bin/bash
-# Pre-commit hook: rebuild dist/ and stage changes
+# Pre-commit hook: run tests before committing
 
-echo "Building packages..."
-pnpm build
+echo "Running tests..."
+pnpm test -- --run
 
-# Stage any changes to dist/
-git add packages/*/dist/
+if [ $? -ne 0 ]; then
+  echo "Tests failed. Commit aborted."
+  exit 1
+fi
+
+echo "Tests passed."

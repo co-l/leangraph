@@ -24,7 +24,7 @@ import { NiceFoxGraphDB } from 'nicefox-graphdb/packages/client/src/index.ts';
 import { NiceFoxGraphDB } from 'nicefox-graphdb/packages/client/src/index.ts';
 
 // Using environment variables (recommended)
-// Set: GRAPHDB_PROJECT, GRAPHDB_API_KEY, and optionally GRAPHDB_URL, GRAPHDB_ENV
+// Set: GRAPHDB_PROJECT, GRAPHDB_API_KEY
 const graph = new NiceFoxGraphDB();
 
 // Or with explicit options
@@ -69,7 +69,7 @@ const result = await graph.query('MATCH (u:User) RETURN COUNT(u) as count');
 new NiceFoxGraphDB({
   url?: string;       // Server URL (default: GRAPHDB_URL or 'https://graphdb.nicefox.net')
   project?: string;   // Project name (default: GRAPHDB_PROJECT) - required
-  env?: string;       // Environment name (default: GRAPHDB_ENV or 'production')
+  env?: string;       // Environment name (default: NODE_ENV or 'production')
   apiKey?: string;    // API key (default: GRAPHDB_API_KEY)
   dataPath?: string;  // Data directory path (default: GRAPHDB_DATA_PATH)
 })
@@ -81,7 +81,7 @@ new NiceFoxGraphDB({
 |----------|-------------|---------|
 | `GRAPHDB_URL` | Server URL | `https://graphdb.nicefox.net` |
 | `GRAPHDB_PROJECT` | Project name | (required) |
-| `NODE_ENV` | Environment name | `production` |
+| `NODE_ENV` | Environment for data isolation | `production` |
 | `GRAPHDB_API_KEY` | API key for authentication | - |
 | `GRAPHDB_DATA_PATH` | Data directory path | - |
 

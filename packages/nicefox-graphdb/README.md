@@ -16,8 +16,12 @@ npm install nicefox-graphdb
 ```typescript
 import { GraphDB } from 'nicefox-graphdb';
 
+// Using environment variables (recommended)
+// Set: GRAPHDB_PROJECT, GRAPHDB_API_KEY
+const db = await GraphDB();
+
+// Or with explicit options
 const db = await GraphDB({
-  url: 'https://my-graphdb.example.com',
   project: 'myapp',
   apiKey: process.env.GRAPHDB_API_KEY,
 });
@@ -47,11 +51,7 @@ This means you can use the **exact same code** in both environments:
 
 ```typescript
 // Works in both development and production!
-const db = await GraphDB({
-  url: 'https://my-graphdb.example.com',
-  project: 'myapp',
-  apiKey: process.env.GRAPHDB_API_KEY,
-});
+const db = await GraphDB({ project: 'myapp' });
 ```
 
 ### Development Mode
@@ -82,36 +82,35 @@ NODE_ENV=production GRAPHDB_API_KEY=xxx node app.js
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `url` | `string` | Yes | - | Base URL of the GraphDB server (used in production) |
-| `project` | `string` | Yes | - | Project name |
-| `apiKey` | `string` | No | - | API key for authentication (used in production) |
-| `env` | `string` | No | `NODE_ENV` or `'production'` | Environment (determines database isolation) |
-| `dataPath` | `string` | No | `'./data'` | Path for local data storage (development only). Use `':memory:'` for in-memory database |
+| `url` | `string` | No | `GRAPHDB_URL` or `https://graphdb.nicefox.net` | Base URL of the GraphDB server (production only) |
+| `project` | `string` | Yes | `GRAPHDB_PROJECT` | Project name |
+| `apiKey` | `string` | No | `GRAPHDB_API_KEY` | API key for authentication (production only) |
+| `env` | `string` | No | `NODE_ENV` or `production` | Environment (determines database isolation) |
+| `dataPath` | `string` | No | `GRAPHDB_DATA_PATH` or `./data` | Path for local data storage (development only). Use `':memory:'` for in-memory database |
 
 ### Examples
 
 ```typescript
-// Production: connect to remote server
+// Production: connect to remote server (default)
+// Uses GRAPHDB_PROJECT, GRAPHDB_API_KEY from environment
+const db = await GraphDB();
+
+// Production: with explicit options
 const db = await GraphDB({
-  url: 'https://graphdb.example.com',
   project: 'myapp',
   apiKey: 'your-api-key',
-  env: 'production',
 });
 
 // Development: use local SQLite (url/apiKey ignored)
 // NODE_ENV=development
 const db = await GraphDB({
-  url: 'https://graphdb.example.com', // ignored
   project: 'myapp',
-  apiKey: 'your-api-key',             // ignored
   dataPath: './local-data',           // custom data directory
 });
 
 // Testing: use in-memory database
 // NODE_ENV=development
 const db = await GraphDB({
-  url: 'https://graphdb.example.com',
   project: 'test-project',
   dataPath: ':memory:',               // resets on each run
 });

@@ -16,14 +16,9 @@ npm install nicefox-graphdb
 ```typescript
 import { GraphDB } from 'nicefox-graphdb';
 
-// Using environment variables (recommended)
-// Set: GRAPHDB_PROJECT, GRAPHDB_API_KEY
-const db = await GraphDB();
-
-// Or with explicit options
 const db = await GraphDB({
-  project: 'myapp',
-  apiKey: process.env.GRAPHDB_API_KEY,
+  project: 'myapp',       // or process.env.GRAPHDB_PROJECT
+  apiKey: 'nfx_xxx',      // or process.env.GRAPHDB_API_KEY
 });
 
 // Create nodes and relationships
@@ -90,29 +85,29 @@ NODE_ENV=production GRAPHDB_API_KEY=xxx node app.js
 
 ### Examples
 
+**Production** (default when `NODE_ENV` is unset or `production`):
 ```typescript
-// Production: connect to remote server (default)
-// Uses GRAPHDB_PROJECT, GRAPHDB_API_KEY from environment
-const db = await GraphDB();
-
-// Production: with explicit options
 const db = await GraphDB({
-  project: 'myapp',
-  apiKey: 'your-api-key',
+  project: 'myapp',           // or process.env.GRAPHDB_PROJECT
+  apiKey: 'nfx_xxx',          // or process.env.GRAPHDB_API_KEY
+  url: 'https://my-server',   // or process.env.GRAPHDB_URL (default: graphdb.nicefox.net)
 });
+```
 
-// Development: use local SQLite (url/apiKey ignored)
-// NODE_ENV=development
+**Development** (when `NODE_ENV=development`):
+```typescript
 const db = await GraphDB({
-  project: 'myapp',
-  dataPath: './local-data',           // custom data directory
+  project: 'myapp',           // or process.env.GRAPHDB_PROJECT
+  dataPath: './local-data',   // or process.env.GRAPHDB_DATA_PATH (default: ./data)
 });
+// url and apiKey are ignored - uses local SQLite
+```
 
-// Testing: use in-memory database
-// NODE_ENV=development
+**Testing** (when `NODE_ENV=development`):
+```typescript
 const db = await GraphDB({
   project: 'test-project',
-  dataPath: ':memory:',               // resets on each run
+  dataPath: ':memory:',       // in-memory database, resets on each run
 });
 ```
 
@@ -304,15 +299,12 @@ npx nicefox-graphdb serve --port 3000 --host 0.0.0.0 --data ./data
 ### Creating Projects
 
 ```bash
-# Create a new project (generates API keys)
+# Create a new project (generates API key)
 npx nicefox-graphdb create myapp --data ./data
 
 # Output:
 #   [created] production/myapp.db
-#   [created] test/myapp.db
-#   API Keys:
-#     production: nfx_abc123...
-#     test:       nfx_def456...
+#   API Key: nfx_abc123...
 ```
 
 ### CLI Reference
@@ -331,8 +323,8 @@ nicefox-graphdb delete <project>   Delete project (use --force)
 nicefox-graphdb list               List all projects
 
 # Environment management
-nicefox-graphdb clone <project>    Copy production to test
-nicefox-graphdb wipe <project>     Clear test database
+nicefox-graphdb clone <project> --from <env> --to <env>   Copy between environments
+nicefox-graphdb wipe <project> --env <env>                Clear environment database
 
 # Direct queries
 nicefox-graphdb query <env> <project> "CYPHER"

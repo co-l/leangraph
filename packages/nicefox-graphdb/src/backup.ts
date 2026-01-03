@@ -2,8 +2,12 @@
 // Uses SQLite's backup API for hot (online) backups
 
 import type BetterSqlite3 from "better-sqlite3";
+import { createRequire } from "module";
 import * as fs from "fs";
 import * as path from "path";
+
+// Create a require function for ESM compatibility
+const require = createRequire(import.meta.url);
 
 // Lazy-loaded better-sqlite3 module (loaded on first use, not at import time)
 let Database: typeof BetterSqlite3 | null = null;
@@ -15,7 +19,6 @@ let Database: typeof BetterSqlite3 | null = null;
 function getBetterSqlite3(): typeof BetterSqlite3 {
   if (!Database) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       Database = require("better-sqlite3");
     } catch {
       throw new Error(

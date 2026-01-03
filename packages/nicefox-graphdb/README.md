@@ -85,7 +85,7 @@ NODE_ENV=production GRAPHDB_API_KEY=xxx node app.js
 | `url` | `string` | Yes | - | Base URL of the GraphDB server (used in production) |
 | `project` | `string` | Yes | - | Project name |
 | `apiKey` | `string` | No | - | API key for authentication (used in production) |
-| `env` | `'production' \| 'test'` | No | `'production'` | Environment (determines database isolation) |
+| `env` | `string` | No | `NODE_ENV` or `'production'` | Environment (determines database isolation) |
 | `dataPath` | `string` | No | `'./data'` | Path for local data storage (development only). Use `':memory:'` for in-memory database |
 
 ### Examples

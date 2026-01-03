@@ -5,14 +5,21 @@ import type BetterSqlite3 from "better-sqlite3";
 // Type alias for the database instance
 type DatabaseInstance = BetterSqlite3.Database;
 
-// Lazy-load better-sqlite3 to provide a helpful error message if not installed
-let Database: typeof BetterSqlite3;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  Database = require("better-sqlite3");
-} catch {
-  throw new Error(
-    `better-sqlite3 is required for local/embedded mode but is not installed.
+// Lazy-loaded better-sqlite3 module (loaded on first use, not at import time)
+let Database: typeof BetterSqlite3 | null = null;
+
+/**
+ * Get the better-sqlite3 Database constructor.
+ * This is lazy-loaded to avoid requiring better-sqlite3 when only using remote mode.
+ */
+function getBetterSqlite3(): typeof BetterSqlite3 {
+  if (!Database) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      Database = require("better-sqlite3");
+    } catch {
+      throw new Error(
+        `better-sqlite3 is required for local/embedded mode but is not installed.
 
 To fix this, install it as a dependency:
 
@@ -24,7 +31,11 @@ Or if you only need to connect to a remote GraphDB server, use production mode:
 
 In production mode, nicefox-graphdb uses HTTP to connect to a remote server
 and does not require better-sqlite3.`
-  );
+      );
+    }
+  }
+  // After successful require, Database is guaranteed to be non-null
+  return Database!;
 }
 
 // ============================================================================
@@ -100,7 +111,8 @@ export class GraphDatabase {
   private initialized: boolean = false;
 
   constructor(path: string = ":memory:") {
-    this.db = new Database(path);
+    const DB = getBetterSqlite3();
+    this.db = new DB(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
   }

@@ -14,7 +14,7 @@ import {
   projectExists,
   getProjectKeyCount,
   ApiKeyConfig,
-} from "../src/helpers";
+} from "../src/cli-helpers";
 
 describe("CLI Helpers", () => {
   const testDir = path.join(process.cwd(), "test-cli-data");

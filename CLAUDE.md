@@ -5,13 +5,21 @@ SQLite-based graph database with Cypher query support.
 ## Architecture
 
 ```
-packages/server/src/
+src/
+├── index.ts       # Main entry, factory function (GraphDB)
+├── local.ts       # Local embedded SQLite client
+├── remote.ts      # Remote HTTP client
+├── types.ts       # Shared types
 ├── parser.ts      # Cypher tokenizer & parser → AST
 ├── translator.ts  # AST → SQL translation
 ├── executor.ts    # Query execution (handles multi-phase queries)
 ├── db.ts          # SQLite wrapper (nodes/edges tables)
 ├── routes.ts      # HTTP API endpoints
-└── auth.ts        # API key authentication
+├── server.ts      # Server startup
+├── auth.ts        # API key authentication
+├── backup.ts      # Backup utilities
+├── cli.ts         # CLI entry point
+└── cli-helpers.ts # CLI utilities
 ```
 
 ## Development
@@ -19,6 +27,8 @@ packages/server/src/
 ```bash
 pnpm test              # Run all tests
 pnpm test -- --run     # Run once (no watch)
+pnpm build             # Build to dist/
+pnpm dev               # Run server in dev mode
 pnpm tck 'Return6|11'  # Run single TCK test
 pnpm tck 'Match3' -l   # List matching TCK tests
 pnpm tck 'Return6|11' --sql  # Show generated SQL

@@ -193,16 +193,18 @@ describe("GraphDB Factory", () => {
       db.close();
     });
 
-    it("should use remote client when NODE_ENV is undefined", async () => {
+    it("should use local client when NODE_ENV is empty string", async () => {
       vi.stubEnv("NODE_ENV", "");
       
       const db = await GraphDB({
-        url: "http://localhost:99999",
+        url: "http://localhost:99999", // ignored for local client
         project: "test",
+        dataPath: ":memory:",
       });
       
-      // Remote client should fail on query (no server)
-      await expect(db.query("MATCH (n) RETURN n")).rejects.toThrow();
+      // Local client should work (no remote server needed)
+      const results = await db.query("MATCH (n) RETURN n");
+      expect(results).toEqual([]);
       
       db.close();
     });

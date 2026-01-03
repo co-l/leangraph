@@ -43,12 +43,12 @@ log "=========================================="
 # Run backup using CLI
 cd "$APP_PATH"
 
-if [ -f "packages/cli/dist/index.js" ]; then
+if [ -f "dist/cli.js" ]; then
     # Production: use compiled version
-    CLI_CMD="node packages/cli/dist/index.js"
+    CLI_CMD="node dist/cli.js"
 else
     # Development: use tsx
-    CLI_CMD="npx tsx packages/cli/src/index.ts"
+    CLI_CMD="npx tsx src/cli.ts"
 fi
 
 $CLI_CMD backup \

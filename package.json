@@ -3,32 +3,32 @@
   "version": "1.0.9",
   "description": "SQLite-based graph database with Cypher query support",
   "type": "module",
-  "main": "packages/nicefox-graphdb/dist/index.js",
-  "types": "packages/nicefox-graphdb/dist/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
-    "nicefox-graphdb": "./packages/nicefox-graphdb/dist/cli.js"
+    "nicefox-graphdb": "./dist/cli.js"
   },
   "exports": {
     ".": {
-      "types": "./packages/nicefox-graphdb/dist/index.d.ts",
-      "import": "./packages/nicefox-graphdb/dist/index.js",
-      "default": "./packages/nicefox-graphdb/dist/index.js"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
-    "packages/nicefox-graphdb/dist/**/*",
+    "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "prepare": "[ -d .git ] && cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit || true",
+    "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "dev": "pnpm --filter nicefox-graphdb-server dev",
-    "build": "pnpm -r build",
-    "tck": "npx tsx packages/server/test/tck/run-test.ts",
-    "prepublishOnly": "pnpm build"
+    "dev": "tsx watch src/server.ts",
+    "tck": "npx tsx test/tck/run-test.ts",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
@@ -40,14 +40,9 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.0.16",
+    "tsx": "^4.0.0",
     "typescript": "^5.3.0",
     "vitest": "^4.0.16"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild"
-    ]
   },
   "keywords": [
     "graph",

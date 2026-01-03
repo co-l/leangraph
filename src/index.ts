@@ -124,14 +124,14 @@ export const VERSION = "1.0.9";
  * ```
  */
 export async function GraphDB(options: GraphDBOptions = {}): Promise<GraphDBClient> {
-  const isDevelopment = process.env.NODE_ENV === "development";
+  const isProduction = process.env.NODE_ENV === "production";
 
-  if (isDevelopment) {
+  if (isProduction) {
+    return createRemoteClient(options);
+  } else {
     // Lazy-load local client to avoid requiring better-sqlite3 when not needed
     const { createLocalClient } = await import("./local.js");
     return createLocalClient(options);
-  } else {
-    return createRemoteClient(options);
   }
 }
 

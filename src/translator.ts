@@ -289,6 +289,18 @@ export class Translator {
           (this.ctx as any).optionalWhereClauses = [];
         }
         (this.ctx as any).optionalWhereClauses.push(clause.where);
+        
+        // Also associate this WHERE with the relationship patterns from this OPTIONAL MATCH
+        // This allows us to add the condition to the edge's LEFT JOIN ON clause
+        const relPatterns = (this.ctx as any).relationshipPatterns as any[] | undefined;
+        if (relPatterns) {
+          // Find patterns from this OPTIONAL MATCH (the ones that are optional and don't have a WHERE yet)
+          for (const pattern of relPatterns) {
+            if (pattern.optional && !pattern.optionalWhere) {
+              pattern.optionalWhere = clause.where;
+            }
+          }
+        }
       } else {
         (this.ctx as any).whereClause = clause.where;
       }
@@ -985,6 +997,10 @@ export class Translator {
       const addedEdgeAliases = new Set<string>();
       // Track which node aliases have had their filters added (to avoid duplicates)
       const filteredNodeAliases = new Set<string>();
+      // Track undirected patterns that need direction multipliers
+      // Maps edge alias to direction column alias (e.g., e2 -> _d0)
+      const undirectedDirections = new Map<string, string>();
+      let directionCounter = 0;
 
       // IMPORTANT: Before processing relationship patterns, add all non-optional node
       // patterns to FROM first. This ensures that bound variables from required MATCH
@@ -1126,11 +1142,33 @@ export class Translator {
         // Check if this is an undirected/bidirectional pattern (direction: "none")
         const isUndirected = relPattern.edge.direction === "none";
         
+        // For undirected patterns, we need a direction multiplier to produce two rows per edge
+        // One row where a=source, b=target (dir=1) and one where a=target, b=source (dir=2)
+        // Exception: for self-loops (source_id = target_id), we only need one row
+        let dirAlias: string | undefined;
+        if (isUndirected && !relPattern.optional) {
+          dirAlias = `_d${directionCounter++}`;
+          undirectedDirections.set(relPattern.edgeAlias, dirAlias);
+          // Add the direction table to FROM clause at the beginning
+          // We'll use this to double the rows for undirected patterns
+          fromParts.unshift(`(SELECT 1 AS ${dirAlias} UNION ALL SELECT 2 AS ${dirAlias}) AS __dir_${dirAlias}__`);
+          // For self-loops, skip the second direction (it would be a duplicate)
+          // This is handled by: WHERE NOT (edge.source_id = edge.target_id AND dir = 2)
+          whereParts.push(`NOT (${relPattern.edgeAlias}.source_id = ${relPattern.edgeAlias}.target_id AND ${dirAlias} = 2)`);
+        }
+        
         // Add edge join - need to determine direction based on whether source/target already exist
         // Use sourceWasAlreadyAdded (recorded before adding source) for accurate check
         if (isUndirected) {
-          // For undirected patterns, match edges in either direction
-          edgeOnConditions.push(`(${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id OR ${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id)`);
+          // For undirected patterns, the source node connects based on direction:
+          // dir=1: source is at edge.source_id
+          // dir=2: source is at edge.target_id
+          if (dirAlias) {
+            edgeOnConditions.push(`(${dirAlias} = 1 AND ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id OR ${dirAlias} = 2 AND ${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id)`);
+          } else {
+            // Optional undirected - use the old OR-based approach
+            edgeOnConditions.push(`(${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id OR ${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id)`);
+          }
         } else if (isOptional && addedNodeAliases.has(relPattern.targetAlias) && !sourceWasAlreadyAdded) {
           // OPTIONAL MATCH special case: target was already added (bound from previous MATCH) 
           // but source was not. Join edge on target side: edge.target_id = bound_target.id
@@ -1184,6 +1222,36 @@ export class Translator {
                 whereParams.push(value);
               }
             }
+          }
+        }
+
+        // For optional patterns with a WHERE clause, we need to determine where to add the condition:
+        // - If it only references already-joined tables (edge, source), add to edge's ON clause
+        // - If it references the target node, we need to use an EXISTS subquery on the edge join
+        //   to ensure that edges without a valid target are not matched (preventing duplicate NULL rows)
+        // This ensures proper NULL propagation when the condition fails
+        if (isOptional && (relPattern as any).optionalWhere) {
+          const whereCondition = (relPattern as any).optionalWhere as WhereCondition;
+          const varsInCondition = this.findVariablesInCondition(whereCondition);
+          
+          // Check if any variable in the condition is the target node
+          const targetVar = Array.from(this.ctx.variables.entries()).find(([_, info]) => info.alias === relPattern.targetAlias)?.[0];
+          const referencesTarget = targetVar && varsInCondition.includes(targetVar);
+          
+          if (referencesTarget) {
+            // For conditions on the target, add an EXISTS subquery to the edge join
+            // This ensures only edges with a valid target (satisfying the condition) are joined
+            const { sql: optionalWhereSql, params: optionalWhereParams } = this.translateWhere(whereCondition);
+            // Replace the target alias with a reference to the subquery's target_id
+            const edgeTargetColumn = relPattern.edge.direction === "left" ? "source_id" : "target_id";
+            const existsSql = `EXISTS(SELECT 1 FROM nodes __target__ WHERE __target__.id = ${relPattern.edgeAlias}.${edgeTargetColumn} AND ${optionalWhereSql.replace(new RegExp(relPattern.targetAlias + '\\.', 'g'), '__target__.')})`;
+            edgeOnConditions.push(existsSql);
+            edgeOnParams.push(...optionalWhereParams);
+          } else {
+            // Add to edge's ON clause
+            const { sql: optionalWhereSql, params: optionalWhereParams } = this.translateWhere(whereCondition);
+            edgeOnConditions.push(optionalWhereSql);
+            edgeOnParams.push(...optionalWhereParams);
           }
         }
 
@@ -1246,8 +1314,16 @@ export class Translator {
         if (!addedNodeAliases.has(relPattern.targetAlias)) {
           // For undirected patterns, target could be on either side of the edge
           if (isUndirected) {
-            // Target is whichever end of the edge is not the source
-            targetOnConditions.push(`((${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id) OR (${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id))`);
+            // Target uses the opposite side of the edge from source based on direction
+            // dir=1: target is at edge.target_id
+            // dir=2: target is at edge.source_id
+            const dirAlias = undirectedDirections.get(relPattern.edgeAlias);
+            if (dirAlias) {
+              targetOnConditions.push(`(${dirAlias} = 1 AND ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id OR ${dirAlias} = 2 AND ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id)`);
+            } else {
+              // Optional undirected - use the old OR-based approach
+              targetOnConditions.push(`((${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id) OR (${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id))`);
+            }
           } else if (relPattern.edge.direction === "left") {
             // Left-directed: target is at source_id side
             targetOnConditions.push(`${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id`);
@@ -1366,16 +1442,18 @@ export class Translator {
       // In Cypher, when matching a pattern like (a)-[r1]->(b)-[r2]->(c), r1 and r2 must be different relationships
       // BUT edges from separate MATCH clauses or disconnected patterns don't need to be distinct
       // AND if the same edge variable is used twice, no uniqueness constraint is needed (it's the same edge)
+      // IMPORTANT: MATCH and OPTIONAL MATCH are separate clauses - don't enforce automatic uniqueness between them
       if (relPatterns.length > 1) {
         // Build connectivity graph to find chains of connected relationships
-        // Two relationships are connected if they share a node (source/target)
+        // Two relationships are connected if they share a node (source/target) AND are in the same clause type
+        // (both non-optional or both optional - we don't cross-connect MATCH with OPTIONAL MATCH)
         const edgeGroups: number[][] = []; // Groups of edge indices that are connected
         const visited = new Set<number>();
         
         for (let i = 0; i < relPatterns.length; i++) {
           if (visited.has(i)) continue;
           
-          // BFS to find all connected edges
+          // BFS to find all connected edges within the same clause type
           const group: number[] = [];
           const queue = [i];
           
@@ -1391,6 +1469,10 @@ export class Translator {
             for (let j = 0; j < relPatterns.length; j++) {
               if (visited.has(j)) continue;
               const otherPattern = relPatterns[j];
+              
+              // Don't connect patterns from different clause types (MATCH vs OPTIONAL MATCH)
+              // This ensures edge uniqueness is only enforced within the same clause
+              if (currentPattern.optional !== otherPattern.optional) continue;
               
               // Check if they share any node
               if (currentPattern.sourceAlias === otherPattern.sourceAlias ||
@@ -1648,30 +1730,10 @@ export class Translator {
       whereParams.push(...conditionParams);
     }
 
-    // Add WHERE conditions from OPTIONAL MATCH
-    // These should be applied as: (optional_var IS NULL OR condition)
-    // This ensures the main row is still returned even if the optional match fails the WHERE
-    const optionalWhereClauses = (this.ctx as any).optionalWhereClauses as WhereCondition[] | undefined;
-    if (optionalWhereClauses && optionalWhereClauses.length > 0) {
-      for (const optionalWhere of optionalWhereClauses) {
-        const { sql: whereSql, params: conditionParams } = this.translateWhere(optionalWhere);
-        // Find the main variable in the condition to check for NULL
-        const optionalVars = this.findVariablesInCondition(optionalWhere);
-        if (optionalVars.length > 0) {
-          // Get the first optional variable's alias to check for NULL
-          const firstVar = optionalVars[0];
-          const varInfo = this.ctx.variables.get(firstVar);
-          if (varInfo) {
-            whereParts.push(`(${varInfo.alias}.id IS NULL OR ${whereSql})`);
-            whereParams.push(...conditionParams);
-          }
-        } else {
-          // No variables found, just add the condition
-          whereParts.push(whereSql);
-          whereParams.push(...conditionParams);
-        }
-      }
-    }
+    // OPTIONAL MATCH WHERE conditions are now handled in the edge's LEFT JOIN ON clause
+    // This ensures proper NULL propagation when the condition fails
+    // (The condition is added during edge join generation when optionalWhere is set on the pattern)
+    // We no longer add these to the main WHERE clause as that would filter out rows entirely
     
     // Add WHERE conditions from WITH clause
     if (withWhere) {
@@ -5512,6 +5574,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         vars.push(expr.variable);
       } else if (expr.type === "variable" && expr.variable) {
         vars.push(expr.variable);
+      } else if (expr.type === "labelPredicate" && (expr as any).variable) {
+        // Handle label predicates like n:Label
+        vars.push((expr as any).variable);
       }
     };
     

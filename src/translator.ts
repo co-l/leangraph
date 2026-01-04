@@ -3231,6 +3231,7 @@ export class Translator {
             edgeAliases: string[];
             isVariableLength?: boolean;
             pathCteName?: string;
+            optional?: boolean; // Whether path is from OPTIONAL MATCH
           }> | undefined;
           
           if (pathExpressions) {
@@ -3276,6 +3277,17 @@ export class Translator {
                 if (i < pathInfo.edgeAliases.length) {
                   elements.push(`${pathInfo.edgeAliases[i]}.properties`);
                 }
+              }
+              
+              // For optional paths, return NULL if any edge is NULL (pattern didn't match)
+              // This handles OPTIONAL MATCH p = (a)-[:X]->(b) returning NULL when no match
+              if (pathInfo.optional && pathInfo.edgeAliases.length > 0) {
+                const edgeNullChecks = pathInfo.edgeAliases.map(alias => `${alias}.id IS NULL`);
+                return {
+                  sql: `CASE WHEN ${edgeNullChecks.join(' OR ')} THEN NULL ELSE json_array(${elements.join(', ')}) END`,
+                  tables,
+                  params,
+                };
               }
               
               return {

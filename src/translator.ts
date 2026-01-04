@@ -391,6 +391,12 @@ export class Translator {
         throw new Error(`VariableAlreadyBound: Variable \`${node.variable}\` already declared as a path`);
       }
       
+      // Check if variable is already registered as an edge (relationship) variable
+      // In Cypher, a relationship variable cannot be reused as a node
+      if (existingVar && (existingVar.type === "edge" || existingVar.type === "varLengthEdge")) {
+        throw new Error(`SyntaxError: Variable \`${node.variable}\` already declared as a relationship`);
+      }
+      
       // Check if variable is bound to a non-node value from WITH clause
       // e.g., WITH true AS n MATCH (n) should error because n is a boolean, not a node
       const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;

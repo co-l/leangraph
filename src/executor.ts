@@ -21,6 +21,7 @@ import {
   ParameterRef,
   VariableRef,
   WhereCondition,
+  ReturnItem,
 } from "./parser.js";
 import { translate, TranslationResult, Translator } from "./translator.js";
 import { GraphDatabase } from "./db.js";
@@ -28,6 +29,52 @@ import { GraphDatabase } from "./db.js";
 // ============================================================================
 // Types
 // ============================================================================
+
+/**
+ * Phase execution context - carries variable values between phases
+ * 
+ * Cypher is inherently sequential. Each clause operates on variables from
+ * previous clauses. This context tracks:
+ * - nodeIds: Map variable names to node IDs (for nodes we've created/matched)
+ * - edgeIds: Map variable names to edge IDs (for edges we've created/matched)
+ * - values: Map variable names to arbitrary values (scalars, lists, aggregates)
+ * - rows: The current "row set" - multiple rows from MATCH or UNWIND
+ */
+export interface PhaseContext {
+  // Maps variable names to node IDs
+  nodeIds: Map<string, string>;
+  // Maps variable names to edge IDs  
+  edgeIds: Map<string, string>;
+  // Maps variable names to any value (scalars, lists, objects, etc.)
+  values: Map<string, unknown>;
+  // Current row set - each row is a map of variable -> value
+  // This is critical for handling UNWIND, MATCH, etc. that produce multiple rows
+  rows: Array<Map<string, unknown>>;
+}
+
+/**
+ * Create an empty phase context
+ */
+function createEmptyContext(): PhaseContext {
+  return {
+    nodeIds: new Map(),
+    edgeIds: new Map(),
+    values: new Map(),
+    rows: [new Map()], // Start with single empty row
+  };
+}
+
+/**
+ * Clone a phase context
+ */
+function cloneContext(ctx: PhaseContext): PhaseContext {
+  return {
+    nodeIds: new Map(ctx.nodeIds),
+    edgeIds: new Map(ctx.edgeIds),
+    values: new Map(ctx.values),
+    rows: ctx.rows.map(row => new Map(row)),
+  };
+}
 
 export interface ExecutionResult {
   success: true;
@@ -82,7 +129,21 @@ export class Executor {
         };
       }
 
-      // 2. Check for UNWIND with CREATE pattern (needs special handling)
+      // 2. Try phase-based execution for complex multi-phase queries
+      const phasedResult = this.tryPhasedExecution(parseResult.query, params);
+      if (phasedResult !== null) {
+        const endTime = performance.now();
+        return {
+          success: true,
+          data: phasedResult,
+          meta: {
+            count: phasedResult.length,
+            time_ms: Math.round((endTime - startTime) * 100) / 100,
+          },
+        };
+      }
+
+      // 2.1. Check for UNWIND with CREATE pattern (needs special handling)
       const unwindCreateResult = this.tryUnwindCreateExecution(parseResult.query, params);
       if (unwindCreateResult !== null) {
         const endTime = performance.now();
@@ -223,6 +284,1088 @@ export class Executor {
     }
   }
 
+  // ============================================================================
+  // Phase-Based Execution
+  // ============================================================================
+
+  /**
+   * Check if a query needs phase-based execution and execute it if so.
+   * 
+   * Phase boundaries are detected when:
+   * 1. A WITH clause contains an aggregate function (collect, count, sum, etc.)
+   * 2. An UNWIND clause references a variable that doesn't exist yet (from previous phase)
+   * 3. A clause references a variable computed from aggregation
+   * 
+   * Returns null if the query can be handled by standard SQL translation.
+   */
+  private tryPhasedExecution(
+    query: Query,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] | null {
+    const phases = this.detectPhases(query);
+    
+    // If only one phase, standard execution can handle it
+    if (phases.length <= 1) {
+      return null;
+    }
+    
+    // Execute phases sequentially
+    let context = createEmptyContext();
+    
+    this.db.transaction(() => {
+      for (let i = 0; i < phases.length; i++) {
+        const phase = phases[i];
+        const isLastPhase = i === phases.length - 1;
+        context = this.executePhase(phase, context, params, isLastPhase);
+      }
+    });
+    
+    // Convert context rows to result format
+    return this.contextToResults(context);
+  }
+
+  /**
+   * Detect phase boundaries in a query.
+   * 
+   * A phase boundary occurs when:
+   * - A WITH clause contains aggregate functions (collect, count, sum, avg, min, max)
+   * - An UNWIND clause references a variable from a previous WITH aggregate
+   */
+  private detectPhases(query: Query): Clause[][] {
+    const clauses = query.clauses;
+    const phases: Clause[][] = [];
+    let currentPhase: Clause[] = [];
+    
+    // Track variables that are computed from aggregates
+    const aggregateVariables = new Set<string>();
+    // Track all known variables in current phase
+    const knownVariables = new Set<string>();
+    
+    for (let i = 0; i < clauses.length; i++) {
+      const clause = clauses[i];
+      
+      // Check if this clause needs to start a new phase
+      let needsNewPhase = false;
+      
+      if (clause.type === "UNWIND") {
+        // Check if UNWIND expression references an aggregate variable
+        const referencedVars = this.getExpressionVariables(clause.expression);
+        for (const v of referencedVars) {
+          if (aggregateVariables.has(v)) {
+            needsNewPhase = true;
+            break;
+          }
+        }
+      }
+      
+      if (needsNewPhase && currentPhase.length > 0) {
+        phases.push(currentPhase);
+        currentPhase = [];
+      }
+      
+      currentPhase.push(clause);
+      
+      // Track variables defined by this clause
+      this.trackClauseVariables(clause, knownVariables, aggregateVariables);
+      
+      // Check if WITH with aggregate - marks end of a phase if next clause references aggregates
+      if (clause.type === "WITH") {
+        const hasAggregate = clause.items.some(item => 
+          this.expressionHasAggregate(item.expression)
+        );
+        
+        if (hasAggregate) {
+          // Mark all aliased items as aggregate variables
+          for (const item of clause.items) {
+            if (item.alias) {
+              aggregateVariables.add(item.alias);
+            }
+          }
+        }
+      }
+    }
+    
+    // Add final phase
+    if (currentPhase.length > 0) {
+      phases.push(currentPhase);
+    }
+    
+    return phases;
+  }
+
+  /**
+   * Get all variable names referenced in an expression
+   */
+  private getExpressionVariables(expr: Expression): Set<string> {
+    const vars = new Set<string>();
+    
+    if (expr.type === "variable" && expr.variable && expr.variable !== "*") {
+      vars.add(expr.variable);
+    } else if (expr.type === "property" && expr.variable) {
+      vars.add(expr.variable);
+    } else if (expr.type === "function" && expr.args) {
+      for (const arg of expr.args) {
+        for (const v of this.getExpressionVariables(arg)) {
+          vars.add(v);
+        }
+      }
+    } else if (expr.type === "binary" && expr.left && expr.right) {
+      for (const v of this.getExpressionVariables(expr.left)) {
+        vars.add(v);
+      }
+      for (const v of this.getExpressionVariables(expr.right)) {
+        vars.add(v);
+      }
+    }
+    
+    return vars;
+  }
+
+  /**
+   * Track variables defined by a clause
+   */
+  private trackClauseVariables(
+    clause: Clause,
+    knownVariables: Set<string>,
+    aggregateVariables: Set<string>
+  ): void {
+    switch (clause.type) {
+      case "CREATE":
+      case "MERGE":
+        for (const pattern of clause.patterns) {
+          if (this.isRelationshipPattern(pattern)) {
+            if (pattern.source.variable) knownVariables.add(pattern.source.variable);
+            if (pattern.target.variable) knownVariables.add(pattern.target.variable);
+            if (pattern.edge.variable) knownVariables.add(pattern.edge.variable);
+          } else if (pattern.variable) {
+            knownVariables.add(pattern.variable);
+          }
+        }
+        break;
+        
+      case "MATCH":
+      case "OPTIONAL_MATCH":
+        for (const pattern of clause.patterns) {
+          if (this.isRelationshipPattern(pattern)) {
+            if (pattern.source.variable) knownVariables.add(pattern.source.variable);
+            if (pattern.target.variable) knownVariables.add(pattern.target.variable);
+            if (pattern.edge.variable) knownVariables.add(pattern.edge.variable);
+          } else if (pattern.variable) {
+            knownVariables.add(pattern.variable);
+          }
+        }
+        break;
+        
+      case "UNWIND":
+        knownVariables.add(clause.alias);
+        break;
+        
+      case "WITH":
+        // WITH resets scope - only aliased items are visible after
+        for (const item of clause.items) {
+          if (item.alias) {
+            knownVariables.add(item.alias);
+          } else if (item.expression.type === "variable" && item.expression.variable) {
+            knownVariables.add(item.expression.variable);
+          }
+        }
+        break;
+    }
+  }
+
+  /**
+   * Check if an expression contains aggregate functions
+   */
+  private expressionHasAggregate(expr: Expression): boolean {
+    if (expr.type === "function") {
+      const funcName = expr.functionName?.toUpperCase();
+      if (["COLLECT", "COUNT", "SUM", "AVG", "MIN", "MAX"].includes(funcName || "")) {
+        return true;
+      }
+      // Check args recursively
+      if (expr.args) {
+        return expr.args.some(arg => this.expressionHasAggregate(arg));
+      }
+    } else if (expr.type === "binary") {
+      const leftHas = expr.left ? this.expressionHasAggregate(expr.left) : false;
+      const rightHas = expr.right ? this.expressionHasAggregate(expr.right) : false;
+      return leftHas || rightHas;
+    }
+    return false;
+  }
+
+  /**
+   * Execute a single phase with the given context
+   */
+  private executePhase(
+    clauses: Clause[],
+    inputContext: PhaseContext,
+    params: Record<string, unknown>,
+    isLastPhase: boolean
+  ): PhaseContext {
+    let context = cloneContext(inputContext);
+    
+    for (const clause of clauses) {
+      context = this.executeClause(clause, context, params);
+    }
+    
+    return context;
+  }
+
+  /**
+   * Execute a single clause and update context
+   */
+  private executeClause(
+    clause: Clause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    switch (clause.type) {
+      case "CREATE":
+        return this.executeCreateClause(clause, context, params);
+      case "WITH":
+        return this.executeWithClause(clause, context, params);
+      case "UNWIND":
+        return this.executeUnwindClause(clause, context, params);
+      case "MATCH":
+      case "OPTIONAL_MATCH":
+        return this.executeMatchClause(clause, context, params);
+      case "RETURN":
+        return this.executeReturnClause(clause, context, params);
+      case "SET":
+        return this.executeSetClause(clause, context, params);
+      case "DELETE":
+        return this.executeDeleteClause(clause, context, params);
+      default:
+        // For unsupported clause types, return context unchanged
+        return context;
+    }
+  }
+
+  /**
+   * Execute CREATE clause
+   */
+  private executeCreateClause(
+    clause: CreateClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    const newContext = cloneContext(context);
+    const newRows: Array<Map<string, unknown>> = [];
+    
+    // For each row in the current context, execute the CREATE
+    for (const row of context.rows) {
+      const rowContext = new Map(row);
+      
+      for (const pattern of clause.patterns) {
+        if (this.isRelationshipPattern(pattern)) {
+          this.executeCreateRelationshipInContext(pattern, rowContext, newContext, params);
+        } else {
+          this.executeCreateNodeInContext(pattern as NodePattern, rowContext, newContext, params);
+        }
+      }
+      
+      newRows.push(rowContext);
+    }
+    
+    newContext.rows = newRows;
+    return newContext;
+  }
+
+  /**
+   * Execute CREATE for a single node pattern within a row context
+   */
+  private executeCreateNodeInContext(
+    pattern: NodePattern,
+    rowContext: Map<string, unknown>,
+    globalContext: PhaseContext,
+    params: Record<string, unknown>
+  ): void {
+    const id = crypto.randomUUID();
+    const labelJson = this.normalizeLabelToJson(pattern.label);
+    const props = this.resolvePropertiesInContext(pattern.properties || {}, rowContext, params);
+    
+    this.db.execute(
+      "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+      [id, labelJson, JSON.stringify(props)]
+    );
+    
+    if (pattern.variable) {
+      // Store as a node object with _nf_id for consistency with MATCH output
+      const nodeObj = { ...props, _nf_id: id };
+      rowContext.set(pattern.variable, nodeObj);
+      globalContext.nodeIds.set(pattern.variable, id);
+    }
+  }
+
+  /**
+   * Extract a node ID from a value that could be:
+   * - A raw UUID string
+   * - A JSON string like '{"name":"Alice","_nf_id":"uuid"}'
+   * - An object with _nf_id property
+   */
+  private extractNodeId(value: unknown): string | null {
+    if (typeof value === "string") {
+      // Try parsing as JSON to extract _nf_id
+      try {
+        const parsed = JSON.parse(value);
+        if (typeof parsed === "object" && parsed !== null && "_nf_id" in parsed) {
+          return parsed._nf_id as string;
+        }
+      } catch {
+        // Not JSON, assume it's a raw ID
+        return value;
+      }
+      return value;
+    }
+    
+    if (typeof value === "object" && value !== null && "_nf_id" in value) {
+      return (value as Record<string, unknown>)._nf_id as string;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Execute CREATE for a relationship pattern within a row context
+   */
+  private executeCreateRelationshipInContext(
+    pattern: RelationshipPattern,
+    rowContext: Map<string, unknown>,
+    globalContext: PhaseContext,
+    params: Record<string, unknown>
+  ): void {
+    let sourceId: string;
+    let targetId: string;
+    
+    // Resolve source node
+    if (pattern.source.variable && rowContext.has(pattern.source.variable)) {
+      const nodeValue = rowContext.get(pattern.source.variable);
+      const extractedId = this.extractNodeId(nodeValue);
+      if (extractedId) {
+        sourceId = extractedId;
+      } else {
+        throw new Error(`Cannot resolve source node ID from variable ${pattern.source.variable}`);
+      }
+    } else {
+      // Create new source node
+      sourceId = crypto.randomUUID();
+      const props = this.resolvePropertiesInContext(pattern.source.properties || {}, rowContext, params);
+      this.db.execute(
+        "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+        [sourceId, this.normalizeLabelToJson(pattern.source.label), JSON.stringify(props)]
+      );
+      if (pattern.source.variable) {
+        rowContext.set(pattern.source.variable, sourceId);
+        globalContext.nodeIds.set(pattern.source.variable, sourceId);
+      }
+    }
+    
+    // Resolve target node
+    if (pattern.target.variable && rowContext.has(pattern.target.variable)) {
+      const nodeValue = rowContext.get(pattern.target.variable);
+      const extractedId = this.extractNodeId(nodeValue);
+      if (extractedId) {
+        targetId = extractedId;
+      } else {
+        throw new Error(`Cannot resolve target node ID from variable ${pattern.target.variable}`);
+      }
+    } else {
+      // Create new target node
+      targetId = crypto.randomUUID();
+      const props = this.resolvePropertiesInContext(pattern.target.properties || {}, rowContext, params);
+      this.db.execute(
+        "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+        [targetId, this.normalizeLabelToJson(pattern.target.label), JSON.stringify(props)]
+      );
+      if (pattern.target.variable) {
+        rowContext.set(pattern.target.variable, targetId);
+        globalContext.nodeIds.set(pattern.target.variable, targetId);
+      }
+    }
+    
+    // Handle direction
+    const [actualSource, actualTarget] = 
+      pattern.edge.direction === "left" ? [targetId, sourceId] : [sourceId, targetId];
+    
+    // Create edge
+    const edgeId = crypto.randomUUID();
+    const edgeType = pattern.edge.type || "";
+    const edgeProps = this.resolvePropertiesInContext(pattern.edge.properties || {}, rowContext, params);
+    
+    this.db.execute(
+      "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
+      [edgeId, edgeType, actualSource, actualTarget, JSON.stringify(edgeProps)]
+    );
+    
+    if (pattern.edge.variable) {
+      rowContext.set(pattern.edge.variable, edgeId);
+      globalContext.edgeIds.set(pattern.edge.variable, edgeId);
+    }
+  }
+
+  /**
+   * Execute WITH clause
+   */
+  private executeWithClause(
+    clause: WithClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    const newContext = cloneContext(context);
+    
+    // Check for aggregates - they collapse all rows into one
+    const hasAggregate = clause.items.some(item => 
+      this.expressionHasAggregate(item.expression)
+    );
+    
+    if (hasAggregate) {
+      // Aggregate mode: collect values across all rows, produce single output row
+      const outputRow = new Map<string, unknown>();
+      
+      for (const item of clause.items) {
+        const alias = item.alias || this.getExpressionName(item.expression);
+        
+        if (this.expressionHasAggregate(item.expression)) {
+          // Evaluate aggregate across all rows
+          const value = this.evaluateAggregateExpression(item.expression, context.rows, params);
+          outputRow.set(alias, value);
+          newContext.values.set(alias, value);
+        } else {
+          // Non-aggregate: take from first row (for grouping key)
+          if (context.rows.length > 0) {
+            const value = this.evaluateExpressionInRow(item.expression, context.rows[0], params);
+            outputRow.set(alias, value);
+          }
+        }
+      }
+      
+      newContext.rows = [outputRow];
+    } else {
+      // Non-aggregate mode: transform each row
+      const newRows: Array<Map<string, unknown>> = [];
+      
+      for (const row of context.rows) {
+        // Apply WHERE filter if present
+        if (clause.where) {
+          const passes = this.evaluateWhereInRow(clause.where, row, params);
+          if (!passes) continue;
+        }
+        
+        const outputRow = new Map<string, unknown>();
+        
+        // Handle WITH * - pass through all variables
+        const hasWildcard = clause.items.some(item => 
+          item.expression.type === "variable" && item.expression.variable === "*"
+        );
+        
+        if (hasWildcard) {
+          // Copy all variables from input row
+          for (const [key, value] of row) {
+            outputRow.set(key, value);
+          }
+        }
+        
+        // Process each WITH item
+        for (const item of clause.items) {
+          if (item.expression.type === "variable" && item.expression.variable === "*") {
+            continue; // Already handled
+          }
+          
+          const alias = item.alias || this.getExpressionName(item.expression);
+          const value = this.evaluateExpressionInRow(item.expression, row, params);
+          outputRow.set(alias, value);
+        }
+        
+        newRows.push(outputRow);
+      }
+      
+      newContext.rows = newRows;
+    }
+    
+    return newContext;
+  }
+
+  /**
+   * Execute UNWIND clause
+   */
+  private executeUnwindClause(
+    clause: UnwindClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    const newContext = cloneContext(context);
+    const newRows: Array<Map<string, unknown>> = [];
+    
+    for (const row of context.rows) {
+      // Evaluate the list expression in this row's context
+      const listValue = this.evaluateExpressionInRow(clause.expression, row, params);
+      
+      if (!Array.isArray(listValue)) {
+        // If not an array, treat as single-element
+        const newRow = new Map(row);
+        newRow.set(clause.alias, listValue);
+        newRows.push(newRow);
+      } else {
+        // Expand the list into multiple rows
+        for (const element of listValue) {
+          const newRow = new Map(row);
+          newRow.set(clause.alias, element);
+          newRows.push(newRow);
+        }
+      }
+    }
+    
+    newContext.rows = newRows;
+    return newContext;
+  }
+
+  /**
+   * Execute MATCH clause
+   */
+  private executeMatchClause(
+    clause: MatchClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    // For now, delegate to SQL translation for MATCH
+    // This is a complex operation that the translator handles well
+    // We'll use it and merge results back into context
+    
+    const matchQuery: Query = {
+      clauses: [
+        clause,
+        {
+          type: "RETURN" as const,
+          items: this.buildReturnItemsForMatch(clause),
+        },
+      ],
+    };
+    
+    const translator = new Translator(params);
+    const translation = translator.translate(matchQuery);
+    
+    const newContext = cloneContext(context);
+    const newRows: Array<Map<string, unknown>> = [];
+    
+    for (const stmt of translation.statements) {
+      const result = this.db.execute(stmt.sql, stmt.params);
+      
+      for (const sqlRow of result.rows) {
+        // For each input row, create output rows with matched data
+        for (const inputRow of context.rows) {
+          const outputRow = new Map(inputRow);
+          
+          // Add matched variables to row
+          for (const [key, value] of Object.entries(sqlRow)) {
+            if (key.startsWith("_")) continue; // Skip internal columns
+            outputRow.set(key, value);
+          }
+          
+          newRows.push(outputRow);
+        }
+      }
+    }
+    
+    if (newRows.length > 0) {
+      newContext.rows = newRows;
+    } else if (clause.type === "OPTIONAL_MATCH") {
+      // Optional match with no results - keep input rows with nulls
+      newContext.rows = context.rows;
+    }
+    
+    return newContext;
+  }
+
+  /**
+   * Build RETURN items for all variables in a MATCH pattern
+   */
+  private buildReturnItemsForMatch(clause: MatchClause): ReturnItem[] {
+    const items: ReturnItem[] = [];
+    const seen = new Set<string>();
+    
+    for (const pattern of clause.patterns) {
+      if (this.isRelationshipPattern(pattern)) {
+        if (pattern.source.variable && !seen.has(pattern.source.variable)) {
+          seen.add(pattern.source.variable);
+          items.push({
+            expression: { type: "variable", variable: pattern.source.variable },
+          });
+        }
+        if (pattern.target.variable && !seen.has(pattern.target.variable)) {
+          seen.add(pattern.target.variable);
+          items.push({
+            expression: { type: "variable", variable: pattern.target.variable },
+          });
+        }
+        if (pattern.edge.variable && !seen.has(pattern.edge.variable)) {
+          seen.add(pattern.edge.variable);
+          items.push({
+            expression: { type: "variable", variable: pattern.edge.variable },
+          });
+        }
+      } else if (pattern.variable && !seen.has(pattern.variable)) {
+        seen.add(pattern.variable);
+        items.push({
+          expression: { type: "variable", variable: pattern.variable },
+        });
+      }
+    }
+    
+    return items;
+  }
+
+  /**
+   * Execute RETURN clause
+   */
+  private executeReturnClause(
+    clause: ReturnClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    const newContext = cloneContext(context);
+    const newRows: Array<Map<string, unknown>> = [];
+    
+    for (const row of context.rows) {
+      const outputRow = new Map<string, unknown>();
+      
+      for (const item of clause.items) {
+        const alias = item.alias || this.getExpressionName(item.expression);
+        const value = this.evaluateExpressionInRow(item.expression, row, params);
+        outputRow.set(alias, value);
+      }
+      
+      newRows.push(outputRow);
+    }
+    
+    newContext.rows = newRows;
+    return newContext;
+  }
+
+  /**
+   * Execute SET clause
+   */
+  private executeSetClause(
+    clause: SetClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    for (const row of context.rows) {
+      for (const assignment of clause.assignments) {
+        const nodeId = row.get(assignment.variable) as string;
+        if (!nodeId) continue;
+        
+        if (assignment.property && assignment.value) {
+          const value = this.evaluateExpressionInRow(assignment.value, row, params);
+          this.db.execute(
+            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            [JSON.stringify(value), nodeId]
+          );
+        }
+      }
+    }
+    
+    return context;
+  }
+
+  /**
+   * Execute DELETE clause
+   */
+  private executeDeleteClause(
+    clause: DeleteClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): PhaseContext {
+    for (const row of context.rows) {
+      for (const variable of clause.variables) {
+        const id = row.get(variable) as string;
+        if (!id) continue;
+        
+        if (clause.detach) {
+          this.db.execute("DELETE FROM edges WHERE source_id = ? OR target_id = ?", [id, id]);
+        }
+        
+        // Try nodes first, then edges
+        const result = this.db.execute("DELETE FROM nodes WHERE id = ?", [id]);
+        if (result.changes === 0) {
+          this.db.execute("DELETE FROM edges WHERE id = ?", [id]);
+        }
+      }
+    }
+    
+    return context;
+  }
+
+  /**
+   * Evaluate an expression in the context of a single row
+   */
+  private evaluateExpressionInRow(
+    expr: Expression,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): unknown {
+    switch (expr.type) {
+      case "literal":
+        return expr.value;
+        
+      case "parameter":
+        return params[expr.name!];
+        
+      case "variable":
+        return row.get(expr.variable!);
+        
+      case "property": {
+        const varValue = row.get(expr.variable!);
+        if (varValue === null || varValue === undefined) return null;
+        
+        // Case 1: varValue is a JSON string (from MATCH translator output)
+        // It contains properties with _nf_id embedded
+        if (typeof varValue === "string") {
+          try {
+            const parsed = JSON.parse(varValue);
+            if (typeof parsed === "object" && parsed !== null) {
+              // Extract property from the embedded properties
+              return parsed[expr.property!] ?? null;
+            }
+          } catch {
+            // Not valid JSON, treat as node ID
+          }
+          
+          // Try as node ID
+          let result = this.db.execute(
+            `SELECT json_extract(properties, '$.${expr.property}') as value FROM nodes WHERE id = ?`,
+            [varValue]
+          );
+          if (result.rows.length > 0) {
+            return this.deepParseJson(result.rows[0].value);
+          }
+          
+          // Try edges
+          result = this.db.execute(
+            `SELECT json_extract(properties, '$.${expr.property}') as value FROM edges WHERE id = ?`,
+            [varValue]
+          );
+          if (result.rows.length > 0) {
+            return this.deepParseJson(result.rows[0].value);
+          }
+        }
+        
+        // Case 2: varValue is already a parsed object
+        if (typeof varValue === "object" && varValue !== null) {
+          return (varValue as Record<string, unknown>)[expr.property!] ?? null;
+        }
+        
+        return null;
+      }
+        
+      case "function":
+        return this.evaluateFunctionInRow(expr, row, params);
+        
+      case "binary":
+        return this.evaluateBinaryInRow(expr, row, params);
+        
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Evaluate a function expression in a row context
+   */
+  private evaluateFunctionInRow(
+    expr: Expression,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): unknown {
+    const funcName = expr.functionName?.toUpperCase();
+    const args = expr.args || [];
+    
+    switch (funcName) {
+      case "RANGE": {
+        if (args.length < 2) return [];
+        const start = this.evaluateExpressionInRow(args[0], row, params) as number;
+        const end = this.evaluateExpressionInRow(args[1], row, params) as number;
+        const step = args.length > 2 ? this.evaluateExpressionInRow(args[2], row, params) as number : 1;
+        
+        const result: number[] = [];
+        if (step > 0) {
+          for (let i = start; i <= end; i += step) {
+            result.push(i);
+          }
+        } else if (step < 0) {
+          for (let i = start; i >= end; i += step) {
+            result.push(i);
+          }
+        }
+        return result;
+      }
+      
+      case "SIZE": {
+        if (args.length === 0) return 0;
+        const value = this.evaluateExpressionInRow(args[0], row, params);
+        if (Array.isArray(value)) return value.length;
+        if (typeof value === "string") return value.length;
+        return 0;
+      }
+      
+      case "LIST": {
+        // List literal: [a, b, c]
+        return args.map(arg => this.evaluateExpressionInRow(arg, row, params));
+      }
+      
+      case "INDEX": {
+        // List indexing: list[index]
+        if (args.length < 2) return null;
+        const list = this.evaluateExpressionInRow(args[0], row, params) as unknown[];
+        const index = this.evaluateExpressionInRow(args[1], row, params) as number;
+        if (!Array.isArray(list)) return null;
+        const normalizedIndex = index < 0 ? list.length + index : index;
+        return list[normalizedIndex] ?? null;
+      }
+      
+      case "ID": {
+        if (args.length === 0) return null;
+        const nodeId = this.evaluateExpressionInRow(args[0], row, params);
+        return nodeId;
+      }
+      
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Evaluate a binary expression in a row context
+   */
+  private evaluateBinaryInRow(
+    expr: Expression,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): unknown {
+    if (!expr.left || !expr.right || !expr.operator) return null;
+    
+    const left = this.evaluateExpressionInRow(expr.left, row, params);
+    const right = this.evaluateExpressionInRow(expr.right, row, params);
+    
+    // Handle list concatenation
+    if (expr.operator === "+" && (Array.isArray(left) || Array.isArray(right))) {
+      const leftArr = Array.isArray(left) ? left : [left];
+      const rightArr = Array.isArray(right) ? right : [right];
+      return [...leftArr, ...rightArr];
+    }
+    
+    // Numeric operations
+    const leftNum = left as number;
+    const rightNum = right as number;
+    
+    switch (expr.operator) {
+      case "+": return leftNum + rightNum;
+      case "-": return leftNum - rightNum;
+      case "*": return leftNum * rightNum;
+      case "/": return leftNum / rightNum;
+      case "%": return leftNum % rightNum;
+      case "^": return Math.pow(leftNum, rightNum);
+      default: return null;
+    }
+  }
+
+  /**
+   * Evaluate an aggregate expression across all rows
+   */
+  private evaluateAggregateExpression(
+    expr: Expression,
+    rows: Array<Map<string, unknown>>,
+    params: Record<string, unknown>
+  ): unknown {
+    // Handle binary expressions that may contain aggregates (e.g., [a] + collect(n) + [b])
+    if (expr.type === "binary" && expr.left && expr.right && expr.operator) {
+      const leftHasAgg = this.expressionHasAggregate(expr.left);
+      const rightHasAgg = this.expressionHasAggregate(expr.right);
+      
+      // Evaluate left and right, recursing for aggregates
+      const left = leftHasAgg 
+        ? this.evaluateAggregateExpression(expr.left, rows, params)
+        : (rows.length > 0 ? this.evaluateExpressionInRow(expr.left, rows[0], params) : null);
+      const right = rightHasAgg
+        ? this.evaluateAggregateExpression(expr.right, rows, params)
+        : (rows.length > 0 ? this.evaluateExpressionInRow(expr.right, rows[0], params) : null);
+      
+      // Handle list concatenation
+      if (expr.operator === "+" && (Array.isArray(left) || Array.isArray(right))) {
+        const leftArr = Array.isArray(left) ? left : [left];
+        const rightArr = Array.isArray(right) ? right : [right];
+        return [...leftArr, ...rightArr];
+      }
+      
+      // Numeric operations
+      const leftNum = left as number;
+      const rightNum = right as number;
+      
+      switch (expr.operator) {
+        case "+": return leftNum + rightNum;
+        case "-": return leftNum - rightNum;
+        case "*": return leftNum * rightNum;
+        case "/": return leftNum / rightNum;
+        case "%": return leftNum % rightNum;
+        case "^": return Math.pow(leftNum, rightNum);
+        default: return null;
+      }
+    }
+    
+    if (expr.type !== "function") return null;
+    
+    const funcName = expr.functionName?.toUpperCase();
+    const args = expr.args || [];
+    
+    switch (funcName) {
+      case "COLLECT": {
+        if (args.length === 0) return [];
+        return rows.map(row => this.evaluateExpressionInRow(args[0], row, params));
+      }
+      
+      case "COUNT": {
+        if (args.length === 0) return rows.length;
+        return rows.filter(row => {
+          const value = this.evaluateExpressionInRow(args[0], row, params);
+          return value !== null && value !== undefined;
+        }).length;
+      }
+      
+      case "SUM": {
+        if (args.length === 0) return 0;
+        return rows.reduce((sum, row) => {
+          const value = this.evaluateExpressionInRow(args[0], row, params);
+          return sum + (typeof value === "number" ? value : 0);
+        }, 0);
+      }
+      
+      case "AVG": {
+        if (args.length === 0 || rows.length === 0) return null;
+        const values = rows.map(row => this.evaluateExpressionInRow(args[0], row, params))
+          .filter(v => typeof v === "number") as number[];
+        if (values.length === 0) return null;
+        return values.reduce((a, b) => a + b, 0) / values.length;
+      }
+      
+      case "MIN": {
+        if (args.length === 0 || rows.length === 0) return null;
+        const values = rows.map(row => this.evaluateExpressionInRow(args[0], row, params))
+          .filter(v => v !== null && v !== undefined);
+        if (values.length === 0) return null;
+        return Math.min(...values.map(v => v as number));
+      }
+      
+      case "MAX": {
+        if (args.length === 0 || rows.length === 0) return null;
+        const values = rows.map(row => this.evaluateExpressionInRow(args[0], row, params))
+          .filter(v => v !== null && v !== undefined);
+        if (values.length === 0) return null;
+        return Math.max(...values.map(v => v as number));
+      }
+      
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Evaluate a WHERE condition in a row context
+   */
+  private evaluateWhereInRow(
+    condition: WhereCondition,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): boolean {
+    switch (condition.type) {
+      case "comparison": {
+        const left = this.evaluateExpressionInRow(condition.left!, row, params);
+        const right = this.evaluateExpressionInRow(condition.right!, row, params);
+        
+        switch (condition.operator) {
+          case "=": return left === right;
+          case "<>": return left !== right;
+          case "<": return (left as number) < (right as number);
+          case ">": return (left as number) > (right as number);
+          case "<=": return (left as number) <= (right as number);
+          case ">=": return (left as number) >= (right as number);
+          default: return true;
+        }
+      }
+      
+      case "and":
+        return condition.conditions!.every(c => this.evaluateWhereInRow(c, row, params));
+        
+      case "or":
+        return condition.conditions!.some(c => this.evaluateWhereInRow(c, row, params));
+        
+      case "not":
+        return !this.evaluateWhereInRow(condition.condition!, row, params);
+        
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * Resolve properties with row context
+   */
+  private resolvePropertiesInContext(
+    props: Record<string, unknown>,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): Record<string, unknown> {
+    const resolved: Record<string, unknown> = {};
+    
+    for (const [key, value] of Object.entries(props)) {
+      resolved[key] = this.resolvePropertyValueInContext(value, row, params);
+    }
+    
+    return resolved;
+  }
+
+  /**
+   * Resolve a property value with row context
+   */
+  private resolvePropertyValueInContext(
+    value: unknown,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): unknown {
+    if (typeof value !== "object" || value === null) {
+      return value;
+    }
+    
+    const typed = value as { type?: string; name?: string; variable?: string };
+    
+    if (typed.type === "parameter" && typed.name) {
+      return params[typed.name];
+    }
+    
+    if (typed.type === "variable" && typed.name) {
+      return row.get(typed.name);
+    }
+    
+    // Handle Expression type
+    if ("type" in typed) {
+      return this.evaluateExpressionInRow(typed as Expression, row, params);
+    }
+    
+    return value;
+  }
+
+  /**
+   * Convert context to result format
+   */
+  private contextToResults(context: PhaseContext): Record<string, unknown>[] {
+    return context.rows.map(row => {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of row) {
+        result[key] = value;
+      }
+      return result;
+    });
+  }
+
   /**
    * Handle UNWIND with CREATE pattern
    * UNWIND expands an array and executes CREATE for each element
@@ -317,8 +1460,8 @@ export class Executor {
     
     // For aggregates, collect intermediate values
     const aggregateValues: Map<string, number[]> = new Map();
-    // Also collect values for WITH aggregates
-    const withAggregateValues: Map<string, number[]> = new Map();
+    // Also collect values for WITH aggregates (can be numbers or objects for collect)
+    const withAggregateValues: Map<string, unknown[]> = new Map();
     
     this.db.transaction(() => {
       for (const combination of combinations) {
@@ -368,28 +1511,33 @@ export class Executor {
             // Collect values for WITH aggregates
             if (hasWithAggregates) {
               for (const [alias, aggInfo] of withAggregateMap) {
-                let value: number | undefined;
+                let value: unknown;
                 
-                if (aggInfo.argProperty) {
-                  const id = createdIds.get(aggInfo.argVariable);
-                  if (id) {
-                    let result = this.db.execute(
-                      "SELECT properties FROM nodes WHERE id = ?",
+                const id = createdIds.get(aggInfo.argVariable);
+                if (id) {
+                  let result = this.db.execute(
+                    "SELECT properties FROM nodes WHERE id = ?",
+                    [id]
+                  );
+                  
+                  if (result.rows.length === 0) {
+                    result = this.db.execute(
+                      "SELECT properties FROM edges WHERE id = ?",
                       [id]
                     );
+                  }
+                  
+                  if (result.rows.length > 0) {
+                    const props = typeof result.rows[0].properties === "string"
+                      ? JSON.parse(result.rows[0].properties)
+                      : result.rows[0].properties;
                     
-                    if (result.rows.length === 0) {
-                      result = this.db.execute(
-                        "SELECT properties FROM edges WHERE id = ?",
-                        [id]
-                      );
-                    }
-                    
-                    if (result.rows.length > 0) {
-                      const props = typeof result.rows[0].properties === "string"
-                        ? JSON.parse(result.rows[0].properties)
-                        : result.rows[0].properties;
+                    if (aggInfo.argProperty) {
+                      // Collect property value
                       value = props[aggInfo.argProperty];
+                    } else {
+                      // Collect the whole node object (for collect(n))
+                      value = props;
                     }
                   }
                 }
@@ -537,23 +1685,31 @@ export class Executor {
             const values = withAggregateValues.get(alias) || [];
             
             switch (aggInfo.functionName) {
-              case "sum":
-                withAggregateResult[alias] = values.reduce((a, b) => a + b, 0);
+              case "sum": {
+                const nums = values as number[];
+                withAggregateResult[alias] = nums.reduce((a, b) => a + b, 0);
                 break;
+              }
               case "count":
                 withAggregateResult[alias] = values.length;
                 break;
-              case "avg":
-                withAggregateResult[alias] = values.length > 0 
-                  ? values.reduce((a, b) => a + b, 0) / values.length 
+              case "avg": {
+                const nums = values as number[];
+                withAggregateResult[alias] = nums.length > 0 
+                  ? nums.reduce((a, b) => a + b, 0) / nums.length 
                   : null;
                 break;
-              case "min":
-                withAggregateResult[alias] = values.length > 0 ? Math.min(...values) : null;
+              }
+              case "min": {
+                const nums = values as number[];
+                withAggregateResult[alias] = nums.length > 0 ? Math.min(...nums) : null;
                 break;
-              case "max":
-                withAggregateResult[alias] = values.length > 0 ? Math.max(...values) : null;
+              }
+              case "max": {
+                const nums = values as number[];
+                withAggregateResult[alias] = nums.length > 0 ? Math.max(...nums) : null;
                 break;
+              }
               case "collect":
                 withAggregateResult[alias] = values;
                 break;

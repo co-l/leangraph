@@ -2,8 +2,8 @@
 
 ## Current Status (vs Neo4j 3.5 Baseline)
 - **Target**: 2703 tests (what Neo4j 3.5 passes)
-- **Passing**: 1277 tests (47.2% of target)
-- **Failing**: 1426 tests (to be fixed)
+- **Passing**: 2313 tests (85.6% of target)
+- **Failing**: 390 tests (to be fixed)
 - **Not in baseline**: 19 tests (parser edge cases)
 
 ### What This Means
@@ -25,13 +25,11 @@ The workflow is simple:
 7. **Commit and push**
 
 
-### Tests to Skip
+### Recently Fixed Complex Tests
 
-Some tests require significant architectural changes. Skip these during normal TDD cycles:
-
-| Test | Reason |
-|------|--------|
-| `Match4\|4` | Requires sequential multi-phase execution. The setup query has chained UNWIND clauses where the second UNWIND (`range(0, size(nodeList)-2, 1)`) depends on `nodeList` from a previous WITH clause with `collect()`. This needs the executor to run phases sequentially and pass results between them. |
+| Test | Solution |
+|------|----------|
+| `Match4\|4` | Implemented phase-based execution in executor.ts. Fixed binary expressions with aggregates (`[a] + collect(n) + [b]`), collect() for node objects, and increased default maxHops to 50 for variable-length paths. |
 
 ### Example
 

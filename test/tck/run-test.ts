@@ -35,8 +35,34 @@ function valuesMatch(expected: unknown, actual: unknown): boolean {
     // Check it's an object (node) with matching labels/properties
     if (typeof actual !== "object" || actual === null) return false;
     const nodeObj = actual as Record<string, unknown>;
-    // For now just verify it's a valid node object with id
-    return "id" in nodeObj;
+    const pattern = (expected as Record<string, unknown>)._nodePattern as string;
+    
+    // Parse the pattern to extract expected properties
+    // Pattern format: "(:Label {key: value, ...})" or "({key: value})"
+    const propsMatch = pattern.match(/\{([^}]+)\}/);
+    if (propsMatch) {
+      // Parse key: value pairs - handles 'string', numbers, and identifiers
+      const propsStr = propsMatch[1];
+      const propPairs = propsStr.split(/,\s*/);
+      for (const pair of propPairs) {
+        const kvMatch = pair.match(/(\w+):\s*(.+)/);
+        if (kvMatch) {
+          const key = kvMatch[1];
+          let expectedValue: string | number = kvMatch[2].trim();
+          // Handle string values (with quotes)
+          if (expectedValue.startsWith("'") && expectedValue.endsWith("'")) {
+            expectedValue = expectedValue.slice(1, -1);
+          } else if (!isNaN(Number(expectedValue))) {
+            expectedValue = Number(expectedValue);
+          }
+          // Check if the node has this property with matching value
+          if (nodeObj[key] !== expectedValue) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
   }
   
   // Handle relationship patterns like [:TYPE]

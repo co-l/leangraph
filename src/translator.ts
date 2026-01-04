@@ -1961,7 +1961,8 @@ export class Translator {
     const minHops = varLengthPattern.minHops ?? 1;
     // For unbounded paths (*), use a reasonable default max
     // For fixed length (*2), maxHops equals minHops
-    const maxHops = varLengthPattern.maxHops ?? 10;
+    // Default of 50 handles most real-world graphs; increase if needed for deep chains
+    const maxHops = varLengthPattern.maxHops ?? 50;
     const edgeType = varLengthPattern.edge.type;
     const edgeProperties = varLengthPattern.edge.properties;
     const varLengthSourceAlias = varLengthPattern.sourceAlias;
@@ -2296,7 +2297,7 @@ export class Translator {
       if (pattern.isVariableLength) {
         // Handle another variable-length pattern by creating a second CTE
         const minHops2 = pattern.minHops ?? 1;
-        const maxHops2 = pattern.maxHops ?? 10;
+        const maxHops2 = pattern.maxHops ?? 50;
         const edgeType2 = pattern.edge.type;
         const isUndirected2 = pattern.edge.direction === "none";
         const pathCteName2 = `path_${this.ctx.aliasCounter++}`;

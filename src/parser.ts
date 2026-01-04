@@ -836,8 +836,9 @@ export class Parser {
   }
 
   /**
-   * Validate that no variable is used as both a node and a relationship in the same MATCH clause.
-   * This is invalid Cypher syntax.
+   * Validate that no variable is used as both a node and a relationship in the same MATCH clause,
+   * and that no relationship variable is used more than once in the same pattern.
+   * These are invalid Cypher syntax.
    */
   private validateNoNodeRelationshipVariableConflict(
     patterns: (NodePattern | RelationshipPattern)[],
@@ -845,6 +846,7 @@ export class Parser {
   ): void {
     const nodeVars = new Set<string>();
     const relVars = new Set<string>();
+    const seenRelVars = new Set<string>();
 
     // Helper to collect variables from patterns
     const collectFromPatterns = (pats: (NodePattern | RelationshipPattern)[]) => {
@@ -853,7 +855,14 @@ export class Parser {
           // RelationshipPattern
           if (pattern.source.variable) nodeVars.add(pattern.source.variable);
           if (pattern.target.variable) nodeVars.add(pattern.target.variable);
-          if (pattern.edge.variable) relVars.add(pattern.edge.variable);
+          if (pattern.edge.variable) {
+            // Check for duplicate relationship variable in the same pattern
+            if (seenRelVars.has(pattern.edge.variable)) {
+              throw new Error(`Cannot use the same relationship variable '${pattern.edge.variable}' for multiple patterns`);
+            }
+            seenRelVars.add(pattern.edge.variable);
+            relVars.add(pattern.edge.variable);
+          }
         } else {
           // NodePattern
           if (pattern.variable) nodeVars.add(pattern.variable);

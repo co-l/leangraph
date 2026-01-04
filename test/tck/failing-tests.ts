@@ -179,7 +179,7 @@ export const FAILING_TESTS = new Set<string>([
   // "clauses/match > Match2 - Match relationships|9:7",
   // "clauses/match > Match2 - Match relationships|9:8",
   // "clauses/match > Match2 - Match relationships|9:9",
-  "clauses/match > Match3 - Match fixed length patterns|29",
+  // "clauses/match > Match3 - Match fixed length patterns|29",
   // "clauses/match > Match3 - Match fixed length patterns|30",
   "clauses/match > Match4 - Match variable length patterns scenarios|10",
   "clauses/match > Match4 - Match variable length patterns scenarios|4",

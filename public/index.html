@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NiceFox GraphDB - Lightweight Graph Database with Cypher Support</title>
+  <meta name="description" content="A lightweight graph database with Cypher query support, powered by SQLite. Zero config, instant setup, perfect for developers.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0f;
+      --bg-secondary: #12121a;
+      --bg-tertiary: #1a1a24;
+      --text-primary: #e4e4e7;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --accent: #f97316;
+      --accent-glow: rgba(249, 115, 22, 0.4);
+      --border: #27272a;
+      --code-bg: #18181b;
+      --success: #22c55e;
+      --info: #3b82f6;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Animated background */
+    .bg-animation {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .node {
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      opacity: 0;
+      animation: nodeFloat 20s infinite;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .edge {
+      position: absolute;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+      opacity: 0;
+      transform-origin: left center;
+      animation: edgeDraw 15s infinite;
+    }
+
+    @keyframes nodeFloat {
+      0%, 100% { opacity: 0; transform: scale(0); }
+      10% { opacity: 0.6; transform: scale(1); }
+      90% { opacity: 0.6; transform: scale(1); }
+    }
+
+    @keyframes edgeDraw {
+      0%, 100% { opacity: 0; width: 0; }
+      20% { opacity: 0.3; width: 200px; }
+      80% { opacity: 0.3; width: 200px; }
+    }
+
+    /* Grid pattern overlay */
+    .grid-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: 
+        linear-gradient(rgba(249, 115, 22, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(249, 115, 22, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .content {
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Header */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 1rem 2rem;
+      background: rgba(10, 10, 15, 0.8);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 600;
+      font-size: 1.25rem;
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), #fb923c);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+    }
+
+    nav {
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+    }
+
+    nav a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    nav a:hover {
+      color: var(--text-primary);
+    }
+
+    .github-link {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+
+    .github-link:hover {
+      background: var(--border);
+      border-color: var(--text-muted);
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 8rem 2rem 4rem;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    h1 {
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+      background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h1 span {
+      background: linear-gradient(135deg, var(--accent) 0%, #fb923c 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin-bottom: 2.5rem;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.875rem 1.75rem;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #ea580c);
+      color: white;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 30px var(--accent-glow);
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border);
+    }
+
+    /* Install command */
+    .install-cmd {
+      margin-top: 3rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.5rem;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.95rem;
+    }
+
+    .install-cmd code {
+      color: var(--text-secondary);
+    }
+
+    .install-cmd code span {
+      color: var(--accent);
+    }
+
+    .copy-btn {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+
+    .copy-btn:hover {
+      color: var(--text-primary);
+      background: var(--border);
+    }
+
+    /* Features */
+    .section {
+      padding: 6rem 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .section-header h2 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .section-header p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      padding: 2rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      transition: all 0.3s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-4px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent-glow), transparent);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-card p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    /* Code example */
+    .code-section {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .code-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .code-header .dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .code-header .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+
+    .code-content {
+      padding: 1.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      overflow-x: auto;
+    }
+
+    .code-content pre {
+      margin: 0;
+    }
+
+    .code-keyword { color: #c084fc; }
+    .code-string { color: #4ade80; }
+    .code-function { color: #60a5fa; }
+    .code-comment { color: var(--text-muted); }
+    .code-property { color: #fbbf24; }
+    .code-number { color: #f472b6; }
+
+    /* Comparison */
+    .comparison {
+      background: var(--bg-primary);
+    }
+
+    .comparison-table {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .comparison-table table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 1rem 1.5rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .comparison-table th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .comparison-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .comparison-table td:first-child {
+      color: var(--text-secondary);
+    }
+
+    .check {
+      color: var(--success);
+    }
+
+    .cross {
+      color: var(--text-muted);
+    }
+
+    /* CTA */
+    .cta {
+      text-align: center;
+      padding: 8rem 2rem;
+      background: linear-gradient(180deg, var(--bg-primary), var(--bg-secondary));
+    }
+
+    .cta h2 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .cta p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      margin-bottom: 2rem;
+    }
+
+    /* Footer */
+    footer {
+      padding: 3rem 2rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+
+    footer p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      header {
+        padding: 1rem;
+      }
+
+      nav {
+        display: none;
+      }
+
+      .hero {
+        padding: 6rem 1rem 3rem;
+      }
+
+      .install-cmd {
+        flex-direction: column;
+        gap: 0.75rem;
+        text-align: center;
+      }
+
+      .section {
+        padding: 4rem 1rem;
+      }
+
+      .comparison-table {
+        overflow-x: auto;
+      }
+    }
+
+    /* Scroll animations */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: all 0.6s ease-out;
+    }
+
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <!-- Animated background -->
+  <div class="bg-animation" id="bgAnimation"></div>
+  <div class="grid-overlay"></div>
+
+  <div class="content">
+    <!-- Header -->
+    <header>
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+            <circle cx="12" cy="5" r="3"/>
+            <circle cx="5" cy="19" r="3"/>
+            <circle cx="19" cy="19" r="3"/>
+            <line x1="12" y1="8" x2="5" y2="16"/>
+            <line x1="12" y1="8" x2="19" y2="16"/>
+          </svg>
+        </div>
+        NiceFox GraphDB
+      </a>
+      <nav>
+        <a href="#features">Features</a>
+        <a href="#example">Example</a>
+        <a href="#comparison">Why NiceFox</a>
+        <a href="https://github.com/co-l/nicefox-graphdb" target="_blank" class="github-link">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          GitHub
+        </a>
+      </nav>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+      <div class="badge">
+        <span class="badge-dot"></span>
+        Open Source & MIT Licensed
+      </div>
+      <h1>Graph Database.<br><span>Zero Complexity.</span></h1>
+      <p class="hero-subtitle">
+        A lightweight graph database with Cypher query support, powered by SQLite. 
+        No JVM, no complex setup. Just npm install and start building.
+      </p>
+      <div class="hero-buttons">
+        <a href="https://github.com/co-l/nicefox-graphdb#readme" target="_blank" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+          </svg>
+          Documentation
+        </a>
+        <a href="https://www.npmjs.com/package/nicefox-graphdb" target="_blank" class="btn btn-secondary">
+          View on npm
+        </a>
+      </div>
+      <div class="install-cmd">
+        <code>$ <span>npm install</span> nicefox-graphdb</code>
+        <button class="copy-btn" onclick="copyToClipboard('npm install nicefox-graphdb')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="section" id="features">
+      <div class="section-header fade-in">
+        <h2>Built for Developers</h2>
+        <p>Everything you need to add graph capabilities to your application, without the operational overhead.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <h3>Instant Setup</h3>
+          <p>No database server required. Local SQLite storage in development, HTTP client for production. Same code, both environments.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+              <line x1="9" y1="9" x2="9.01" y2="9"/>
+              <line x1="15" y1="9" x2="15.01" y2="9"/>
+            </svg>
+          </div>
+          <h3>Cypher Queries</h3>
+          <p>Use the expressive Cypher query language. MATCH, CREATE, MERGE, DELETE, WITH, UNION and more. Familiar if you know Neo4j.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+          </div>
+          <h3>TypeScript Native</h3>
+          <p>First-class TypeScript support with full type definitions. Generic query methods for type-safe results.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <path d="M3 9h18M9 21V9"/>
+            </svg>
+          </div>
+          <h3>SQLite Powered</h3>
+          <p>Battle-tested SQLite under the hood. Copy your database file to back up. No complex replication or sharding.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+              <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+          </div>
+          <h3>Low Footprint</h3>
+          <p>~50MB RAM vs 1GB+ for Neo4j. Perfect for edge deployments, containers, and resource-constrained environments.</p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <h3>Self-Hostable</h3>
+          <p>Run the server anywhere. Single binary, no dependencies. Full CLI for project management, backups, and queries.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Code Example -->
+    <section class="section code-section" id="example">
+      <div class="section-header fade-in">
+        <h2>Simple, Powerful API</h2>
+        <p>Get started in minutes with an intuitive API that feels natural.</p>
+      </div>
+      <div class="code-container">
+        <div class="code-block fade-in">
+          <div class="code-header">
+            <div class="dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <span>app.ts</span>
+          </div>
+          <div class="code-content">
+<pre><span class="code-keyword">import</span> { GraphDB } <span class="code-keyword">from</span> <span class="code-string">'nicefox-graphdb'</span>;
+
+<span class="code-comment">// Initialize - works in dev & production</span>
+<span class="code-keyword">const</span> db = <span class="code-keyword">await</span> <span class="code-function">GraphDB</span>({
+  <span class="code-property">project</span>: <span class="code-string">'social-network'</span>,
+});
+
+<span class="code-comment">// Create a social graph</span>
+<span class="code-keyword">await</span> db.<span class="code-function">execute</span>(<span class="code-string">`
+  CREATE (alice:User {name: 'Alice'})
+    -[:FOLLOWS]->
+  (bob:User {name: 'Bob'})
+    -[:FOLLOWS]->
+  (charlie:User {name: 'Charlie'})
+`</span>);
+
+<span class="code-comment">// Query with Cypher</span>
+<span class="code-keyword">const</span> users = <span class="code-keyword">await</span> db.<span class="code-function">query</span>(<span class="code-string">`
+  MATCH (u:User)-[:FOLLOWS*1..2]->(f:User)
+  WHERE u.name = 'Alice'
+  RETURN DISTINCT f.name AS friend
+`</span>);
+
+console.<span class="code-function">log</span>(users);
+<span class="code-comment">// [{ friend: 'Bob' }, { friend: 'Charlie' }]</span></pre>
+          </div>
+        </div>
+        <div class="code-block fade-in">
+          <div class="code-header">
+            <div class="dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <span>cypher queries</span>
+          </div>
+          <div class="code-content">
+<pre><span class="code-comment">-- Create nodes and relationships</span>
+<span class="code-keyword">CREATE</span> (n:Person {<span class="code-property">name</span>: <span class="code-string">'Alice'</span>})
+
+<span class="code-comment">-- Pattern matching</span>
+<span class="code-keyword">MATCH</span> (a:Person)-[:KNOWS]->(b:Person)
+<span class="code-keyword">WHERE</span> a.age > <span class="code-number">21</span>
+<span class="code-keyword">RETURN</span> b.name
+
+<span class="code-comment">-- Variable-length paths</span>
+<span class="code-keyword">MATCH</span> (a)-[:FOLLOWS*<span class="code-number">1..3</span>]->(b)
+<span class="code-keyword">RETURN</span> <span class="code-keyword">DISTINCT</span> b
+
+<span class="code-comment">-- Aggregation</span>
+<span class="code-keyword">MATCH</span> (u:User)-[:POSTED]->(p:Post)
+<span class="code-keyword">RETURN</span> u.name, <span class="code-function">count</span>(p) <span class="code-keyword">AS</span> posts
+<span class="code-keyword">ORDER BY</span> posts <span class="code-keyword">DESC</span>
+
+<span class="code-comment">-- Merge (upsert)</span>
+<span class="code-keyword">MERGE</span> (u:User {<span class="code-property">email</span>: $email})
+<span class="code-keyword">ON CREATE SET</span> u.created = <span class="code-function">timestamp</span>()
+<span class="code-keyword">ON MATCH SET</span> u.lastSeen = <span class="code-function">timestamp</span>()
+
+<span class="code-comment">-- Database introspection</span>
+<span class="code-keyword">CALL</span> db.<span class="code-function">labels</span>() <span class="code-keyword">YIELD</span> label
+<span class="code-keyword">RETURN</span> label</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Comparison -->
+    <section class="section comparison" id="comparison">
+      <div class="section-header fade-in">
+        <h2>Why NiceFox?</h2>
+        <p>Graph capabilities without the operational complexity.</p>
+      </div>
+      <div class="comparison-table fade-in">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>NiceFox GraphDB</th>
+              <th>Neo4j</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Setup</td>
+              <td><span class="check">npm install</span></td>
+              <td>JVM + Server config</td>
+            </tr>
+            <tr>
+              <td>Development mode</td>
+              <td><span class="check">Local SQLite, zero config</span></td>
+              <td>Server required</td>
+            </tr>
+            <tr>
+              <td>Memory usage</td>
+              <td><span class="check">~50MB</span></td>
+              <td>1GB+ minimum</td>
+            </tr>
+            <tr>
+              <td>Backup</td>
+              <td><span class="check">Copy SQLite file</span></td>
+              <td>Enterprise license</td>
+            </tr>
+            <tr>
+              <td>Cypher support</td>
+              <td>Core subset</td>
+              <td>Full</td>
+            </tr>
+            <tr>
+              <td>License</td>
+              <td><span class="check">MIT (fully open)</span></td>
+              <td>GPLv3 / Commercial</td>
+            </tr>
+            <tr>
+              <td>Best for</td>
+              <td>Apps, prototypes, edge</td>
+              <td>Enterprise, analytics</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+      <h2 class="fade-in">Ready to try it?</h2>
+      <p class="fade-in">Add graph database capabilities to your project in under 5 minutes.</p>
+      <div class="hero-buttons fade-in">
+        <a href="https://github.com/co-l/nicefox-graphdb" target="_blank" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          Get Started on GitHub
+        </a>
+        <a href="https://www.npmjs.com/package/nicefox-graphdb" target="_blank" class="btn btn-secondary">
+          npm package
+        </a>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <p>
+        MIT License | Built by <a href="https://github.com/co-l" target="_blank">Conrad Lelubre</a> | 
+        <a href="https://github.com/co-l/nicefox-graphdb" target="_blank">GitHub</a>
+      </p>
+    </footer>
+  </div>
+
+  <script>
+    // Copy to clipboard
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text);
+      const btn = document.querySelector('.copy-btn');
+      btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+      setTimeout(() => {
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      }, 2000);
+    }
+
+    // Scroll animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+    // Generate animated background
+    function createBackground() {
+      const container = document.getElementById('bgAnimation');
+      const nodeCount = 15;
+      const edgeCount = 10;
+
+      for (let i = 0; i < nodeCount; i++) {
+        const node = document.createElement('div');
+        node.className = 'node';
+        node.style.left = Math.random() * 100 + '%';
+        node.style.top = Math.random() * 100 + '%';
+        node.style.animationDelay = Math.random() * 20 + 's';
+        node.style.animationDuration = (15 + Math.random() * 10) + 's';
+        container.appendChild(node);
+      }
+
+      for (let i = 0; i < edgeCount; i++) {
+        const edge = document.createElement('div');
+        edge.className = 'edge';
+        edge.style.left = Math.random() * 80 + '%';
+        edge.style.top = Math.random() * 100 + '%';
+        edge.style.transform = `rotate(${Math.random() * 360}deg)`;
+        edge.style.animationDelay = Math.random() * 15 + 's';
+        edge.style.animationDuration = (10 + Math.random() * 10) + 's';
+        container.appendChild(edge);
+      }
+    }
+
+    createBackground();
+  </script>
+</body>
+</html>

@@ -1509,7 +1509,11 @@ export class Parser {
       this.expect("DOT"); // second dot
       edge.minHops = 1;
       if (this.check("NUMBER")) {
-        edge.maxHops = parseInt(this.advance().value, 10);
+        const maxVal = parseInt(this.advance().value, 10);
+        if (maxVal < 0) {
+          throw new Error("Negative bound in variable-length pattern is not allowed");
+        }
+        edge.maxHops = maxVal;
       } else {
         edge.maxHops = undefined; // unbounded
       }
@@ -1518,6 +1522,9 @@ export class Parser {
 
     // Parse first number
     const firstNum = parseInt(this.expect("NUMBER").value, 10);
+    if (firstNum < 0) {
+      throw new Error("Negative bound in variable-length pattern is not allowed");
+    }
 
     // Check if this is a range or fixed
     if (this.check("DOT")) {
@@ -1534,7 +1541,11 @@ export class Parser {
 
       // Check for second number
       if (this.check("NUMBER")) {
-        edge.maxHops = parseInt(this.advance().value, 10);
+        const maxVal = parseInt(this.advance().value, 10);
+        if (maxVal < 0) {
+          throw new Error("Negative bound in variable-length pattern is not allowed");
+        }
+        edge.maxHops = maxVal;
       } else {
         edge.maxHops = undefined; // unbounded
       }

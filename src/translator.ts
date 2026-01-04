@@ -3300,13 +3300,13 @@ export class Translator {
                 // The edges need to be transformed to just their properties for consistency
                 const pathSql = `json_object('nodes', json_array(${nodeElements.join(', ')}), 'edges', ${pathCteName}.edge_ids)`;
                 
-                // For optional paths, return NULL if the path doesn't exist (end node or CTE is NULL)
+                // For optional paths, return NULL if the path doesn't exist (CTE edge_ids is NULL)
                 // This handles OPTIONAL MATCH p = (a)-[*]->(b) returning NULL when no path found
-                if (pathInfo.optional && pathInfo.nodeAliases.length > 0) {
-                  // Check the last node in the path (the target) - if it's NULL, the path failed
-                  const endNodeAlias = pathInfo.nodeAliases[pathInfo.nodeAliases.length - 1];
+                // Note: even if the end node exists (from required MATCH), the path may not exist
+                if (pathInfo.optional) {
+                  // Check if the path CTE found any result - edge_ids will be NULL if no path
                   return {
-                    sql: `CASE WHEN ${endNodeAlias}.id IS NULL THEN NULL ELSE ${pathSql} END`,
+                    sql: `CASE WHEN ${pathCteName}.edge_ids IS NULL THEN NULL ELSE ${pathSql} END`,
                     tables,
                     params,
                   };

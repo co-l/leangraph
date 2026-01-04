@@ -784,6 +784,9 @@ export class Parser {
       }
     }
 
+    // Validate: same variable cannot be used as both node and relationship
+    this.validateNoNodeRelationshipVariableConflict(patterns, pathExpressions);
+
     let where: WhereCondition | undefined;
     if (this.checkKeyword("WHERE")) {
       this.advance();
@@ -830,6 +833,54 @@ export class Parser {
   private parseOptionalMatch(): MatchClause {
     this.expect("KEYWORD", "OPTIONAL");
     return this.parseMatch(true);
+  }
+
+  /**
+   * Validate that no variable is used as both a node and a relationship in the same MATCH clause.
+   * This is invalid Cypher syntax.
+   */
+  private validateNoNodeRelationshipVariableConflict(
+    patterns: (NodePattern | RelationshipPattern)[],
+    pathExpressions?: PathExpression[]
+  ): void {
+    const nodeVars = new Set<string>();
+    const relVars = new Set<string>();
+
+    // Helper to collect variables from patterns
+    const collectFromPatterns = (pats: (NodePattern | RelationshipPattern)[]) => {
+      for (const pattern of pats) {
+        if ("edge" in pattern) {
+          // RelationshipPattern
+          if (pattern.source.variable) nodeVars.add(pattern.source.variable);
+          if (pattern.target.variable) nodeVars.add(pattern.target.variable);
+          if (pattern.edge.variable) relVars.add(pattern.edge.variable);
+        } else {
+          // NodePattern
+          if (pattern.variable) nodeVars.add(pattern.variable);
+        }
+      }
+    };
+
+    collectFromPatterns(patterns);
+
+    // Also check path expressions
+    if (pathExpressions) {
+      for (const pathExpr of pathExpressions) {
+        collectFromPatterns(pathExpr.patterns);
+      }
+    }
+
+    // Check for conflicts
+    for (const v of nodeVars) {
+      if (relVars.has(v)) {
+        throw new Error(`Variable '${v}' already declared as relationship`);
+      }
+    }
+    for (const v of relVars) {
+      if (nodeVars.has(v)) {
+        throw new Error(`Variable '${v}' already declared as node`);
+      }
+    }
   }
 
   private parseMerge(): MergeClause {

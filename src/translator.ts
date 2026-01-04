@@ -2374,42 +2374,148 @@ export class Translator {
         addedNodeAliases.add(varLengthTargetAlias);
       }
     } else {
-      // Add the CTE to FROM (it acts like a table)
-      fromParts.push(pathCteName);
+      // Check if this variable-length pattern is from an OPTIONAL MATCH
+      const isOptionalVarLength = varLengthPattern.optional === true;
       
-      // Add the target node of the variable-length path
-      if (!addedNodeAliases.has(varLengthTargetAlias)) {
-        fromParts.push(`nodes ${varLengthTargetAlias}`);
-        addedNodeAliases.add(varLengthTargetAlias);
-      }
-      
-      // Connect source node to path start
-      whereParts.push(`${varLengthSourceAlias}.id = ${pathCteName}.start_id`);
-      // Connect target node to path end
-      whereParts.push(`${varLengthTargetAlias}.id = ${pathCteName}.end_id`);
-      // Apply min depth constraint - deferred until after CTE params
-      if (minHops > 1) {
-        whereParts.push(`${pathCteName}.depth >= ?`);
-        deferredWhereParams.push(minHops);
-      }
-    }
-
-    // Add target label/property filters for the variable-length pattern - deferred until after CTE params
-    const targetPattern = (this.ctx as any)[`pattern_${varLengthTargetAlias}`];
-    if (targetPattern?.label && !filteredNodeAliases.has(varLengthTargetAlias)) {
-      const labelMatch = this.generateLabelMatchCondition(varLengthTargetAlias, targetPattern.label);
-      whereParts.push(labelMatch.sql);
-      deferredWhereParams.push(...labelMatch.params);
-      filteredNodeAliases.add(varLengthTargetAlias);
-    }
-    if (targetPattern?.properties) {
-      for (const [key, value] of Object.entries(targetPattern.properties)) {
-        if (this.isParameterRef(value as PropertyValue)) {
-          whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
-          deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+      if (isOptionalVarLength) {
+        // For OPTIONAL MATCH with variable-length paths, use LEFT JOINs
+        // The source should already be in FROM from a previous MATCH
+        // ON clause params need to be added directly to allParams (not deferred)
+        // because JOIN ON clauses come before WHERE in SQL
+        
+        // Check if the target node was from a REQUIRED (non-optional) MATCH
+        // If so, it should be in FROM, not LEFT JOINed
+        const targetIsFromRequiredMatch = (this.ctx as any)[`optional_${varLengthTargetAlias}`] !== true &&
+          (this.ctx as any)[`pattern_${varLengthTargetAlias}`] !== undefined;
+        
+        if (targetIsFromRequiredMatch) {
+          // Target is already bound from a required MATCH
+          // Add both source and target to FROM, LEFT JOIN the path CTE
+          // The WHERE clause checks if a path exists (but doesn't filter rows if not)
+          
+          // Add target to FROM if not already added
+          if (!addedNodeAliases.has(varLengthTargetAlias)) {
+            if (fromParts.length > 0) {
+              fromParts.push(`nodes ${varLengthTargetAlias}`);
+            } else {
+              fromParts.push(`nodes ${varLengthTargetAlias}`);
+            }
+            addedNodeAliases.add(varLengthTargetAlias);
+            
+            // Add target label/property filters to WHERE
+            const targetPattern = (this.ctx as any)[`pattern_${varLengthTargetAlias}`];
+            if (targetPattern?.label && !filteredNodeAliases.has(varLengthTargetAlias)) {
+              const labelMatch = this.generateLabelMatchCondition(varLengthTargetAlias, targetPattern.label);
+              whereParts.push(labelMatch.sql);
+              deferredWhereParams.push(...labelMatch.params);
+              filteredNodeAliases.add(varLengthTargetAlias);
+            }
+            if (targetPattern?.properties) {
+              for (const [key, value] of Object.entries(targetPattern.properties)) {
+                if (this.isParameterRef(value as PropertyValue)) {
+                  whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                  deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+                } else {
+                  whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                  deferredWhereParams.push(value);
+                }
+              }
+            }
+          }
+          
+          // Build ON clause for path CTE - connects source AND target
+          const pathOnConditions: string[] = [
+            `${varLengthSourceAlias}.id = ${pathCteName}.start_id`,
+            `${varLengthTargetAlias}.id = ${pathCteName}.end_id`
+          ];
+          if (minHops > 1) {
+            pathOnConditions.push(`${pathCteName}.depth >= ?`);
+            allParams.push(minHops);
+          }
+          
+          // LEFT JOIN the path CTE - optional path between already-bound nodes
+          joinParts.push(`LEFT JOIN ${pathCteName} ON ${pathOnConditions.join(" AND ")}`);
         } else {
-          whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
-          deferredWhereParams.push(value);
+          // Target is newly introduced by this OPTIONAL MATCH - use LEFT JOINs
+          
+          // Build ON clause conditions for the path CTE
+          const pathOnConditions: string[] = [`${varLengthSourceAlias}.id = ${pathCteName}.start_id`];
+          if (minHops > 1) {
+            pathOnConditions.push(`${pathCteName}.depth >= ?`);
+            allParams.push(minHops);
+          }
+          
+          // LEFT JOIN the path CTE
+          joinParts.push(`LEFT JOIN ${pathCteName} ON ${pathOnConditions.join(" AND ")}`);
+          
+          // Build ON clause conditions for the target node
+          const targetOnConditions: string[] = [`${pathCteName}.end_id = ${varLengthTargetAlias}.id`];
+          
+          // Add target label/property filters to ON clause (not WHERE) for proper OPTIONAL semantics
+          const targetPattern = (this.ctx as any)[`pattern_${varLengthTargetAlias}`];
+          if (targetPattern?.label && !filteredNodeAliases.has(varLengthTargetAlias)) {
+            const labelMatch = this.generateLabelMatchCondition(varLengthTargetAlias, targetPattern.label);
+            targetOnConditions.push(labelMatch.sql);
+            allParams.push(...labelMatch.params);
+            filteredNodeAliases.add(varLengthTargetAlias);
+          }
+          if (targetPattern?.properties) {
+            for (const [key, value] of Object.entries(targetPattern.properties)) {
+              if (this.isParameterRef(value as PropertyValue)) {
+                targetOnConditions.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                allParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+              } else {
+                targetOnConditions.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                allParams.push(value);
+              }
+            }
+          }
+          
+          // LEFT JOIN the target node
+          if (!addedNodeAliases.has(varLengthTargetAlias)) {
+            joinParts.push(`LEFT JOIN nodes ${varLengthTargetAlias} ON ${targetOnConditions.join(" AND ")}`);
+            addedNodeAliases.add(varLengthTargetAlias);
+          }
+        }
+      } else {
+        // Non-optional: use FROM (cross join) with WHERE conditions as before
+        // Add the CTE to FROM (it acts like a table)
+        fromParts.push(pathCteName);
+        
+        // Add the target node of the variable-length path
+        if (!addedNodeAliases.has(varLengthTargetAlias)) {
+          fromParts.push(`nodes ${varLengthTargetAlias}`);
+          addedNodeAliases.add(varLengthTargetAlias);
+        }
+        
+        // Connect source node to path start
+        whereParts.push(`${varLengthSourceAlias}.id = ${pathCteName}.start_id`);
+        // Connect target node to path end
+        whereParts.push(`${varLengthTargetAlias}.id = ${pathCteName}.end_id`);
+        // Apply min depth constraint - deferred until after CTE params
+        if (minHops > 1) {
+          whereParts.push(`${pathCteName}.depth >= ?`);
+          deferredWhereParams.push(minHops);
+        }
+        
+        // Add target label/property filters for the variable-length pattern - deferred until after CTE params
+        const targetPattern = (this.ctx as any)[`pattern_${varLengthTargetAlias}`];
+        if (targetPattern?.label && !filteredNodeAliases.has(varLengthTargetAlias)) {
+          const labelMatch = this.generateLabelMatchCondition(varLengthTargetAlias, targetPattern.label);
+          whereParts.push(labelMatch.sql);
+          deferredWhereParams.push(...labelMatch.params);
+          filteredNodeAliases.add(varLengthTargetAlias);
+        }
+        if (targetPattern?.properties) {
+          for (const [key, value] of Object.entries(targetPattern.properties)) {
+            if (this.isParameterRef(value as PropertyValue)) {
+              whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+              deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
+            } else {
+              whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+              deferredWhereParams.push(value);
+            }
+          }
         }
       }
     }

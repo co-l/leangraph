@@ -47,6 +47,9 @@ npm test
 # Shows which tests from failing-tests.ts now pass
 TCK_TEST_ALL=1 npm test
 
+# Find tests that now pass (extracts just the relevant output)
+npm run tck:check-fixed
+
 # Test a specific TCK test with details
 npm run tck 'Delete4|1' -- -v --sql -f
 
@@ -56,13 +59,13 @@ npm run tck 'Delete4|1' -- -f
 
 ### Finding Fixed Tests
 
-After implementing a fix, run with `TCK_TEST_ALL=1` to discover other tests that might have been fixed:
+After implementing a fix, use `tck:check-fixed` to quickly see which tests now pass:
 
 ```bash
-TCK_TEST_ALL=1 npm test
+npm run tck:check-fixed
 ```
 
-At the end of the test run, you'll see output like:
+This runs all tests and extracts just the newly passing tests:
 
 ```
 🎉 Tests from FAILING_TESTS that now PASS (3):

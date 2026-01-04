@@ -5264,6 +5264,29 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return { sql: result.sql, params: result.params };
       }
 
+      case "labelPredicate": {
+        // Label predicate: n:Label - returns true/false based on whether node has the label
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (!varInfo) {
+          throw new Error(`Unknown variable: ${expr.variable}`);
+        }
+        
+        // Handle single label or multiple labels
+        // Labels are stored as JSON arrays, e.g., ["Foo", "Bar"]
+        const labelsToCheck = expr.labels || (expr.label ? [expr.label] : []);
+        
+        // Use EXISTS with json_each to check if label is in the array
+        // For multiple labels, all must be present (AND)
+        const labelChecks = labelsToCheck.map((l: string) => 
+          `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${l}')`
+        ).join(' AND ');
+        
+        return {
+          sql: `(${labelChecks})`,
+          params: [],
+        };
+      }
+
       default:
         throw new Error(`Unknown expression type in WHERE: ${expr.type}`);
     }

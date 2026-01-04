@@ -1812,6 +1812,24 @@ export class Parser {
   private parseComparisonCondition(): WhereCondition {
     const left = this.parseExpression();
 
+    // Check for label predicate: variable:Label or variable:Label1:Label2
+    // After parsing the left expression (which should be a variable), check for COLON
+    if (this.check("COLON") && left.type === "variable") {
+      const variable = (left as { type: "variable"; variable: string }).variable;
+      const labelsList: string[] = [];
+      while (this.check("COLON")) {
+        this.advance(); // consume :
+        labelsList.push(this.expectLabelOrType());
+      }
+      // Convert to a comparison that checks labels
+      // Return as a comparison expression that the translator can handle
+      const labelExpr: Expression = labelsList.length === 1
+        ? { type: "labelPredicate", variable, label: labelsList[0] }
+        : { type: "labelPredicate", variable, labels: labelsList };
+      // Wrap it in a comparison-like structure for WhereCondition
+      return { type: "comparison", left: labelExpr, operator: "=", right: { type: "literal", value: true } };
+    }
+
     // Check for IS NULL / IS NOT NULL
     if (this.checkKeyword("IS")) {
       this.advance();

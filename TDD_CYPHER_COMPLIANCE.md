@@ -47,7 +47,9 @@ This workflow is to be respected to the letter:
 
 1. **Run `./scripts/comment-first-failing.sh` **
 2. **Run tests** - `npm test` - see it fail
-3. **Fix the code** until green
+3. **Fix the code** until green 
+  - Use `npm run tck 'Delete4|1' -- -v --sql -f` to get the test results with the generated SQL query
+  - Or use bash from the "Example for debugging" part of this document, to manually inspect queries and database state
 4. **Run `./scripts/comment-fixed-tests.sh` ** - automatically updates failing_tests.ts with working tests
 5. **Commit and push**
 
@@ -125,3 +127,33 @@ Copy these commented lines to `failing-tests.ts` to mark them as passing.
 | `Too few parameter values` | translator.ts or executor.ts |
 | `Unknown variable` | translator.ts |
 
+## Example for debugging
+
+```bash
+cd /home/conrad/dev/nicefox-graphdb && GRAPHDB_PROJECT=test-debug tsx -e "
+(async () => {
+  const { GraphDB } = require('./src/index.ts');
+  const db = await GraphDB();
+  // Setup
+  await db.execute('CREATE (a:A), (b:B)');
+  await db.execute('MATCH (a:A), (b:B) CREATE (a)-[:T1]->(b), (b)-[:T2]->(a)');
+  
+  // First let's check what's in the database
+  let result = await db.query('MATCH (n) RETURN n');
+  console.log('Nodes:', result.length);
+  
+  result = await db.query('MATCH ()-[r]->() RETURN r');
+  console.log('Edges:', result.length);
+  
+  // Now the actual query - step by step
+  result = await db.query('MATCH (a) RETURN a');
+  console.log('MATCH (a):', result.length, 'rows');
+  
+  result = await db.query('MATCH (a) MERGE (b) RETURN a, b');
+  console.log('MATCH (a) MERGE (b):', result.length, 'rows');
+  console.log('Result:', JSON.stringify(result, null, 2));
+  
+  db.close();
+})();
+"
+```

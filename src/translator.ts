@@ -7216,10 +7216,10 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         continue; // Valid - same expression in RETURN
       }
       
-      // Check if it's a pure aggregate expression (no non-aggregate parts)
+      // Check if it's a pure aggregate expression or uses only column aliases and aggregates
       // This is allowed even if not in RETURN
-      if (this.isPureAggregateExpression(orderExpr)) {
-        continue; // Valid - pure aggregate
+      if (this.isPureAggregateExpression(orderExpr, availableColumns)) {
+        continue; // Valid - pure aggregate or uses column aliases
       }
       
       // Invalid - mixed aggregate/non-aggregate or non-aggregate on ungrouped variable
@@ -7228,10 +7228,13 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
   }
   
   /**
-   * Check if an expression is a pure aggregate (contains only aggregates, literals, and operators).
+   * Check if an expression is a pure aggregate (contains only aggregates, literals, operators, and column aliases).
    * No references to non-aggregated variables.
+   * 
+   * @param expr - The expression to check
+   * @param availableColumns - Set of column aliases that are available from RETURN clause
    */
-  private isPureAggregateExpression(expr: Expression): boolean {
+  private isPureAggregateExpression(expr: Expression, availableColumns?: Set<string>): boolean {
     switch (expr.type) {
       case "function": {
         const aggregateFunctions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT", "PERCENTILEDISC", "PERCENTILECONT"];
@@ -7239,16 +7242,21 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           return true; // Aggregate function - pure
         }
         // Non-aggregate function - only pure if all args are pure aggregates or literals
-        return expr.args?.every(arg => this.isPureAggregateExpression(arg)) || false;
+        return expr.args?.every(arg => this.isPureAggregateExpression(arg, availableColumns)) || false;
       }
       case "binary":
         // Binary is pure if both sides are pure
-        return this.isPureAggregateExpression(expr.left!) && this.isPureAggregateExpression(expr.right!);
+        return this.isPureAggregateExpression(expr.left!, availableColumns) && this.isPureAggregateExpression(expr.right!, availableColumns);
       case "literal":
         return true; // Literals are always pure
       case "variable":
+        // Variable is pure if it references a column alias from RETURN
+        if (availableColumns && expr.variable && availableColumns.has(expr.variable)) {
+          return true;
+        }
+        return false; // Otherwise, not a pure aggregate
       case "property":
-        return false; // Variable/property references are not pure aggregates
+        return false; // Property references are not pure aggregates
       default:
         return false; // Conservative - assume not pure
     }

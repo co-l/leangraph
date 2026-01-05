@@ -962,6 +962,15 @@ export class Parser {
       patterns = patternOrPath as (NodePattern | RelationshipPattern)[];
     }
 
+    // Validate patterns - variable-length relationships are not allowed in MERGE
+    for (const pattern of patterns) {
+      if ("edge" in pattern) {
+        if (pattern.edge.minHops !== undefined || pattern.edge.maxHops !== undefined) {
+          throw new Error("Variable length relationship patterns are not supported in MERGE");
+        }
+      }
+    }
+
     let onCreateSet: SetAssignment[] | undefined;
     let onMatchSet: SetAssignment[] | undefined;
 

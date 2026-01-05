@@ -1018,31 +1018,51 @@ export class Executor {
     const [actualSource, actualTarget] = 
       pattern.edge.direction === "left" ? [targetId, sourceId] : [sourceId, targetId];
     
-    // Find existing edge
+    // Find existing edge - include property conditions if MERGE specifies properties
     let findSql = `SELECT id, properties FROM edges WHERE source_id = ? AND target_id = ? AND type = ?`;
     const findParams: unknown[] = [actualSource, actualTarget, edgeType];
     
+    // Add property conditions to filter edges with matching properties
+    for (const [key, value] of Object.entries(edgeProps)) {
+      if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+        // For arrays and objects, compare JSON representations
+        findSql += ` AND json_extract(properties, '$.${key}') = json(?)`;
+        findParams.push(JSON.stringify(value));
+      } else {
+        findSql += ` AND json_extract(properties, '$.${key}') = ?`;
+        findParams.push(value);
+      }
+    }
+    
     const findResult = this.db.execute(findSql, findParams);
     
-    const outputRow = new Map(inputRow);
-    
     if (findResult.rows.length > 0) {
-      // Edge exists
-      if (pattern.edge.variable) {
-        const edgeRow = findResult.rows[0];
-        const props = typeof edgeRow.properties === "string"
-          ? JSON.parse(edgeRow.properties)
-          : edgeRow.properties;
-        // Include _nf_start and _nf_end for startNode() and endNode() functions
-        outputRow.set(pattern.edge.variable, { 
-          ...props, 
-          _nf_id: edgeRow.id,
-          _nf_start: actualSource,
-          _nf_end: actualTarget
-        });
+      // Edges found - create Cartesian product (one output row per found edge)
+      const outputRows: Array<Map<string, unknown>> = [];
+      
+      for (const edgeRow of findResult.rows) {
+        const outputRow = new Map(inputRow);
+        
+        if (pattern.edge.variable) {
+          const props = typeof edgeRow.properties === "string"
+            ? JSON.parse(edgeRow.properties)
+            : edgeRow.properties;
+          // Include _nf_start and _nf_end for startNode() and endNode() functions
+          outputRow.set(pattern.edge.variable, { 
+            ...props, 
+            _nf_id: edgeRow.id,
+            _nf_start: actualSource,
+            _nf_end: actualTarget
+          });
+        }
+        
+        outputRows.push(outputRow);
       }
+      
+      return outputRows;
     } else {
-      // Create edge
+      // No edges found - create one
+      const outputRow = new Map(inputRow);
       const edgeId = crypto.randomUUID();
       this.db.execute(
         "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
@@ -1059,9 +1079,9 @@ export class Executor {
         });
         globalContext.edgeIds.set(pattern.edge.variable, edgeId);
       }
+      
+      return [outputRow];
     }
-    
-    return [outputRow];
   }
 
   /**

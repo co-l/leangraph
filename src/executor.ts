@@ -1030,20 +1030,35 @@ export class Executor {
     const [actualSource, actualTarget] = 
       pattern.edge.direction === "left" ? [targetId, sourceId] : [sourceId, targetId];
     
-    // Find existing edge - include property conditions if MERGE specifies properties
-    let findSql = `SELECT id, properties FROM edges WHERE source_id = ? AND target_id = ? AND type = ?`;
-    const findParams: unknown[] = [actualSource, actualTarget, edgeType];
-    
-    // Add property conditions to filter edges with matching properties
+    // Build property conditions for the WHERE clause
+    let propConditions = "";
+    const propParams: unknown[] = [];
     for (const [key, value] of Object.entries(edgeProps)) {
       if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
         // For arrays and objects, compare JSON representations
-        findSql += ` AND json_extract(properties, '$.${key}') = json(?)`;
-        findParams.push(JSON.stringify(value));
+        propConditions += ` AND json_extract(properties, '$.${key}') = json(?)`;
+        propParams.push(JSON.stringify(value));
       } else {
-        findSql += ` AND json_extract(properties, '$.${key}') = ?`;
-        findParams.push(value);
+        propConditions += ` AND json_extract(properties, '$.${key}') = ?`;
+        propParams.push(value);
       }
+    }
+    
+    // Find existing edge - for undirected patterns, check both directions
+    let findSql: string;
+    let findParams: unknown[];
+    
+    if (pattern.edge.direction === "none") {
+      // Undirected: check both source→target and target→source
+      findSql = `SELECT id, properties, source_id, target_id FROM edges WHERE type = ? AND (
+        (source_id = ? AND target_id = ?)${propConditions} OR 
+        (source_id = ? AND target_id = ?)${propConditions}
+      )`;
+      findParams = [edgeType, actualSource, actualTarget, ...propParams, actualTarget, actualSource, ...propParams];
+    } else {
+      // Directed: only check specified direction
+      findSql = `SELECT id, properties, source_id, target_id FROM edges WHERE source_id = ? AND target_id = ? AND type = ?${propConditions}`;
+      findParams = [actualSource, actualTarget, edgeType, ...propParams];
     }
     
     const findResult = this.db.execute(findSql, findParams);
@@ -1060,11 +1075,12 @@ export class Executor {
             ? JSON.parse(edgeRow.properties)
             : edgeRow.properties;
           // Include _nf_start and _nf_end for startNode() and endNode() functions
+          // Use the actual source/target from the found edge (may be reversed for undirected)
           outputRow.set(pattern.edge.variable, { 
             ...props, 
             _nf_id: edgeRow.id,
-            _nf_start: actualSource,
-            _nf_end: actualTarget
+            _nf_start: edgeRow.source_id,
+            _nf_end: edgeRow.target_id
           });
         }
         

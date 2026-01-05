@@ -3089,7 +3089,7 @@ export class Executor {
   }
 
   /**
-   * Handle UNWIND + MERGE pattern
+   * Handle UNWIND + MERGE pattern (optionally with WITH clauses between)
    * This requires special handling to resolve UNWIND variables in MERGE patterns
    */
   private tryUnwindMergeExecution(
@@ -3098,14 +3098,17 @@ export class Executor {
   ): Record<string, unknown>[] | null {
     const clauses = query.clauses;
     
-    // Find UNWIND and MERGE clauses
+    // Find UNWIND, WITH, MERGE, and RETURN clauses in order
     const unwindClauses: UnwindClause[] = [];
+    const withClauses: WithClause[] = [];
     let mergeClause: MergeClause | null = null;
     let returnClause: ReturnClause | null = null;
     
     for (const clause of clauses) {
       if (clause.type === "UNWIND") {
         unwindClauses.push(clause);
+      } else if (clause.type === "WITH") {
+        withClauses.push(clause);
       } else if (clause.type === "MERGE") {
         mergeClause = clause;
       } else if (clause.type === "RETURN") {
@@ -3127,23 +3130,32 @@ export class Executor {
     // Generate all combinations (cartesian product) of UNWIND values
     const combinations = this.generateCartesianProduct(unwindValues);
     
-    // Track created/merged node count
-    let mergedCount = 0;
+    // Build initial rows from UNWIND combinations
+    let rows: Record<string, unknown>[] = [];
+    for (const combination of combinations) {
+      const row: Record<string, unknown> = {};
+      for (let i = 0; i < unwindClauses.length; i++) {
+        row[unwindClauses[i].alias] = combination[i];
+      }
+      rows.push(row);
+    }
+    
+    // Apply WITH clauses to transform rows
+    for (const withClause of withClauses) {
+      rows = this.applyWithClauseToRows(rows, withClause, params);
+    }
+    
+    // Track merged nodes for RETURN
+    const mergedNodes: Array<{ variable: string; id: string; label: string; properties: Record<string, unknown> }> = [];
     
     this.db.transaction(() => {
-      for (const combination of combinations) {
-        // Build a map of unwind variable -> current value
-        const unwindContext: Record<string, unknown> = {};
-        for (let i = 0; i < unwindClauses.length; i++) {
-          unwindContext[unwindClauses[i].alias] = combination[i];
-        }
-        
+      for (const row of rows) {
         // Execute MERGE for each pattern
         for (const pattern of mergeClause!.patterns) {
           if (!this.isRelationshipPattern(pattern)) {
             // Node pattern MERGE
             const nodePattern = pattern as NodePattern;
-            const props = this.resolvePropertiesWithUnwind(nodePattern.properties || {}, params, unwindContext);
+            const props = this.resolvePropertiesFromRow(nodePattern.properties || {}, row, params);
             const labelJson = this.normalizeLabelToJson(nodePattern.label);
             
             // Check if node exists
@@ -3161,21 +3173,41 @@ export class Executor {
             }
             
             const existsQuery = whereConditions.length > 0
-              ? `SELECT id FROM nodes WHERE ${whereConditions.join(" AND ")}`
-              : "SELECT id FROM nodes LIMIT 1";
+              ? `SELECT id, properties FROM nodes WHERE ${whereConditions.join(" AND ")}`
+              : "SELECT id, properties FROM nodes LIMIT 1";
             
             const existsResult = this.db.execute(existsQuery, whereParams);
             
+            let nodeId: string;
+            let nodeProps: Record<string, unknown>;
+            
             if (existsResult.rows.length === 0) {
               // Node doesn't exist, create it
-              const id = crypto.randomUUID();
+              nodeId = crypto.randomUUID();
+              nodeProps = props;
               this.db.execute(
                 "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
-                [id, labelJson, JSON.stringify(props)]
+                [nodeId, labelJson, JSON.stringify(props)]
               );
+            } else {
+              nodeId = existsResult.rows[0].id as string;
+              const propsStr = existsResult.rows[0].properties as string;
+              nodeProps = propsStr ? JSON.parse(propsStr) : {};
             }
             
-            mergedCount++;
+            // Track merged node for RETURN
+            if (nodePattern.variable) {
+              // Normalize label to string
+              const labelStr = Array.isArray(nodePattern.label) 
+                ? nodePattern.label[0] || ""
+                : nodePattern.label || "";
+              mergedNodes.push({
+                variable: nodePattern.variable,
+                id: nodeId,
+                label: labelStr,
+                properties: nodeProps,
+              });
+            }
           }
         }
       }
@@ -3183,21 +3215,206 @@ export class Executor {
     
     // Handle RETURN clause
     if (returnClause) {
-      // For count(*) return the number of UNWIND iterations
-      for (const item of returnClause.items) {
-        if (item.expression.type === "function" && 
-            item.expression.functionName?.toLowerCase() === "count" &&
-            (!item.expression.args || item.expression.args.length === 0 ||
-             (item.expression.args.length === 1 && 
-              item.expression.args[0].type === "literal" &&
-              item.expression.args[0].value === "*"))) {
-          const alias = item.alias || "count(*)";
-          return [{ [alias]: mergedCount }];
+      const results: Record<string, unknown>[] = [];
+      
+      for (const mergedNode of mergedNodes) {
+        const resultRow: Record<string, unknown> = {};
+        
+        for (const item of returnClause.items) {
+          const alias = item.alias || this.expressionToString(item.expression);
+          
+          if (item.expression.type === "function" && 
+              item.expression.functionName?.toLowerCase() === "count" &&
+              (!item.expression.args || item.expression.args.length === 0 ||
+               (item.expression.args.length === 1 && 
+                item.expression.args[0].type === "literal" &&
+                item.expression.args[0].value === "*"))) {
+            return [{ [alias]: mergedNodes.length }];
+          } else if (item.expression.type === "property") {
+            // Property access like a.num
+            if (item.expression.variable === mergedNode.variable) {
+              resultRow[alias] = mergedNode.properties[item.expression.property!];
+            }
+          } else if (item.expression.type === "variable") {
+            // Return whole node
+            if (item.expression.variable === mergedNode.variable) {
+              resultRow[alias] = {
+                _id: mergedNode.id,
+                _labels: mergedNode.label ? [mergedNode.label] : [],
+                ...mergedNode.properties,
+              };
+            }
+          }
+        }
+        
+        if (Object.keys(resultRow).length > 0) {
+          results.push(resultRow);
         }
       }
+      
+      return results;
     }
     
     return [];
+  }
+  
+  /**
+   * Apply a WITH clause to transform rows
+   */
+  private applyWithClauseToRows(
+    rows: Record<string, unknown>[],
+    withClause: WithClause,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] {
+    // Apply WHERE filter if present
+    if (withClause.where) {
+      rows = rows.filter(row => this.evaluateWhereConditionOnRow(withClause.where!, row, params));
+    }
+    
+    // Transform rows based on WITH items (projection/renaming)
+    let newRows = rows.map(row => {
+      const newRow: Record<string, unknown> = {};
+      for (const item of withClause.items) {
+        const alias = item.alias || this.expressionToString(item.expression);
+        newRow[alias] = this.evaluateExpressionOnRow(item.expression, row, params);
+      }
+      return newRow;
+    });
+    
+    // Apply DISTINCT if present
+    if (withClause.distinct) {
+      const seen = new Set<string>();
+      newRows = newRows.filter(row => {
+        const key = JSON.stringify(row);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    
+    return newRows;
+  }
+  
+  /**
+   * Evaluate a WHERE condition on a row context
+   */
+  private evaluateWhereConditionOnRow(
+    condition: WhereCondition,
+    row: Record<string, unknown>,
+    params: Record<string, unknown>
+  ): boolean {
+    if (condition.type === "and") {
+      return condition.conditions!.every(c => this.evaluateWhereConditionOnRow(c, row, params));
+    }
+    if (condition.type === "or") {
+      return condition.conditions!.some(c => this.evaluateWhereConditionOnRow(c, row, params));
+    }
+    if (condition.type === "not") {
+      return !this.evaluateWhereConditionOnRow(condition.condition!, row, params);
+    }
+    if (condition.type === "comparison") {
+      const left = this.evaluateExpressionOnRow(condition.left!, row, params);
+      const right = this.evaluateExpressionOnRow(condition.right!, row, params);
+      return this.evaluateComparison(left, right, condition.operator!);
+    }
+    // Default true for unsupported conditions
+    return true;
+  }
+  
+  /**
+   * Evaluate an expression in the context of a row
+   */
+  private evaluateExpressionOnRow(
+    expr: Expression,
+    row: Record<string, unknown>,
+    params: Record<string, unknown>
+  ): unknown {
+    if (expr.type === "literal") {
+      return expr.value;
+    }
+    if (expr.type === "variable") {
+      return row[expr.variable!];
+    }
+    if (expr.type === "parameter") {
+      return params[expr.name!];
+    }
+    if (expr.type === "property") {
+      const obj = row[expr.variable!];
+      if (obj && typeof obj === "object" && expr.property) {
+        return (obj as Record<string, unknown>)[expr.property];
+      }
+      return null;
+    }
+    // Default null for unsupported expressions
+    return null;
+  }
+  
+  /**
+   * Check if a value is a parameter reference
+   */
+  private isParamRef(value: unknown): value is { type: "parameter"; name: string } {
+    return typeof value === "object" && value !== null && 
+           (value as Record<string, unknown>).type === "parameter" &&
+           typeof (value as Record<string, unknown>).name === "string";
+  }
+  
+  /**
+   * Check if a value is a variable reference
+   */
+  private isVarRef(value: unknown): value is { type: "variable"; name: string } {
+    return typeof value === "object" && value !== null && 
+           (value as Record<string, unknown>).type === "variable" &&
+           typeof (value as Record<string, unknown>).name === "string";
+  }
+  
+  /**
+   * Resolve MERGE pattern properties from a row context
+   */
+  private resolvePropertiesFromRow(
+    properties: Record<string, unknown>,
+    row: Record<string, unknown>,
+    params: Record<string, unknown>
+  ): Record<string, unknown> {
+    const resolved: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(properties)) {
+      if (this.isParamRef(value)) {
+        resolved[key] = params[value.name];
+      } else if (this.isVarRef(value)) {
+        resolved[key] = row[value.name];
+      } else if (value !== null && typeof value === "object" && "type" in value) {
+        const expr = value as Expression;
+        resolved[key] = this.evaluateExpressionOnRow(expr, row, params);
+      } else {
+        resolved[key] = value;
+      }
+    }
+    return resolved;
+  }
+  
+  /**
+   * Convert expression to string for alias/key purposes
+   */
+  private expressionToString(expr: Expression): string {
+    if (expr.type === "variable") return expr.variable || "";
+    if (expr.type === "property") return `${expr.variable}.${expr.property}`;
+    if (expr.type === "literal") return String(expr.value);
+    return "expr";
+  }
+  
+  /**
+   * Compare two values with operator
+   */
+  private evaluateComparison(left: unknown, right: unknown, operator: string): boolean {
+    if (left === null || right === null) return false;
+    switch (operator) {
+      case "=": return left === right;
+      case "<>": case "!=": return left !== right;
+      case ">": return (left as number) > (right as number);
+      case "<": return (left as number) < (right as number);
+      case ">=": return (left as number) >= (right as number);
+      case "<=": return (left as number) <= (right as number);
+      default: return false;
+    }
   }
 
   /**

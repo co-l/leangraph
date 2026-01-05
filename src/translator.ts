@@ -1066,6 +1066,12 @@ export class Translator {
     // This must be done before processing items to catch the error early
     this.checkDuplicateColumnNames(clause.items);
 
+    // Validate ORDER BY with DISTINCT
+    // When DISTINCT is used, ORDER BY can only reference expressions in the RETURN clause
+    if (clause.distinct && clause.orderBy && clause.orderBy.length > 0) {
+      this.validateDistinctOrderBy(clause);
+    }
+
     const selectParts: string[] = [];
     const returnColumns: string[] = [];
     const fromParts: string[] = [];
@@ -6959,6 +6965,101 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
       }
       
       seenNames.add(columnName);
+    }
+  }
+
+  /**
+   * Validate that ORDER BY expressions with DISTINCT only reference columns in the RETURN clause.
+   * In SQL, when using SELECT DISTINCT, ORDER BY can only reference columns that appear in the SELECT list.
+   * This is because DISTINCT removes duplicate rows before ORDER BY, so ordering by a column not in
+   * the SELECT list would be ambiguous (which value to use from the deduplicated rows?).
+   * 
+   * Special cases:
+   * - RETURN DISTINCT b ORDER BY b.name - VALID (b is returned, b.name is a property of b)
+   * - RETURN DISTINCT a.name ORDER BY a.age - INVALID (a.age is not in RETURN)
+   */
+  private validateDistinctOrderBy(clause: ReturnClause): void {
+    // Build a set of what's available for ORDER BY:
+    // 1. Column aliases (explicit AS name)
+    // 2. Expression names derived from RETURN items (e.g., "a.name" for a property access)
+    // 3. Variables that are returned as whole nodes/edges (their properties are accessible)
+    const availableColumns = new Set<string>();
+    const returnedVariables = new Set<string>(); // Whole node/edge variables returned
+    
+    // Also track the expressions that are returned so we can match ORDER BY expressions
+    const returnedExpressions: Expression[] = [];
+    
+    for (const item of clause.items) {
+      // Get the column name
+      const columnName = item.alias || this.getExpressionName(item.expression);
+      availableColumns.add(columnName);
+      returnedExpressions.push(item.expression);
+      
+      // If the expression is a whole variable (not a property), it's available for property access
+      if (item.expression.type === "variable" && item.expression.variable) {
+        returnedVariables.add(item.expression.variable);
+      }
+    }
+    
+    // Check each ORDER BY expression
+    for (const orderItem of clause.orderBy!) {
+      const orderExpr = orderItem.expression;
+      
+      // Check if the ORDER BY expression matches a returned column name
+      const orderExprName = this.getExpressionName(orderExpr);
+      if (availableColumns.has(orderExprName)) {
+        continue; // Valid - matches a column alias or expression name
+      }
+      
+      // Check if the ORDER BY expression is structurally equivalent to a RETURN expression
+      if (this.expressionMatchesAny(orderExpr, returnedExpressions)) {
+        continue; // Valid - same expression is in RETURN
+      }
+      
+      // Check if ORDER BY is on a property of a returned variable
+      // e.g., RETURN DISTINCT b ORDER BY b.name - valid because b is returned
+      if (orderExpr.type === "property" && orderExpr.variable && returnedVariables.has(orderExpr.variable)) {
+        continue; // Valid - property access on a returned variable
+      }
+      
+      // Invalid - ORDER BY expression references something not in RETURN DISTINCT
+      throw new Error(`SyntaxError: In a WITH/RETURN with DISTINCT or an aggregation, it is not possible to access variables not already contained in the WITH/RETURN`);
+    }
+  }
+
+  /**
+   * Check if an expression matches any expression in the list (structurally).
+   */
+  private expressionMatchesAny(expr: Expression, expressions: Expression[]): boolean {
+    for (const candidate of expressions) {
+      if (this.expressionsMatch(expr, candidate)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if two expressions are structurally equivalent.
+   */
+  private expressionsMatch(a: Expression, b: Expression): boolean {
+    if (a.type !== b.type) return false;
+    
+    switch (a.type) {
+      case "property":
+        return a.variable === b.variable && a.property === b.property;
+      case "variable":
+        return a.variable === b.variable;
+      case "literal":
+        return a.value === b.value;
+      case "function":
+        if (a.functionName !== b.functionName) return false;
+        if (!a.args || !b.args) return a.args === b.args;
+        if (a.args.length !== b.args.length) return false;
+        return a.args.every((arg, i) => this.expressionsMatch(arg, b.args![i]));
+      default:
+        // For other expression types, be conservative and return false
+        return false;
     }
   }
 

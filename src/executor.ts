@@ -5031,20 +5031,54 @@ export class Executor {
     const allResults: Record<string, unknown>[] = [];
     const patterns = mergeClause.patterns;
     
+    // Check if RETURN has aggregate functions - need special handling
+    const hasAggregate = returnClause && returnClause.items.some(item => 
+      this.expressionHasAggregate(item.expression)
+    );
+    
+    // Track all matched nodes and edges for aggregation
+    const allMatchedNodeRows: Map<string, { id: string; label: string; properties: Record<string, unknown> }>[] = [];
+    const allMatchedEdgeRows: Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>[] = [];
+    
     for (const matchRow of matchRows) {
       // Convert matchRow to the format expected by executeMergeNodeForRow
       const matchedNodes = new Map(matchRow);
+      const matchedEdges = new Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>();
       
-      let rowResults: Record<string, unknown>[];
       if (patterns.length === 1 && !this.isRelationshipPattern(patterns[0])) {
-        rowResults = this.executeMergeNodeForRow(patterns[0] as NodePattern, mergeClause, returnClause, params, matchedNodes);
+        if (hasAggregate) {
+          // Execute MERGE without RETURN processing - we'll aggregate later
+          this.executeMergeNodeForRow(patterns[0] as NodePattern, mergeClause, null, params, matchedNodes);
+          allMatchedNodeRows.push(new Map(matchedNodes));
+        } else {
+          const rowResults = this.executeMergeNodeForRow(patterns[0] as NodePattern, mergeClause, returnClause, params, matchedNodes);
+          allResults.push(...rowResults);
+        }
       } else if (patterns.length === 1 && this.isRelationshipPattern(patterns[0])) {
-        rowResults = this.executeMergeRelationshipForRow(patterns[0] as RelationshipPattern, mergeClause, returnClause, params, matchedNodes);
+        if (hasAggregate) {
+          // Execute MERGE without RETURN processing - we'll aggregate later
+          // We need a version that captures the edge info but doesn't process RETURN
+          this.executeMergeRelationshipForRowWithTracking(
+            patterns[0] as RelationshipPattern, 
+            mergeClause, 
+            params, 
+            matchedNodes, 
+            matchedEdges
+          );
+          allMatchedNodeRows.push(new Map(matchedNodes));
+          allMatchedEdgeRows.push(new Map(matchedEdges));
+        } else {
+          const rowResults = this.executeMergeRelationshipForRow(patterns[0] as RelationshipPattern, mergeClause, returnClause, params, matchedNodes);
+          allResults.push(...rowResults);
+        }
       } else {
         throw new Error("Complex MERGE patterns not yet supported");
       }
-      
-      allResults.push(...rowResults);
+    }
+    
+    // If we have aggregates, process them now
+    if (hasAggregate && returnClause) {
+      return this.processAggregateReturn(returnClause, allMatchedNodeRows, allMatchedEdgeRows, params);
     }
     
     return allResults;
@@ -5184,6 +5218,195 @@ export class Executor {
   ): Record<string, unknown>[] {
     // Delegate to the existing executeMergeRelationship for now
     return this.executeMergeRelationship(pattern, mergeClause, returnClause, params, matchedNodes);
+  }
+  
+  /**
+   * Execute a relationship MERGE for a single input row, tracking edges for aggregation
+   * This version doesn't process RETURN - it just executes the MERGE and captures the edge info
+   */
+  private executeMergeRelationshipForRowWithTracking(
+    pattern: RelationshipPattern,
+    mergeClause: MergeClause,
+    params: Record<string, unknown>,
+    matchedNodes: Map<string, { id: string; label: string; properties: Record<string, unknown> }>,
+    matchedEdges: Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>
+  ): void {
+    const sourceVar = pattern.source.variable;
+    const targetVar = pattern.target.variable;
+    const edgeType = pattern.edge.type || "";
+    
+    if (!edgeType) {
+      throw new Error("MERGE requires a relationship type");
+    }
+    
+    this.validateMergeAstPropertiesNotNull(pattern.edge.properties || {}, "relationship", params);
+    this.validateMergeAstPropertiesNotNull(pattern.source.properties || {}, "node", params);
+    this.validateMergeAstPropertiesNotNull(pattern.target.properties || {}, "node", params);
+    
+    const edgeProps = this.resolveProperties(pattern.edge.properties || {}, params);
+    const sourceProps = this.resolveProperties(pattern.source.properties || {}, params);
+    const targetProps = this.resolveProperties(pattern.target.properties || {}, params);
+    
+    // Resolve or create source node
+    let sourceNodeId: string;
+    if (sourceVar && matchedNodes.has(sourceVar)) {
+      sourceNodeId = matchedNodes.get(sourceVar)!.id;
+    } else {
+      const sourceResult = this.findOrCreateNode(pattern.source, sourceProps, params);
+      sourceNodeId = sourceResult.id;
+      if (sourceVar) {
+        matchedNodes.set(sourceVar, sourceResult);
+      }
+    }
+    
+    // Resolve or create target node
+    let targetNodeId: string;
+    if (targetVar && matchedNodes.has(targetVar)) {
+      targetNodeId = matchedNodes.get(targetVar)!.id;
+    } else {
+      const targetResult = this.findOrCreateNode(pattern.target, targetProps, params);
+      targetNodeId = targetResult.id;
+      if (targetVar) {
+        matchedNodes.set(targetVar, targetResult);
+      }
+    }
+    
+    // Check if the relationship already exists
+    const findEdgeConditions: string[] = [
+      "source_id = ?",
+      "target_id = ?",
+    ];
+    const findEdgeParams: unknown[] = [sourceNodeId, targetNodeId];
+    
+    if (edgeType) {
+      findEdgeConditions.push("type = ?");
+      findEdgeParams.push(edgeType);
+    }
+    
+    for (const [key, value] of Object.entries(edgeProps)) {
+      findEdgeConditions.push(`json_extract(properties, '$.${key}') = ?`);
+      findEdgeParams.push(value);
+    }
+    
+    const findEdgeSql = `SELECT id, type, source_id, target_id, properties FROM edges WHERE ${findEdgeConditions.join(" AND ")}`;
+    const findEdgeResult = this.db.execute(findEdgeSql, findEdgeParams);
+    
+    let edgeId: string;
+    
+    if (findEdgeResult.rows.length === 0) {
+      // Create new edge
+      edgeId = crypto.randomUUID();
+      const finalEdgeProps = { ...edgeProps };
+      
+      // Apply ON CREATE SET to edge
+      if (mergeClause.onCreateSet) {
+        for (const assignment of mergeClause.onCreateSet) {
+          if (assignment.labels) continue;
+          if (!assignment.value || !assignment.property) continue;
+          // Check if assignment is for the edge variable
+          if (pattern.edge.variable && assignment.variable === pattern.edge.variable) {
+            const value = this.evaluateExpression(assignment.value, params);
+            finalEdgeProps[assignment.property] = value;
+          }
+        }
+      }
+      
+      this.db.execute(
+        "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
+        [edgeId, edgeType, sourceNodeId, targetNodeId, JSON.stringify(finalEdgeProps)]
+      );
+    } else {
+      // Edge exists
+      edgeId = findEdgeResult.rows[0].id as string;
+      
+      // Apply ON MATCH SET to edge
+      if (mergeClause.onMatchSet) {
+        for (const assignment of mergeClause.onMatchSet) {
+          if (assignment.labels) continue;
+          if (!assignment.value || !assignment.property) continue;
+          // Check if assignment is for the edge variable
+          if (pattern.edge.variable && assignment.variable === pattern.edge.variable) {
+            const value = this.evaluateExpression(assignment.value, params);
+            this.db.execute(
+              `UPDATE edges SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+              [JSON.stringify(value), edgeId]
+            );
+          }
+        }
+      }
+    }
+    
+    // Store edge in matchedEdges
+    if (pattern.edge.variable) {
+      const edgeResult = this.db.execute(
+        "SELECT id, type, source_id, target_id, properties FROM edges WHERE id = ?",
+        [edgeId]
+      );
+      if (edgeResult.rows.length > 0) {
+        const row = edgeResult.rows[0];
+        matchedEdges.set(pattern.edge.variable, {
+          id: row.id as string,
+          type: row.type as string,
+          source_id: row.source_id as string,
+          target_id: row.target_id as string,
+          properties: typeof row.properties === "string" ? JSON.parse(row.properties) : row.properties,
+        });
+      }
+    }
+  }
+  
+  /**
+   * Process RETURN clause with aggregate functions over multiple rows of matched nodes/edges
+   */
+  private processAggregateReturn(
+    returnClause: ReturnClause,
+    allMatchedNodeRows: Map<string, { id: string; label: string; properties: Record<string, unknown> }>[],
+    allMatchedEdgeRows: Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>[],
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] {
+    const resultRow: Record<string, unknown> = {};
+    
+    for (const item of returnClause.items) {
+      const alias = item.alias || this.getExpressionName(item.expression);
+      
+      if (item.expression.type === "function") {
+        const funcName = item.expression.functionName?.toUpperCase();
+        
+        if (funcName === "COUNT") {
+          // count(r) or count(*) - count the number of rows
+          resultRow[alias] = allMatchedNodeRows.length > 0 ? allMatchedNodeRows.length : allMatchedEdgeRows.length;
+        } else if (funcName === "COLLECT") {
+          // collect(r) - collect values from all rows
+          const args = item.expression.args;
+          if (args && args.length > 0 && args[0].type === "variable") {
+            const varName = args[0].variable!;
+            const collected: unknown[] = [];
+            
+            // Try collecting from edges first
+            for (const edgeRow of allMatchedEdgeRows) {
+              const edge = edgeRow.get(varName);
+              if (edge) {
+                collected.push(edge.properties);
+              }
+            }
+            
+            // If no edges, try nodes
+            if (collected.length === 0) {
+              for (const nodeRow of allMatchedNodeRows) {
+                const node = nodeRow.get(varName);
+                if (node) {
+                  collected.push(node.properties);
+                }
+              }
+            }
+            
+            resultRow[alias] = collected;
+          }
+        }
+      }
+    }
+    
+    return [resultRow];
   }
   
   /**

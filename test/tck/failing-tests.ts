@@ -845,16 +845,16 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/list > List1 - Dynamic Element Access|6:2", // Fixed: non-list indexing type validation
   // "expressions/list > List1 - Dynamic Element Access|6:3", // Fixed: non-list indexing type validation
   // "expressions/list > List1 - Dynamic Element Access|6:4", // Fixed: non-list indexing type validation
-  "expressions/list > List1 - Dynamic Element Access|7:1", // Fixed: parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|7:2", // Fixed: parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|7:3", // Fixed: parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|7:4", // Fixed: parameter support in TCK
+  // "expressions/list > List1 - Dynamic Element Access|7:1", // Fixed: parameter support in TCK
+  // "expressions/list > List1 - Dynamic Element Access|7:2", // Fixed: parameter support in TCK
+  // "expressions/list > List1 - Dynamic Element Access|7:3", // Fixed: parameter support in TCK
+  // "expressions/list > List1 - Dynamic Element Access|7:4", // Fixed: parameter support in TCK
   // "expressions/list > List1 - Dynamic Element Access|8:1", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:2", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:3", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:4", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:5", // Fixed: non-integer index type validation
-  "expressions/list > List1 - Dynamic Element Access|9:1", // Fixed: parameter support in TCK
+  // "expressions/list > List1 - Dynamic Element Access|9:1", // Fixed: parameter support in TCK
   "expressions/list > List1 - Dynamic Element Access|9:2", // Fixed: parameter support in TCK
   "expressions/list > List1 - Dynamic Element Access|9:3", // Fixed: parameter support in TCK
   "expressions/list > List1 - Dynamic Element Access|9:4", // Fixed: parameter support in TCK
@@ -993,9 +993,9 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/map > Map2 - Dynamic Value Access|5:3", // Fixed: map dynamic access with string key
   // "expressions/map > Map2 - Dynamic Value Access|5:6", // Fixed: map dynamic access with string key
   "expressions/map > Map2 - Dynamic Value Access|5:7",
-  "expressions/map > Map2 - Dynamic Value Access|6",
-  "expressions/map > Map2 - Dynamic Value Access|7",
-  "expressions/map > Map2 - Dynamic Value Access|8",
+  // "expressions/map > Map2 - Dynamic Value Access|6", // Fixed: parameter support in TCK
+  // "expressions/map > Map2 - Dynamic Value Access|7", // Fixed: parameter support in TCK
+  // "expressions/map > Map2 - Dynamic Value Access|8", // Fixed: parameter support in TCK
   "expressions/map > Map3 - Keys function|3",
   "expressions/map > Map3 - Keys function|5",
   // "expressions/mathematical > Mathematical3 - Subtraction|1",

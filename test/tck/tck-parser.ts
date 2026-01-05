@@ -18,6 +18,7 @@ export interface TCKScenario {
   given: "empty" | "any";
   setupQueries: string[];
   query: string;
+  params?: Record<string, unknown>;
   expectResult?: {
     ordered: boolean;
     columns: string[];
@@ -47,6 +48,7 @@ interface ScenarioOutlineTemplate {
   given: "empty" | "any";
   setupQueries: string[];
   queryTemplate: string;
+  paramsTemplate?: Record<string, string>;
   expectResultTemplate?: {
     ordered: boolean;
     columns: string[];
@@ -81,6 +83,7 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
   let currentStep: string | null = null;
   let expectingTable = false;
   let expectingExamples = false;
+  let expectingParams = false;
   let tableColumns: string[] = [];
   let tableRows: unknown[][] = [];
   let tableRowsRaw: string[][] = [];
@@ -237,6 +240,7 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
       }
       expectingTable = false;
       expectingExamples = true;
+      expectingParams = false; // Reset params flag when hitting Examples
       tableColumns = [];
       tableRows = [];
       tableRowsRaw = [];
@@ -258,6 +262,12 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
     // And having executed (setup query)
     if (trimmed.startsWith("And having executed:")) {
       currentStep = "setup";
+      continue;
+    }
+    
+    // And parameters are:
+    if (trimmed.startsWith("And parameters are:")) {
+      expectingParams = true;
       continue;
     }
     
@@ -353,6 +363,20 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
         .split("|")
         .map(c => c.trim());
       
+      // Parameter table
+      if (expectingParams && cells.length === 2) {
+        const key = cells[0];
+        const value = cells[1];
+        if (isOutline && currentOutline) {
+          currentOutline.paramsTemplate = currentOutline.paramsTemplate || {};
+          currentOutline.paramsTemplate[key] = value;
+        } else if (currentScenario) {
+          currentScenario.params = currentScenario.params || {};
+          currentScenario.params[key] = parseCellValue(value);
+        }
+        continue;
+      }
+      
       if (expectingExamples && currentOutline) {
         if (currentOutline.exampleColumns!.length === 0) {
           currentOutline.exampleColumns = cells;
@@ -385,11 +409,16 @@ export function parseFeatureFile(filePath: string): ParsedFeature {
           }
         }
       }
-      continue;
-    }
-  }
-  
-  // Save last scenario
+       continue;
+     }
+     
+     // When we hit another step (not a table), stop expecting params
+     if (expectingParams) {
+       expectingParams = false;
+     }
+   }
+   
+   // Save last scenario
   if (!isOutline && currentScenario && currentScenario.query) {
     if (expectingTable && tableColumns.length > 0) {
       currentScenario.expectResult = {
@@ -444,6 +473,16 @@ function expandOutline(outline: ScenarioOutlineTemplate): TCKScenario[] {
     // Substitute in setup queries
     const setupQueries = outline.setupQueries.map(q => substituteTemplate(q, substitutions));
     
+    // Substitute in params (if any)
+    let params: Record<string, unknown> | undefined;
+    if (outline.paramsTemplate) {
+      params = {};
+      for (const [key, valueTemplate] of Object.entries(outline.paramsTemplate)) {
+        const substituted = substituteTemplate(valueTemplate, substitutions);
+        params[key] = parseCellValue(substituted);
+      }
+    }
+    
     // Substitute in expected result
     let expectResult: TCKScenario["expectResult"];
     if (outline.expectResultTemplate) {
@@ -481,6 +520,7 @@ function expandOutline(outline: ScenarioOutlineTemplate): TCKScenario[] {
       given: outline.given,
       setupQueries,
       query,
+      params,
       expectResult,
       expectEmpty: outline.expectEmpty,
       expectError,

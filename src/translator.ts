@@ -4879,7 +4879,12 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
       }
 
       case "parameter": {
-        params.push(this.ctx.paramValues[expr.name!]);
+        const paramValue = this.ctx.paramValues[expr.name!];
+        if (Array.isArray(paramValue) || (typeof paramValue === "object" && paramValue !== null)) {
+          params.push(JSON.stringify(paramValue));
+        } else {
+          params.push(paramValue);
+        }
         return { sql: "?", tables, params };
       }
 
@@ -5453,7 +5458,12 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return { sql: "?", params };
         
       case "parameter":
-        params.push(this.ctx.paramValues[expr.name!]);
+        const paramValue = this.ctx.paramValues[expr.name!];
+        if (Array.isArray(paramValue) || (typeof paramValue === "object" && paramValue !== null)) {
+          params.push(JSON.stringify(paramValue));
+        } else {
+          params.push(paramValue);
+        }
         return { sql: "?", params };
         
       case "function": {
@@ -6168,7 +6178,12 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return { sql: "?", tables, params };
       }
       case "parameter": {
-        params.push(this.ctx.paramValues[expr.name!]);
+        const paramValue = this.ctx.paramValues[expr.name!];
+        if (Array.isArray(paramValue) || (typeof paramValue === "object" && paramValue !== null)) {
+          params.push(JSON.stringify(paramValue));
+        } else {
+          params.push(paramValue);
+        }
         return { sql: "?", tables, params };
       }
       case "variable": {

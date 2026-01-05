@@ -338,15 +338,19 @@ for (const { scenario, testKey } of matches) {
   console.log(`NAME: ${scenario.name}`);
   console.log(`${"=".repeat(70)}`);
   
-  if (verbose) {
-    console.log(`\nSetup queries:`);
-    for (const q of scenario.setupQueries) {
-      console.log(`  ${q.replace(/\n/g, "\n  ")}`);
-    }
-    console.log(`\nTest query:`);
-    console.log(`  ${scenario.query.replace(/\n/g, "\n  ")}`);
-    
-    if (scenario.expectResult) {
+    if (verbose) {
+      console.log(`\nSetup queries:`);
+      for (const q of scenario.setupQueries) {
+        console.log(`  ${q.replace(/\n/g, "\n  ")}`);
+      }
+      console.log(`\nTest query:`);
+      console.log(`  ${scenario.query.replace(/\n/g, "\n  ")}`);
+      if (scenario.params && Object.keys(scenario.params).length > 0) {
+        console.log(`\nParameters:`);
+        console.log(`  ${JSON.stringify(scenario.params, null, 2)}`);
+      }
+      
+      if (scenario.expectResult) {
       console.log(`\nExpected columns: ${JSON.stringify(scenario.expectResult.columns)}`);
       console.log(`Expected rows (${scenario.expectResult.rows.length}):`);
       for (const row of scenario.expectResult.rows) {
@@ -400,7 +404,7 @@ for (const { scenario, testKey } of matches) {
     }
     
     // Run the test query
-    const result = executor.execute(scenario.query);
+    const result = executor.execute(scenario.query, scenario.params);
     
     console.log(`\nResult:`);
     if (result.success) {

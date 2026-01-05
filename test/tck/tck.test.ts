@@ -433,10 +433,10 @@ function runScenario(scenario: TCKScenario, db: GraphDatabase, executor: Executo
   // Run the test query
   if (scenario.expectError) {
     // Expect an error - executor returns { success: false } instead of throwing
-    const result = executor.execute(scenario.query);
+    const result = executor.execute(scenario.query, scenario.params);
     expect(result.success).toBe(false);
   } else {
-    const result = executor.execute(scenario.query);
+    const result = executor.execute(scenario.query, scenario.params);
     
     if (!result.success) {
       throw new Error(`Query failed: ${result.error.message}\nQuery: ${scenario.query}`);

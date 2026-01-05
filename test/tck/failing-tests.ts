@@ -840,24 +840,25 @@ export const FAILING_TESTS = new Set<string>([
   "expressions/list > List12 - List Comprehension|6",
   // "expressions/list > List12 - List Comprehension|7",
   "expressions/list > List1 - Dynamic Element Access|2",
+  "expressions/list > List1 - Dynamic Element Access|5", // Pre-existing: toInteger(idx) variable resolution
   // "expressions/list > List1 - Dynamic Element Access|6:1", // Fixed: non-list indexing type validation
   // "expressions/list > List1 - Dynamic Element Access|6:2", // Fixed: non-list indexing type validation
   // "expressions/list > List1 - Dynamic Element Access|6:3", // Fixed: non-list indexing type validation
   // "expressions/list > List1 - Dynamic Element Access|6:4", // Fixed: non-list indexing type validation
-  "expressions/list > List1 - Dynamic Element Access|7:1", // TODO: needs parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|7:2", // TODO: needs parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|7:3", // TODO: needs parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|7:4", // TODO: needs parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:1", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:2", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:3", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:4", // Fixed: parameter support in TCK
   // "expressions/list > List1 - Dynamic Element Access|8:1", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:2", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:3", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:4", // Fixed: non-integer index type validation
   // "expressions/list > List1 - Dynamic Element Access|8:5", // Fixed: non-integer index type validation
-  "expressions/list > List1 - Dynamic Element Access|9:1", // TODO: needs parameter support in TCK
-  "expressions/list > List1 - Dynamic Element Access|9:2",
-  "expressions/list > List1 - Dynamic Element Access|9:3",
-  "expressions/list > List1 - Dynamic Element Access|9:4",
-  "expressions/list > List1 - Dynamic Element Access|9:5",
+  "expressions/list > List1 - Dynamic Element Access|9:1", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|9:2", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|9:3", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|9:4", // Fixed: parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|9:5", // Fixed: parameter support in TCK
   "expressions/list > List2 - List Slicing|9:1",
   "expressions/list > List2 - List Slicing|9:2",
   "expressions/list > List2 - List Slicing|9:3",

@@ -2,8 +2,8 @@
 
 ## Current Status (vs Neo4j 3.5 Baseline)
 - **Target**: 2703 tests (what Neo4j 3.5 passes)
-- **Passing**: 1405 tests (52.0% of target)
-- **Failing**: 1279 tests (to be fixed)
+- **Passing**: 1407 tests (52.1% of target)
+- **Failing**: 1277 tests (to be fixed)
 - **Not in baseline**: 19 tests (parser edge cases)
 
 ### What This Means
@@ -13,6 +13,7 @@ We only run tests that Neo4j 3.5 actually passes. This gives us a realistic, ach
 - `clauses/call` - CALL procedures not yet supported
 
 ## Recent Fixes
+- **Integer Overflow Validation (2 tests)**: Added int64 range validation for integer literals. Integers beyond `-9223372036854775808` to `9223372036854775807` now throw `SyntaxError: integer is too large`. Tests fixed: Literals2|9 (too large), Literals2|10 (too small).
 - **List Indexing Type Validation (18 tests)**: Added runtime type checking for list/map indexing. Lists require integer indices (`list[0]`), maps allow string keys (`map['key']`). Trying to index a non-subscriptable value (boolean, integer, float, string) now throws `TypeError`. Tests fixed: List1 6:1-4 (non-list), List1 8:1-5 (non-integer index), Map2 5:1-3,6 (map string key access), Boolean4 4:39,42-44,46.
 - **Boolean Type Strictness (48 tests)**: AND/OR/NOT operators now reject non-boolean operands at compile time. `RETURN 123 AND true` now correctly throws `SyntaxError: InvalidArgumentType`.
 - **Match7-24**: Fixed self-loop matching in OPTIONAL MATCH - undirected patterns `(a)-[r]-(a)` now correctly return self-loops once instead of twice. The fix adds a NOT condition to prevent duplicate matches when `source_id = target_id`.
@@ -144,7 +145,7 @@ These tests verify that our implementation correctly rejects invalid Cypher.
 
 ## Expected Error Tests Breakdown
 
-Of the 1279 failing tests, **~56 are expected-error tests** where we should reject the query but currently don't.
+Of the 1277 failing tests, **~54 are expected-error tests** where we should reject the query but currently don't.
 
 To list them: `npm run tck:failing -- --errors`
 
@@ -152,7 +153,7 @@ To list them: `npm run tck:failing -- --errors`
 
 | Error Type | Count | Description | Fix Location |
 |------------|-------|-------------|--------------|
-| SyntaxError | ~46 | Parser should reject | parser.ts |
+| SyntaxError | ~44 | Parser should reject | parser.ts |
 | TypeError | 22 | Type mismatch at runtime | executor.ts |
 | ArgumentError | 6 | Invalid function arguments | translator.ts/executor.ts |
 | EntityNotFound | 3 | Access deleted node/rel | executor.ts |
@@ -220,15 +221,14 @@ MATCH (n) DELETE n RETURN n.name
 
 **Fix**: Track deleted entities in executor, error on access.
 
-#### 7. Integer Overflow (2 tests)
-Integers beyond int64 range should fail.
+#### 7. ~~Integer Overflow~~ ✅ FIXED (2 tests)
+~~Integers beyond int64 range should fail.~~
 
-```cypher
--- Should fail (SyntaxError at compile)
-RETURN 9223372036854775808
-```
+Now validates:
+- Integers > 9223372036854775807 → `SyntaxError: integer is too large`
+- Integers < -9223372036854775808 → `SyntaxError: integer is too large`
 
-**Fix**: Validate integer literals in parser.
+Uses BigInt for precise range checking before converting to JavaScript number.
 
 #### 8. Invalid Unicode Escapes (1 test)
 Invalid escape sequences in strings.
@@ -246,7 +246,7 @@ RETURN '\uH'
 2. ~~**Duplicate column names**~~ ✅ DONE - 2 tests fixed (Return4|10, With4|4)
 3. ~~**Boolean strictness**~~ ✅ DONE - 48 tests fixed (AND/OR/NOT type checking)
 4. ~~**List indexing types**~~ ✅ PARTIALLY DONE - 13 tests fixed (need TCK parameter support for remaining 9)
-5. **Integer overflow** - 2 tests, parser only
+5. ~~**Integer overflow**~~ ✅ DONE - 2 tests fixed (Literals2|9, Literals2|10)
 6. **Invalid unicode** - 1 test, tokenizer only
 7. **UNION column mismatch** - 4 tests, translator only
 8. **Deleted entity access** - 3 tests, executor state tracking

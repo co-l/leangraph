@@ -920,10 +920,10 @@ export const FAILING_TESTS = new Set<string>([
   "expressions/list > List6 - List size|7",
   "expressions/list > List6 - List size|8",
   "expressions/list > List6 - List size|9",
-  "expressions/literals > Literals2 - Decimal integer|10",
+  // "expressions/literals > Literals2 - Decimal integer|10",  // FIXED: int64 overflow validation
   // "expressions/literals > Literals2 - Decimal integer|11",
   // "expressions/literals > Literals2 - Decimal integer|12",
-  "expressions/literals > Literals2 - Decimal integer|9",
+  // "expressions/literals > Literals2 - Decimal integer|9",  // FIXED: int64 overflow validation
   "expressions/literals > Literals3 - Hexadecimal integer|1",
   "expressions/literals > Literals3 - Hexadecimal integer|10",
   "expressions/literals > Literals3 - Hexadecimal integer|11",

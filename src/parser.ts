@@ -607,10 +607,35 @@ class Tokenizer {
 // Parser
 // ============================================================================
 
+// Int64 range constants
+const INT64_MAX = BigInt("9223372036854775807");
+const INT64_MIN = BigInt("-9223372036854775808");
+
 export class Parser {
   private tokens: Token[] = [];
   private pos: number = 0;
   private anonVarCounter: number = 0;
+
+  /**
+   * Parse a number string, validating that integers are within int64 range.
+   * Throws SyntaxError for overflow.
+   */
+  private parseNumber(numStr: string): number {
+    // Check if it's an integer (no decimal point)
+    if (!numStr.includes('.')) {
+      try {
+        const bigVal = BigInt(numStr);
+        if (bigVal > INT64_MAX || bigVal < INT64_MIN) {
+          throw new SyntaxError(`integer is too large: ${numStr}`);
+        }
+      } catch (e) {
+        if (e instanceof SyntaxError) throw e;
+        // BigInt parsing failed - could be too large even for BigInt
+        throw new SyntaxError(`integer is too large: ${numStr}`);
+      }
+    }
+    return parseFloat(numStr);
+  }
 
   parse(input: string): ParseResult {
     try {
@@ -1096,7 +1121,7 @@ export class Parser {
     if (this.checkKeyword("SKIP")) {
       this.advance();
       const skipToken = this.expect("NUMBER");
-      const skipValue = parseFloat(skipToken.value);
+      const skipValue = this.parseNumber(skipToken.value);
       if (!Number.isInteger(skipValue)) {
         throw new Error("SKIP: InvalidArgumentType - expected an integer value");
       }
@@ -1111,7 +1136,7 @@ export class Parser {
     if (this.checkKeyword("LIMIT")) {
       this.advance();
       const limitToken = this.expect("NUMBER");
-      const limitValue = parseFloat(limitToken.value);
+      const limitValue = this.parseNumber(limitToken.value);
       if (!Number.isInteger(limitValue)) {
         throw new Error("LIMIT: InvalidArgumentType - expected an integer value");
       }
@@ -1196,7 +1221,7 @@ export class Parser {
     if (this.checkKeyword("SKIP")) {
       this.advance();
       const skipToken = this.expect("NUMBER");
-      const skipValue = parseFloat(skipToken.value);
+      const skipValue = this.parseNumber(skipToken.value);
       if (!Number.isInteger(skipValue)) {
         throw new Error("SKIP: InvalidArgumentType - expected an integer value");
       }
@@ -1211,7 +1236,7 @@ export class Parser {
     if (this.checkKeyword("LIMIT")) {
       this.advance();
       const limitToken = this.expect("NUMBER");
-      const limitValue = parseFloat(limitToken.value);
+      const limitValue = this.parseNumber(limitToken.value);
       if (!Number.isInteger(limitValue)) {
         throw new Error("LIMIT: InvalidArgumentType - expected an integer value");
       }
@@ -1637,7 +1662,7 @@ export class Parser {
 
     if (token.type === "NUMBER") {
       this.advance();
-      return parseFloat(token.value);
+      return this.parseNumber(token.value);
     }
 
     // Handle negative numbers: DASH followed by NUMBER
@@ -1646,7 +1671,7 @@ export class Parser {
       if (nextToken && nextToken.type === "NUMBER") {
         this.advance(); // consume DASH
         this.advance(); // consume NUMBER
-        return -parseFloat(nextToken.value);
+        return -this.parseNumber(nextToken.value);
       }
     }
 
@@ -2255,7 +2280,7 @@ export class Parser {
       const nextToken = this.peek();
       if (nextToken.type === "NUMBER") {
         this.advance();
-        return { type: "literal", value: -parseFloat(nextToken.value) };
+        return { type: "literal", value: -this.parseNumber(nextToken.value) };
       }
       // For more complex expressions, create a unary minus operation
       const operand = this.parsePrimaryExpression();
@@ -2270,7 +2295,7 @@ export class Parser {
 
     if (token.type === "NUMBER") {
       this.advance();
-      return { type: "literal", value: parseFloat(token.value) };
+      return { type: "literal", value: this.parseNumber(token.value) };
     }
 
     if (token.type === "KEYWORD") {

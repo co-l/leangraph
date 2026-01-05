@@ -28,6 +28,7 @@ import {
   CaseWhen,
   parse,
 } from "./parser.js";
+import { assertValidPropertyValue, isValidPropertyValue } from "./property-value.js";
 
 // ============================================================================
 // Types
@@ -867,6 +868,7 @@ export class Translator {
         const filteredProps: Record<string, unknown> = {};
         for (const [key, val] of Object.entries(newProps)) {
           if (val !== null) {
+            assertValidPropertyValue(val);
             filteredProps[key] = val;
           }
         }
@@ -893,6 +895,7 @@ export class Translator {
         const nonNullProps: Record<string, unknown> = {};
         for (const [key, val] of Object.entries(newProps)) {
           if (val !== null) {
+            assertValidPropertyValue(val);
             nonNullProps[key] = val;
           }
         }
@@ -926,6 +929,7 @@ export class Translator {
       
       // Check if the value is a dynamic expression (function, binary op, etc.) that needs SQL translation
       if (assignment.value.type === "function" || assignment.value.type === "binary") {
+        this.assertValidPropertyValueExpression(assignment.value);
         // Check if the target variable was just created (alias looks like a UUID)
         // In that case, we need to use a subquery-based approach for property references
         const isCreatedNode = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(varInfo.alias);
@@ -954,6 +958,7 @@ export class Translator {
             params: [varInfo.alias],
           });
         } else {
+          assertValidPropertyValue(value);
           // Use json_set to update the property
           statements.push({
             sql: `UPDATE ${table} SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
@@ -964,6 +969,60 @@ export class Translator {
     }
 
     return statements;
+  }
+
+  private assertValidPropertyValueExpression(expr: Expression): void {
+    if (expr.type === "literal") {
+      if (expr.value === null) return;
+      assertValidPropertyValue(expr.value);
+      return;
+    }
+
+    if (expr.type === "parameter") {
+      const value = this.ctx.paramValues[expr.name!];
+      if (value === null) return;
+      assertValidPropertyValue(value);
+      return;
+    }
+
+    if (expr.type === "object") {
+      throw new Error("TypeError: InvalidPropertyType");
+    }
+
+    if (expr.type === "function" && expr.functionName?.toUpperCase() === "LIST") {
+      const args = expr.args ?? [];
+      const canEvaluateAllElements = args.every((a) => a.type === "literal" || a.type === "parameter");
+
+      for (const arg of args) {
+        if (arg.type === "object") {
+          throw new Error("TypeError: InvalidPropertyType");
+        }
+        if (arg.type === "function" && arg.functionName?.toUpperCase() === "LIST") {
+          throw new Error("TypeError: InvalidPropertyType");
+        }
+        if (arg.type === "literal") {
+          const value = arg.value;
+          if (value === null) throw new Error("TypeError: InvalidPropertyType");
+          if (typeof value === "object") throw new Error("TypeError: InvalidPropertyType");
+          if (typeof value === "number" && !Number.isFinite(value)) throw new Error("TypeError: InvalidPropertyType");
+        }
+        if (arg.type === "parameter") {
+          const value = this.ctx.paramValues[arg.name!];
+          if (value === null) throw new Error("TypeError: InvalidPropertyType");
+          if (typeof value === "object") throw new Error("TypeError: InvalidPropertyType");
+          if (typeof value === "number" && !Number.isFinite(value)) throw new Error("TypeError: InvalidPropertyType");
+        }
+      }
+
+      if (canEvaluateAllElements) {
+        const value = args.map((a) =>
+          a.type === "literal" ? a.value : this.ctx.paramValues[(a as { name: string }).name]
+        );
+        if (!isValidPropertyValue(value)) {
+          throw new Error("TypeError: InvalidPropertyType");
+        }
+      }
+    }
   }
   
   /**

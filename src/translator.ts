@@ -1213,6 +1213,28 @@ export class Translator {
       selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
       returnColumns.push(alias);
     }
+    
+    // Add WITH aliases that are referenced in ORDER BY but not in RETURN
+    // This allows ORDER BY to reference columns from previous WITH clause
+    const orderByForCheck = clause.orderBy && clause.orderBy.length > 0 ? clause.orderBy : withOrderBy;
+    if (orderByForCheck && orderByForCheck.length > 0) {
+      const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+      if (withAliases) {
+        for (const { expression: orderExpr } of orderByForCheck) {
+          // Check if ORDER BY references a WITH alias not in RETURN
+          if (orderExpr.type === "variable" && orderExpr.variable) {
+            const aliasName = orderExpr.variable;
+            if (withAliases.has(aliasName) && !returnColumns.includes(aliasName)) {
+              // Add this WITH alias to SELECT but not to returnColumns
+              const aliasExpr = withAliases.get(aliasName)!;
+              const { sql: exprSql, params: itemParams } = this.translateExpression(aliasExpr);
+              exprParams.push(...itemParams);
+              selectParts.push(`${exprSql} AS ${this.quoteAlias(aliasName)}`);
+            }
+          }
+        }
+      }
+    }
 
     // Build FROM clause based on registered patterns
     const relPatterns = (this.ctx as any).relationshipPatterns as Array<{
@@ -2204,8 +2226,19 @@ export class Translator {
     // Add ORDER BY clause - use WITH orderBy if RETURN doesn't have one
     const effectiveOrderBy = clause.orderBy && clause.orderBy.length > 0 ? clause.orderBy : withOrderBy;
     if (effectiveOrderBy && effectiveOrderBy.length > 0) {
+      // Collect all available aliases for ORDER BY: RETURN columns + WITH aliases
+      const allAvailableAliases = [...returnColumns];
+      const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+      if (withAliases) {
+        for (const aliasName of withAliases.keys()) {
+          if (!allAvailableAliases.includes(aliasName)) {
+            allAvailableAliases.push(aliasName);
+          }
+        }
+      }
+      
       const orderParts = effectiveOrderBy.map(({ expression, direction }) => {
-        const { sql: exprSql } = this.translateOrderByExpression(expression, returnColumns);
+        const { sql: exprSql } = this.translateOrderByExpression(expression, allAvailableAliases);
         return `${exprSql} ${direction}`;
       });
       sql += ` ORDER BY ${orderParts.join(", ")}`;
@@ -2279,6 +2312,10 @@ export class Translator {
     const passedThroughNodes = new Set<string>();
     const passedThroughEdges = new Set<string>();
     
+    // Create new withAliases map for this WITH clause
+    // This replaces the previous one, ensuring only current WITH aliases are in scope
+    const newWithAliases = new Map<string, Expression>();
+    
     // Update variable mappings for WITH items
     // Variables without aliases keep their current mappings
     // Variables with aliases create new mappings based on expression type
@@ -2321,12 +2358,32 @@ export class Translator {
       } else if (alias) {
         // For any other expression type with an alias (property, function, literal, object, binary, etc.)
         // we track it as a "virtual" variable for the return/unwind phase
-        if (!(this.ctx as any).withAliases) {
-          (this.ctx as any).withAliases = new Map();
+        newWithAliases.set(alias, item.expression);
+      }
+      
+      // If item is a variable with an alias, also check if the source was a WITH alias
+      if (item.expression.type === "variable" && alias) {
+        const sourceVar = item.expression.variable!;
+        const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+        if (oldWithAliases && oldWithAliases.has(sourceVar)) {
+          // The source is a WITH alias - copy it to new WITH aliases with new alias name
+          newWithAliases.set(alias, oldWithAliases.get(sourceVar)!);
         }
-        (this.ctx as any).withAliases.set(alias, item.expression);
+      }
+      
+      // If item is a variable without alias, check if it was a WITH alias from previous WITH
+      if (item.expression.type === "variable" && !alias) {
+        const varName = item.expression.variable!;
+        const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+        if (oldWithAliases && oldWithAliases.has(varName)) {
+          // Preserve the WITH alias in the new scope
+          newWithAliases.set(varName, oldWithAliases.get(varName)!);
+        }
       }
     }
+    
+    // Replace withAliases with the new map for this WITH scope
+    (this.ctx as any).withAliases = newWithAliases;
     
     // Increment edge scope when WITH doesn't pass through any edge variables
     // This means subsequent MATCH patterns are in a new scope and shouldn't

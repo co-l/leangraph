@@ -8020,7 +8020,10 @@ export class Executor {
       const formatted: Record<string, unknown> = {};
 
       for (const [key, value] of Object.entries(row)) {
-        formatted[key] = this.deepParseJson(value);
+        // If returnColumns is specified, only include those columns
+        if (!returnColumns || returnColumns.includes(key)) {
+          formatted[key] = this.deepParseJson(value);
+        }
       }
 
       return formatted;

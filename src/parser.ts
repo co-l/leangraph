@@ -110,7 +110,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate" | "propertyAccess";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -144,6 +144,9 @@ export interface Expression {
   labels?: string[];
   // Chained property access fields: object.property (for a.b.c chains)
   object?: Expression;
+  // Index access fields: array[index] (for list[0] or list[variable])
+  array?: Expression;
+  index?: Expression;
 }
 
 export interface ReturnItem {
@@ -1396,17 +1399,10 @@ export class Parser {
       return this.parseExpression();
     }
 
-    // Variable or property access
+    // Variable, property access, or index access (e.g., qrows[p])
     if (token.type === "IDENTIFIER") {
-      const variable = this.advance().value;
-
-      if (this.check("DOT")) {
-        this.advance();
-        const property = this.expectIdentifier();
-        return { type: "property", variable, property };
-      }
-
-      return { type: "variable", variable };
+      // Use parseExpression to handle postfix operations like property access and indexing
+      return this.parseExpression();
     }
 
     throw new Error(`Expected array, parameter, or variable in UNWIND, got ${token.type} '${token.value}'`);

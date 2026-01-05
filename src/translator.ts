@@ -7218,7 +7218,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
       
       // Check if it's a pure aggregate expression or uses only column aliases and aggregates
       // This is allowed even if not in RETURN
-      if (this.isPureAggregateExpression(orderExpr, availableColumns)) {
+      if (this.isPureAggregateExpression(orderExpr, availableColumns, returnedExpressions)) {
         continue; // Valid - pure aggregate or uses column aliases
       }
       
@@ -7233,8 +7233,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
    * 
    * @param expr - The expression to check
    * @param availableColumns - Set of column aliases that are available from RETURN clause
+   * @param returnedExpressions - List of expressions in the RETURN clause
    */
-  private isPureAggregateExpression(expr: Expression, availableColumns?: Set<string>): boolean {
+  private isPureAggregateExpression(expr: Expression, availableColumns?: Set<string>, returnedExpressions?: Expression[]): boolean {
     switch (expr.type) {
       case "function": {
         const aggregateFunctions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT", "PERCENTILEDISC", "PERCENTILECONT"];
@@ -7242,11 +7243,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           return true; // Aggregate function - pure
         }
         // Non-aggregate function - only pure if all args are pure aggregates or literals
-        return expr.args?.every(arg => this.isPureAggregateExpression(arg, availableColumns)) || false;
+        return expr.args?.every(arg => this.isPureAggregateExpression(arg, availableColumns, returnedExpressions)) || false;
       }
       case "binary":
         // Binary is pure if both sides are pure
-        return this.isPureAggregateExpression(expr.left!, availableColumns) && this.isPureAggregateExpression(expr.right!, availableColumns);
+        return this.isPureAggregateExpression(expr.left!, availableColumns, returnedExpressions) && this.isPureAggregateExpression(expr.right!, availableColumns, returnedExpressions);
       case "literal":
         return true; // Literals are always pure
       case "variable":
@@ -7256,7 +7257,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         }
         return false; // Otherwise, not a pure aggregate
       case "property":
-        return false; // Property references are not pure aggregates
+        // Property is pure if it matches a RETURN expression
+        if (returnedExpressions && this.expressionMatchesAny(expr, returnedExpressions)) {
+          return true;
+        }
+        return false; // Otherwise, not a pure aggregate
       default:
         return false; // Conservative - assume not pure
     }
@@ -7292,6 +7297,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         if (!a.args || !b.args) return a.args === b.args;
         if (a.args.length !== b.args.length) return false;
         return a.args.every((arg, i) => this.expressionsMatch(arg, b.args![i]));
+      case "binary":
+        if (a.operator !== b.operator) return false;
+        return this.expressionsMatch(a.left!, b.left!) && this.expressionsMatch(a.right!, b.right!);
       default:
         // For other expression types, be conservative and return false
         return false;

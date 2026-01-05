@@ -117,6 +117,7 @@ export interface Expression {
   functionName?: string;
   args?: Expression[];
   distinct?: boolean; // For DISTINCT in aggregate functions: count(DISTINCT x)
+  star?: boolean; // For COUNT(*) - indicates * was used
   // CASE expression fields
   expression?: Expression;
   whens?: CaseWhen[];
@@ -2276,7 +2277,7 @@ export class Parser {
           this.advance(); // consume STAR
           // COUNT(*) has no arguments - the * means "count all rows"
           this.expect("RPAREN");
-          return { type: "function", functionName, args: [], distinct };
+          return { type: "function", functionName, args: [], distinct, star: true };
         }
 
         if (!this.check("RPAREN")) {

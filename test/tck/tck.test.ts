@@ -379,16 +379,28 @@ function extractColumns(row: Record<string, unknown>, columns: string[]): unknow
       return value;
     }
     
+    // Normalize function expression column name and try matching
+    // e.g., "coUnt( dIstInct p )" -> "count(distinctp)" (after removing spaces and lowercasing)
+    const normalizedCol = cleanCol.toLowerCase().replace(/\s+/g, "");
+    for (const key of Object.keys(row)) {
+      const normalizedKey = key.toLowerCase().replace(/\s+/g, "");
+      if (normalizedKey === normalizedCol) {
+        const value = row[key];
+        if (isNullEntity(value)) return null;
+        return value;
+      }
+    }
+    
     // For complex expressions with operators (like "12 / 4 * (3 - 2 * 4)"),
     // try to find a column that contains similar operators but may have different grouping
     // This handles cases where our column name doesn't perfectly preserve parentheses
     const operators = ['+', '-', '*', '/', '%'];
     if (operators.some(op => cleanCol.includes(op))) {
       // Strip all whitespace and parentheses for comparison
-      const normalizedCol = cleanCol.replace(/[\s()]/g, '');
+      const strippedCol = cleanCol.replace(/[\s()]/g, '');
       for (const key of Object.keys(row)) {
-        const normalizedKey = key.replace(/[\s()]/g, '');
-        if (normalizedKey === normalizedCol) {
+        const strippedKey = key.replace(/[\s()]/g, '');
+        if (strippedKey === strippedCol) {
           const value = row[key];
           if (isNullEntity(value)) return null;
           return value;

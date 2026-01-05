@@ -3902,6 +3902,18 @@ export class Translator {
                 return { sql: expr.distinct ? "COUNT(DISTINCT 1)" : "COUNT(*)", tables, params };
               }
               
+              // For variable-length edge patterns, count rows (each row is a path match)
+              // The varLengthEdge alias is part of a recursive CTE, so we use COUNT(*)
+              if (varInfo.type === "varLengthEdge") {
+                // For DISTINCT, we'd need to count unique edge_ids arrays
+                // For now, use COUNT(*) for both since each row is a unique path traversal
+                return {
+                  sql: `COUNT(*)`,
+                  tables,
+                  params,
+                };
+              }
+              
               tables.push(varInfo.alias);
               // For count(n) or count(DISTINCT n), count nodes by id
               return {
@@ -6613,10 +6625,20 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         return expr.variable!;
       case "property":
         return `${expr.variable}.${expr.property}`;
-      case "function":
-        // For functions, use just the function name (lowercase) for simplicity
-        // Full argument representation would break many existing tests
-        return expr.functionName!.toLowerCase();
+      case "function": {
+        // Build full function call representation: function(args)
+        const funcName = expr.functionName!.toLowerCase();
+        if (expr.args && expr.args.length > 0) {
+          const argNames = expr.args.map(arg => this.getExpressionName(arg));
+          const distinctPrefix = expr.distinct ? "distinct " : "";
+          return `${funcName}(${distinctPrefix}${argNames.join(", ")})`;
+        }
+        // Handle COUNT(*) - the star flag indicates * was explicitly used
+        if (expr.star) {
+          return `${funcName}(*)`;
+        }
+        return `${funcName}()`;
+      }
       case "labelPredicate": {
         // For (n:Foo) or (n:Foo:Bar), the column name should be the full expression
         const labels = expr.labels || (expr.label ? [expr.label] : []);

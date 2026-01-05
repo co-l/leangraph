@@ -195,7 +195,7 @@ describe("Translator", () => {
 
       // COUNT(n) counts nodes by their id
       expect(result.statements[0].sql).toContain("COUNT(");
-      expect(result.returnColumns).toEqual(["count"]);
+      expect(result.returnColumns).toEqual(["count(n)"]);
     });
 
     it("generates ORDER BY clause with single property", () => {
@@ -837,7 +837,7 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("SUM(");
       expect(result.statements[0].sql).toContain("json_extract");
       expect(result.statements[0].sql).toContain("$.amount");
-      expect(result.returnColumns).toEqual(["sum"]);
+      expect(result.returnColumns).toEqual(["sum(n.amount)"]);
     });
 
     it("generates AVG for property", () => {
@@ -846,7 +846,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("AVG(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["avg"]);
+      expect(result.returnColumns).toEqual(["avg(n.amount)"]);
     });
 
     it("generates MIN for property", () => {
@@ -855,7 +855,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("MIN(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["min"]);
+      expect(result.returnColumns).toEqual(["min(n.amount)"]);
     });
 
     it("generates MAX for property", () => {
@@ -864,7 +864,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("MAX(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["max"]);
+      expect(result.returnColumns).toEqual(["max(n.amount)"]);
     });
 
     it("generates COLLECT with json_group_array for property", () => {
@@ -874,7 +874,7 @@ describe("Translator", () => {
       // SQLite uses json_group_array for COLLECT
       expect(result.statements[0].sql).toContain("json_group_array(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["collect"]);
+      expect(result.returnColumns).toEqual(["collect(n.name)"]);
     });
 
     it("generates COLLECT with json_group_array for variable", () => {
@@ -882,7 +882,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("json_group_array(");
-      expect(result.returnColumns).toEqual(["collect"]);
+      expect(result.returnColumns).toEqual(["collect(n)"]);
     });
 
     it("handles aggregation function with alias", () => {
@@ -1381,7 +1381,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("UPPER(");
-      expect(result.returnColumns).toEqual(["toupper"]);
+      expect(result.returnColumns).toEqual(["toupper(n.name)"]);
     });
 
     it("generates LOWER for toLower()", () => {
@@ -1389,7 +1389,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("LOWER(");
-      expect(result.returnColumns).toEqual(["tolower"]);
+      expect(result.returnColumns).toEqual(["tolower(n.name)"]);
     });
 
     it("generates TRIM for trim()", () => {
@@ -1397,7 +1397,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("TRIM(");
-      expect(result.returnColumns).toEqual(["trim"]);
+      expect(result.returnColumns).toEqual(["trim(n.name)"]);
     });
 
     it("generates SUBSTR for substring()", () => {
@@ -1405,7 +1405,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("SUBSTR(");
-      expect(result.returnColumns).toEqual(["substring"]);
+      expect(result.returnColumns).toEqual(["substring(n.name, 0, 3)"]);
     });
 
     it("generates REPLACE for replace()", () => {
@@ -1413,7 +1413,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("REPLACE(");
-      expect(result.returnColumns).toEqual(["replace"]);
+      expect(result.returnColumns).toEqual(["replace(n.name, 'a', 'b')"]);
     });
 
     it("handles toUpper with alias", () => {
@@ -1429,7 +1429,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("CAST(");
       expect(result.statements[0].sql).toContain("AS TEXT");
-      expect(result.returnColumns).toEqual(["tostring"]);
+      expect(result.returnColumns).toEqual(["tostring(n.age)"]);
     });
   });
 
@@ -1440,7 +1440,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("CAST(");
       expect(result.statements[0].sql).toContain("AS INTEGER");
-      expect(result.returnColumns).toEqual(["tointeger"]);
+      expect(result.returnColumns).toEqual(["tointeger(n.quantity)"]);
     });
 
     it("handles toInteger with string literal", () => {
@@ -1464,7 +1464,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("CAST(");
       expect(result.statements[0].sql).toContain("AS REAL");
-      expect(result.returnColumns).toEqual(["tofloat"]);
+      expect(result.returnColumns).toEqual(["tofloat(n.price)"]);
     });
 
     it("handles toFloat with string literal", () => {
@@ -1488,7 +1488,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // toBoolean should use CASE to handle 'true'/'false' strings
       expect(result.statements[0].sql).toContain("CASE");
-      expect(result.returnColumns).toEqual(["toboolean"]);
+      expect(result.returnColumns).toEqual(["toboolean(n.active)"]);
     });
 
     it("handles toBoolean with string literal", () => {
@@ -1523,7 +1523,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("COALESCE(");
-      expect(result.returnColumns).toEqual(["coalesce"]);
+      expect(result.returnColumns).toEqual(["coalesce(n.nickname, n.name)"]);
     });
 
     it("handles coalesce with multiple arguments", () => {
@@ -1549,7 +1549,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("ABS(");
-      expect(result.returnColumns).toEqual(["abs"]);
+      expect(result.returnColumns).toEqual(["abs(n.balance)"]);
     });
 
     it("generates ROUND for round()", () => {
@@ -1557,7 +1557,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("ROUND(");
-      expect(result.returnColumns).toEqual(["round"]);
+      expect(result.returnColumns).toEqual(["round(n.price)"]);
     });
 
     it("generates floor()", () => {
@@ -1566,7 +1566,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses CAST with integer division for floor
       expect(result.statements[0].sql).toMatch(/CAST\(.*AS INTEGER\)|floor/i);
-      expect(result.returnColumns).toEqual(["floor"]);
+      expect(result.returnColumns).toEqual(["floor(n.price)"]);
     });
 
     it("generates ceil()", () => {
@@ -1575,7 +1575,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite doesn't have native ceil, needs workaround
       expect(result.statements[0].sql).toMatch(/CASE|ceil/i);
-      expect(result.returnColumns).toEqual(["ceil"]);
+      expect(result.returnColumns).toEqual(["ceil(n.price)"]);
     });
 
     it("generates sqrt()", () => {
@@ -1584,7 +1584,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses pow(x, 0.5) or custom function
       expect(result.statements[0].sql).toMatch(/SQRT|pow/i);
-      expect(result.returnColumns).toEqual(["sqrt"]);
+      expect(result.returnColumns).toEqual(["sqrt(n.area)"]);
     });
 
     it("generates rand()", () => {
@@ -1593,7 +1593,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses (RANDOM() + 9223372036854775808) / 18446744073709551615.0 for 0-1 range
       expect(result.statements[0].sql).toMatch(/RANDOM|rand/i);
-      expect(result.returnColumns).toEqual(["rand"]);
+      expect(result.returnColumns).toEqual(["rand()"]);
     });
   });
 
@@ -1603,7 +1603,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("json_array_length(");
-      expect(result.returnColumns).toEqual(["size"]);
+      expect(result.returnColumns).toEqual(["size(n.tags)"]);
     });
 
     it("generates head() for first element", () => {
@@ -1612,7 +1612,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses json_extract with [0]
       expect(result.statements[0].sql).toMatch(/json_extract.*\[0\]/);
-      expect(result.returnColumns).toEqual(["head"]);
+      expect(result.returnColumns).toEqual(["head(n.tags)"]);
     });
 
     it("generates last() for last element", () => {
@@ -1621,7 +1621,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses json_extract with [-1] or json_array_length - 1
       expect(result.statements[0].sql).toMatch(/json_extract|json_array_length/);
-      expect(result.returnColumns).toEqual(["last"]);
+      expect(result.returnColumns).toEqual(["last(n.tags)"]);
     });
 
     it("generates keys() for property keys", () => {
@@ -1630,7 +1630,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // Uses SQLite's json_each to get keys
       expect(result.statements[0].sql).toMatch(/json_group_array|json_each/);
-      expect(result.returnColumns).toEqual(["keys"]);
+      expect(result.returnColumns).toEqual(["keys(n)"]);
     });
 
     it("generates tail() for all but first element", () => {
@@ -1639,7 +1639,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses json_remove with $[0] to remove first element
       expect(result.statements[0].sql).toMatch(/json_remove|json/i);
-      expect(result.returnColumns).toEqual(["tail"]);
+      expect(result.returnColumns).toEqual(["tail(n.tags)"]);
     });
 
     it("generates range() for number list", () => {
@@ -1648,7 +1648,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // range(1,5) should generate [1,2,3,4,5] using recursive CTE or json
       expect(result.statements[0].sql).toMatch(/WITH RECURSIVE|json/i);
-      expect(result.returnColumns).toEqual(["range"]);
+      expect(result.returnColumns).toEqual(["range(1, 5)"]);
     });
 
     it("generates range() with step", () => {
@@ -1656,7 +1656,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toMatch(/WITH RECURSIVE|json/i);
-      expect(result.returnColumns).toEqual(["range"]);
+      expect(result.returnColumns).toEqual(["range(0, 10, 2)"]);
     });
 
     it("generates split() for string to list", () => {
@@ -1665,7 +1665,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite doesn't have native split, we'll need a custom approach
       expect(result.statements[0].sql).toMatch(/json|split/i);
-      expect(result.returnColumns).toEqual(["split"]);
+      expect(result.returnColumns).toEqual(["split(n.fullName, ' ')"]);
     });
   });
 
@@ -1676,7 +1676,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // Returns array with the single label from the label column
       expect(result.statements[0].sql).toMatch(/json_array|label/i);
-      expect(result.returnColumns).toEqual(["labels"]);
+      expect(result.returnColumns).toEqual(["labels(n)"]);
     });
 
     it("generates type() for relationship type", () => {
@@ -1685,7 +1685,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // Returns the type column from edges table
       expect(result.statements[0].sql).toContain(".type");
-      expect(result.returnColumns).toEqual(["type"]);
+      expect(result.returnColumns).toEqual(["type(r)"]);
     });
 
     it("generates properties() for node properties", () => {
@@ -1694,7 +1694,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // Returns the properties JSON column
       expect(result.statements[0].sql).toMatch(/properties|json/i);
-      expect(result.returnColumns).toEqual(["properties"]);
+      expect(result.returnColumns).toEqual(["properties(n)"]);
     });
 
     it("generates properties() for relationship properties", () => {
@@ -1703,7 +1703,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // Returns the properties JSON column from edges
       expect(result.statements[0].sql).toMatch(/properties/);
-      expect(result.returnColumns).toEqual(["properties"]);
+      expect(result.returnColumns).toEqual(["properties(r)"]);
     });
   });
 

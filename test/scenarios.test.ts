@@ -40,7 +40,7 @@ describe("Real-World Scenarios", () => {
       const users = exec("MATCH (u:User) RETURN u.name, id(u)").data;
       const userIds: Record<string, string> = {};
       for (const row of users) {
-        userIds[row["u.name"] as string] = row.id as string;
+        userIds[row["u.name"] as string] = row["id(u)"] as string;
       }
 
       // Create friendships via raw DB (since we need existing node IDs)
@@ -59,7 +59,7 @@ describe("Real-World Scenarios", () => {
 
       // Count total friendships
       const friendshipCount = exec("MATCH (a:User)-[:FRIENDS]->(b:User) RETURN COUNT(a)");
-      expect(friendshipCount.data[0].count).toBe(4);
+      expect(friendshipCount.data[0]["count(a)"]).toBe(4);
 
       // Find users who joined in 2021
       const users2021 = exec("MATCH (u:User) WHERE u.joined = 2021 RETURN u.name");
@@ -73,7 +73,7 @@ describe("Real-World Scenarios", () => {
       const users = exec("MATCH (u:User) RETURN u.name, id(u)").data;
       const userIds: Record<string, string> = {};
       for (const row of users) {
-        userIds[row["u.name"] as string] = row.id as string;
+        userIds[row["u.name"] as string] = row["id(u)"] as string;
       }
 
       // Alice blocks Troll
@@ -120,10 +120,10 @@ describe("Real-World Scenarios", () => {
       const prodIds: Record<string, string> = {};
 
       for (const row of categories) {
-        catIds[row["c.name"] as string] = row.id as string;
+        catIds[row["c.name"] as string] = row["id(c)"] as string;
       }
       for (const row of products) {
-        prodIds[row["p.name"] as string] = row.id as string;
+        prodIds[row["p.name"] as string] = row["id(p)"] as string;
       }
 
       db.insertEdge("pc1", "IN_CATEGORY", prodIds["Laptop"], catIds["Electronics"]);
@@ -165,8 +165,8 @@ describe("Real-World Scenarios", () => {
         db.insertEdge(
           `placed-${order["o.orderId"]}`,
           "PLACED",
-          customer.id as string,
-          order.id as string
+          customer["id(c)"] as string,
+          order["id(o)"] as string
         );
       }
 
@@ -175,7 +175,7 @@ describe("Real-World Scenarios", () => {
         MATCH (c:Customer {customerId: 'CUST-001'})-[:PLACED]->(o:Order)
         RETURN COUNT(o)
       `);
-      expect(orderCount.data[0].count).toBe(3);
+      expect(orderCount.data[0]["count(o)"]).toBe(3);
 
       // Find pending orders
       const pending = exec(`
@@ -201,7 +201,7 @@ describe("Real-World Scenarios", () => {
       const entities = exec("MATCH (e:Entity) RETURN e.name, id(e)").data;
       const entityIds: Record<string, string> = {};
       for (const row of entities) {
-        entityIds[row["e.name"] as string] = row.id as string;
+        entityIds[row["e.name"] as string] = row["id(e)"] as string;
       }
 
       // Create relationships
@@ -227,7 +227,7 @@ describe("Real-World Scenarios", () => {
         MATCH (e:Entity {name: 'Albert Einstein'})-[r]->(target:Entity)
         RETURN COUNT(r)
       `);
-      expect(relCount.data[0].count).toBe(5);
+      expect(relCount.data[0]["count(r)"]).toBe(5);
     });
   });
 
@@ -257,15 +257,15 @@ describe("Real-World Scenarios", () => {
       const taskIds: Record<string, string> = {};
 
       for (const row of members) {
-        memberIds[row["m.name"] as string] = row.id as string;
+        memberIds[row["m.name"] as string] = row["id(m)"] as string;
       }
       for (const row of tasks) {
-        taskIds[row["t.title"] as string] = row.id as string;
+        taskIds[row["t.title"] as string] = row["id(t)"] as string;
       }
 
       // Link tasks to project
       for (const taskId of Object.values(taskIds)) {
-        db.insertEdge(`pt-${taskId}`, "BELONGS_TO", taskId, project.id as string);
+        db.insertEdge(`pt-${taskId}`, "BELONGS_TO", taskId, project["id(p)"] as string);
       }
 
       // Assign tasks to members
@@ -288,7 +288,7 @@ describe("Real-World Scenarios", () => {
 
       // Count pending tasks
       const pendingCount = exec("MATCH (t:Task) WHERE t.status = 'pending' RETURN COUNT(t)");
-      expect(pendingCount.data[0].count).toBe(3);
+      expect(pendingCount.data[0]["count(t)"]).toBe(3);
 
       // Find unassigned tasks (tasks with no ASSIGNED_TO edge)
       // This would require a more complex query pattern we haven't implemented
@@ -337,9 +337,9 @@ describe("Real-World Scenarios", () => {
       const tagIds: Record<string, string> = {};
       const articleIds: Record<string, string> = {};
 
-      for (const row of authors) authorIds[row["a.name"] as string] = row.id as string;
-      for (const row of tags) tagIds[row["t.name"] as string] = row.id as string;
-      for (const row of articles) articleIds[row["a.slug"] as string] = row.id as string;
+      for (const row of authors) authorIds[row["a.name"] as string] = row["id(a)"] as string;
+      for (const row of tags) tagIds[row["t.name"] as string] = row["id(t)"] as string;
+      for (const row of articles) articleIds[row["a.slug"] as string] = row["id(a)"] as string;
 
       // Link articles to authors
       db.insertEdge("w1", "WROTE", authorIds["Jane Writer"], articleIds["getting-started-typescript"]);
@@ -368,7 +368,7 @@ describe("Real-World Scenarios", () => {
 
       // Count articles per status
       const publishedCount = exec("MATCH (a:Article) WHERE a.status = 'published' RETURN COUNT(a)");
-      expect(publishedCount.data[0].count).toBe(2);
+      expect(publishedCount.data[0]["count(a)"]).toBe(2);
     });
   });
 

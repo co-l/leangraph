@@ -99,7 +99,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].count).toBe(3);
+      expect(result.data[0]["count(n)"]).toBe(3);
     });
 
     it("orders results by property ASC", () => {
@@ -727,9 +727,9 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].id).toBeDefined();
+      expect(result.data[0]["id(n)"]).toBeDefined();
       // Should be a UUID
-      expect(result.data[0].id).toMatch(
+      expect(result.data[0]["id(n)"]).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
       );
     });
@@ -1464,7 +1464,7 @@ describe("Integration Tests", () => {
       const countResult = expectSuccess(
         executor.execute("MATCH (p:Product) RETURN COUNT(p)")
       );
-      expect(countResult.data[0].count).toBe(0);
+      expect(countResult.data[0]["count(p)"]).toBe(0);
     });
   });
 

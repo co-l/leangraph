@@ -329,7 +329,7 @@ export const FAILING_TESTS = new Set<string>([
   // "clauses/merge > Merge5 - Merge relationships|26",
   // "clauses/merge > Merge5 - Merge relationships|27",
   // "clauses/merge > Merge5 - Merge relationships|28",
-  "clauses/merge > Merge5 - Merge relationships|29",
+  // "clauses/merge > Merge5 - Merge relationships|29",
   "clauses/merge > Merge5 - Merge relationships|3",
   "clauses/merge > Merge8 - Merge relationships - on match and on create|1",
   "clauses/merge > Merge9 - Merge clause interoperation with other clauses|4",

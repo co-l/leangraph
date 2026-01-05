@@ -481,6 +481,28 @@ export class Executor {
   }
 
   /**
+   * Validate that MERGE properties in the AST don't contain explicit null values.
+   * MERGE cannot use null property values because null = null is undefined in Cypher.
+   * This validates the original AST properties, not the resolved values,
+   * to distinguish between explicit null (invalid) and variable references that may resolve to null.
+   */
+  private validateMergeAstPropertiesNotNull(props: Record<string, unknown>, context: string, params: Record<string, unknown>): void {
+    for (const [key, value] of Object.entries(props)) {
+      // Check for explicit null in AST
+      if (value === null) {
+        throw new Error(`Cannot merge the following ${context} because of null property key '${key}': null property values are not allowed in MERGE`);
+      }
+      // Check for parameter that resolves to null
+      if (typeof value === "object" && value !== null) {
+        const typed = value as { type?: string; name?: string };
+        if (typed.type === "parameter" && typed.name && params[typed.name] === null) {
+          throw new Error(`Cannot merge the following ${context} because of null property key '${key}': null property values are not allowed in MERGE`);
+        }
+      }
+    }
+  }
+
+  /**
    * Detect phase boundaries in a query.
    * 
    * A phase boundary occurs when:
@@ -986,6 +1008,10 @@ export class Executor {
     }
     
     const edgeType = pattern.edge.type || "";
+    
+    // Validate no explicit null properties in MERGE (check AST before resolution)
+    this.validateMergeAstPropertiesNotNull(pattern.edge.properties || {}, "relationship", params);
+    
     const edgeProps = this.resolvePropertiesInContext(pattern.edge.properties || {}, inputRow, params);
     
     // Adjust for direction
@@ -4571,6 +4597,10 @@ export class Executor {
     }
     
     const edgeType = pattern.edge.type || "";
+    
+    // Validate no explicit null properties in MERGE (check AST before resolution)
+    this.validateMergeAstPropertiesNotNull(pattern.edge.properties || {}, "relationship", params);
+    
     const edgeProps = this.resolvePropertiesWithMatchedNodes(pattern.edge.properties || {}, params, matchedNodes);
     
     // Adjust for direction
@@ -5390,6 +5420,11 @@ export class Executor {
     if (!edgeType) {
       throw new Error("MERGE requires a relationship type");
     }
+    // Validate no explicit null properties in MERGE (check AST before resolution)
+    this.validateMergeAstPropertiesNotNull(pattern.edge.properties || {}, "relationship", params);
+    this.validateMergeAstPropertiesNotNull(pattern.source.properties || {}, "node", params);
+    this.validateMergeAstPropertiesNotNull(pattern.target.properties || {}, "node", params);
+    
     const edgeProps = this.resolveProperties(pattern.edge.properties || {}, params);
     const sourceProps = this.resolveProperties(pattern.source.properties || {}, params);
     const targetProps = this.resolveProperties(pattern.target.properties || {}, params);

@@ -323,17 +323,18 @@ export class Executor {
     // These need special handling for proper Cartesian product semantics
     // BUT: If MERGE has ON CREATE SET or ON MATCH SET, let tryMergeExecution handle it
     const hasMatch = query.clauses.some(c => c.type === "MATCH");
+    const hasCreate = query.clauses.some(c => c.type === "CREATE");
     const hasMerge = query.clauses.some(c => c.type === "MERGE");
     const mergeClause = query.clauses.find(c => c.type === "MERGE") as MergeClause | undefined;
     const mergeHasSetClauses = mergeClause?.onCreateSet || mergeClause?.onMatchSet;
-    const needsMergePhasedExecution = hasMatch && hasMerge && !mergeHasSetClauses;
+    const needsMergePhasedExecution = (hasMatch || hasCreate) && hasMerge && !mergeHasSetClauses;
     
-    // If only one phase and no MATCH+MERGE combo, standard execution can handle it
+    // If only one phase and no MATCH/CREATE+MERGE combo, standard execution can handle it
     if (phases.length <= 1 && !needsMergePhasedExecution) {
       return null;
     }
     
-    // For MATCH+MERGE, execute all clauses in sequence using phased execution
+    // For MATCH/CREATE+MERGE, execute all clauses in sequence using phased execution
     const clausesToExecute = needsMergePhasedExecution && phases.length <= 1 
       ? [query.clauses]  // All clauses as one phase, but processed by phased executor
       : phases;

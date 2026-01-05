@@ -723,15 +723,15 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/boolean > Boolean4 - NOT logical operations|4:36",
   // "expressions/boolean > Boolean4 - NOT logical operations|4:37",
   // "expressions/boolean > Boolean4 - NOT logical operations|4:38",
-  "expressions/boolean > Boolean4 - NOT logical operations|4:39",
+  // "expressions/boolean > Boolean4 - NOT logical operations|4:39", // Fixed: list indexing type validation
   // "expressions/boolean > Boolean4 - NOT logical operations|4:4",
   // "expressions/boolean > Boolean4 - NOT logical operations|4:40",
   // "expressions/boolean > Boolean4 - NOT logical operations|4:41",
-  "expressions/boolean > Boolean4 - NOT logical operations|4:42",
-  "expressions/boolean > Boolean4 - NOT logical operations|4:43",
-  "expressions/boolean > Boolean4 - NOT logical operations|4:44",
+  // "expressions/boolean > Boolean4 - NOT logical operations|4:42", // Fixed: list indexing type validation
+  // "expressions/boolean > Boolean4 - NOT logical operations|4:43", // Fixed: list indexing type validation
+  // "expressions/boolean > Boolean4 - NOT logical operations|4:44", // Fixed: list indexing type validation
   // "expressions/boolean > Boolean4 - NOT logical operations|4:45",
-  "expressions/boolean > Boolean4 - NOT logical operations|4:46",
+  // "expressions/boolean > Boolean4 - NOT logical operations|4:46", // Fixed: list indexing type validation
   // "expressions/boolean > Boolean4 - NOT logical operations|4:47",
   // "expressions/boolean > Boolean4 - NOT logical operations|4:48",
   // "expressions/boolean > Boolean4 - NOT logical operations|4:49",
@@ -840,20 +840,20 @@ export const FAILING_TESTS = new Set<string>([
   "expressions/list > List12 - List Comprehension|6",
   // "expressions/list > List12 - List Comprehension|7",
   "expressions/list > List1 - Dynamic Element Access|2",
-  "expressions/list > List1 - Dynamic Element Access|6:1",
-  "expressions/list > List1 - Dynamic Element Access|6:2",
-  "expressions/list > List1 - Dynamic Element Access|6:3",
-  "expressions/list > List1 - Dynamic Element Access|6:4",
-  "expressions/list > List1 - Dynamic Element Access|7:1",
-  "expressions/list > List1 - Dynamic Element Access|7:2",
-  "expressions/list > List1 - Dynamic Element Access|7:3",
-  "expressions/list > List1 - Dynamic Element Access|7:4",
-  "expressions/list > List1 - Dynamic Element Access|8:1",
-  "expressions/list > List1 - Dynamic Element Access|8:2",
-  "expressions/list > List1 - Dynamic Element Access|8:3",
-  "expressions/list > List1 - Dynamic Element Access|8:4",
-  "expressions/list > List1 - Dynamic Element Access|8:5",
-  "expressions/list > List1 - Dynamic Element Access|9:1",
+  // "expressions/list > List1 - Dynamic Element Access|6:1", // Fixed: non-list indexing type validation
+  // "expressions/list > List1 - Dynamic Element Access|6:2", // Fixed: non-list indexing type validation
+  // "expressions/list > List1 - Dynamic Element Access|6:3", // Fixed: non-list indexing type validation
+  // "expressions/list > List1 - Dynamic Element Access|6:4", // Fixed: non-list indexing type validation
+  "expressions/list > List1 - Dynamic Element Access|7:1", // TODO: needs parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:2", // TODO: needs parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:3", // TODO: needs parameter support in TCK
+  "expressions/list > List1 - Dynamic Element Access|7:4", // TODO: needs parameter support in TCK
+  // "expressions/list > List1 - Dynamic Element Access|8:1", // Fixed: non-integer index type validation
+  // "expressions/list > List1 - Dynamic Element Access|8:2", // Fixed: non-integer index type validation
+  // "expressions/list > List1 - Dynamic Element Access|8:3", // Fixed: non-integer index type validation
+  // "expressions/list > List1 - Dynamic Element Access|8:4", // Fixed: non-integer index type validation
+  // "expressions/list > List1 - Dynamic Element Access|8:5", // Fixed: non-integer index type validation
+  "expressions/list > List1 - Dynamic Element Access|9:1", // TODO: needs parameter support in TCK
   "expressions/list > List1 - Dynamic Element Access|9:2",
   "expressions/list > List1 - Dynamic Element Access|9:3",
   "expressions/list > List1 - Dynamic Element Access|9:4",
@@ -987,10 +987,10 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/map > Map1 - Static value access|6:4",
   // "expressions/map > Map1 - Static value access|6:5",
   // "expressions/map > Map1 - Static value access|6:6",
-  "expressions/map > Map2 - Dynamic Value Access|5:1",
-  "expressions/map > Map2 - Dynamic Value Access|5:2",
-  "expressions/map > Map2 - Dynamic Value Access|5:3",
-  "expressions/map > Map2 - Dynamic Value Access|5:6",
+  // "expressions/map > Map2 - Dynamic Value Access|5:1", // Fixed: map dynamic access with string key
+  // "expressions/map > Map2 - Dynamic Value Access|5:2", // Fixed: map dynamic access with string key
+  // "expressions/map > Map2 - Dynamic Value Access|5:3", // Fixed: map dynamic access with string key
+  // "expressions/map > Map2 - Dynamic Value Access|5:6", // Fixed: map dynamic access with string key
   "expressions/map > Map2 - Dynamic Value Access|5:7",
   "expressions/map > Map2 - Dynamic Value Access|6",
   "expressions/map > Map2 - Dynamic Value Access|7",

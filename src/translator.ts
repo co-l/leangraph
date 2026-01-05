@@ -4712,10 +4712,119 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         // INDEX: list/map element access expr[index]
         if (expr.functionName === "INDEX") {
           if (expr.args && expr.args.length >= 2) {
-            const listResult = this.translateExpression(expr.args[0]);
-            const indexResult = this.translateExpression(expr.args[1]);
+            const listArg = expr.args[0];
+            const indexArg = expr.args[1];
+            
+            // Helper to resolve the effective expression (follow WITH aliases)
+            const resolveExpr = (arg: Expression): Expression => {
+              if (arg.type === "variable" && arg.variable) {
+                const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+                if (withAliases?.has(arg.variable)) {
+                  return resolveExpr(withAliases.get(arg.variable)!);
+                }
+              }
+              return arg;
+            };
+            
+            // Resolve both arguments through WITH aliases
+            const resolvedListArg = resolveExpr(listArg);
+            const resolvedIndexArg = resolveExpr(indexArg);
+            
+            // Determine if the container is a list or a map
+            // Lists require integer indices, maps allow string keys
+            const isContainerList = 
+              (resolvedListArg.type === "literal" && Array.isArray(resolvedListArg.value)) ||
+              (resolvedListArg.type === "function" && resolvedListArg.functionName === "LIST");
+            const isContainerMap = resolvedListArg.type === "object";
+            const isContainerNull = resolvedListArg.type === "literal" && resolvedListArg.value === null;
+            
+            // Type checking for container argument
+            // null is allowed (accessing null returns null)
+            // Lists and maps are allowed
+            // Primitives (boolean, integer, float, string) are NOT allowed
+            if (resolvedListArg.type === "literal" && !Array.isArray(resolvedListArg.value) && resolvedListArg.value !== null) {
+              const typeName = typeof resolvedListArg.value === "boolean" ? "Boolean" :
+                              typeof resolvedListArg.value === "number" ? (Number.isInteger(resolvedListArg.value) ? "Integer" : "Float") :
+                              typeof resolvedListArg.value === "string" ? "String" : "value";
+              throw new Error(`TypeError: ${typeName} is not subscriptable`);
+            }
+            
+            // Type checking for index argument - only when we KNOW it's a list (not a map)
+            // Maps allow string keys, lists require integer indices
+            // If we can't determine the container type, we allow both string and integer
+            if (isContainerList && !isContainerNull) {
+              if (resolvedIndexArg.type === "literal") {
+                const indexValue = resolvedIndexArg.value;
+                if (typeof indexValue === "boolean") {
+                  throw new Error("TypeError: expected Integer but was Boolean");
+                }
+                if (typeof indexValue === "number" && !Number.isInteger(indexValue)) {
+                  throw new Error("TypeError: expected Integer but was Float");
+                }
+                if (typeof indexValue === "string") {
+                  throw new Error("TypeError: expected Integer but was String");
+                }
+                if (Array.isArray(indexValue)) {
+                  throw new Error("TypeError: expected Integer but was List");
+                }
+                if (typeof indexValue === "object" && indexValue !== null) {
+                  throw new Error("TypeError: expected Integer but was Map");
+                }
+              }
+              
+              // Check for object expression type (map literal) used as index for list
+              if (resolvedIndexArg.type === "object") {
+                throw new Error("TypeError: expected Integer but was Map");
+              }
+              
+              // Check for list expression type (LIST function) used as index for list
+              if (resolvedIndexArg.type === "function" && resolvedIndexArg.functionName === "LIST") {
+                throw new Error("TypeError: expected Integer but was List");
+              }
+              
+              // For parameters used as index for list, check at translation time
+              if (resolvedIndexArg.type === "parameter") {
+                const paramValue = this.ctx.paramValues[resolvedIndexArg.name!];
+                if (typeof paramValue === "boolean") {
+                  throw new Error("TypeError: expected Integer but was Boolean");
+                }
+                if (typeof paramValue === "number" && !Number.isInteger(paramValue)) {
+                  throw new Error("TypeError: expected Integer but was Float");
+                }
+                if (typeof paramValue === "string") {
+                  throw new Error("TypeError: expected Integer but was String");
+                }
+                if (Array.isArray(paramValue)) {
+                  throw new Error("TypeError: expected Integer but was List");
+                }
+                if (typeof paramValue === "object" && paramValue !== null) {
+                  throw new Error("TypeError: expected Integer but was Map");
+                }
+              }
+            }
+            
+            // For container parameter, check if it's actually a list or map (not a primitive)
+            if (resolvedListArg.type === "parameter") {
+              const paramValue = this.ctx.paramValues[resolvedListArg.name!];
+              if (paramValue !== null && paramValue !== undefined && !Array.isArray(paramValue) && typeof paramValue !== "object") {
+                const typeName = typeof paramValue === "boolean" ? "Boolean" :
+                                typeof paramValue === "number" ? (Number.isInteger(paramValue) ? "Integer" : "Float") :
+                                typeof paramValue === "string" ? "String" : "value";
+                throw new Error(`TypeError: ${typeName} is not subscriptable`);
+              }
+            }
+            
+            const listResult = this.translateExpression(listArg);
+            const indexResult = this.translateExpression(indexArg);
             tables.push(...listResult.tables, ...indexResult.tables);
             params.push(...listResult.params, ...indexResult.params);
+            
+            // For map access with string key, use json_extract with the key
+            // For list access with integer index, use json_extract with array index
+            if (isContainerMap || (resolvedIndexArg.type === "literal" && typeof resolvedIndexArg.value === "string")) {
+              // Map access: use key directly
+              return { sql: `json_extract(${listResult.sql}, '$.' || ${indexResult.sql})`, tables, params };
+            }
             // Use json_extract with array index - note: Cypher uses 0-based, SQLite json uses 0-based too
             // Cast index to integer to avoid "0.0" in JSON path
             return { sql: `json_extract(${listResult.sql}, '$[' || CAST(${indexResult.sql} AS INTEGER) || ']')`, tables, params };

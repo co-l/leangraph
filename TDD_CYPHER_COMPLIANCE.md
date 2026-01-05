@@ -2,8 +2,8 @@
 
 ## Current Status (vs Neo4j 3.5 Baseline)
 - **Target**: 2703 tests (what Neo4j 3.5 passes)
-- **Passing**: 1387 tests (51.3% of target)
-- **Failing**: 1297 tests (to be fixed)
+- **Passing**: 1405 tests (52.0% of target)
+- **Failing**: 1279 tests (to be fixed)
 - **Not in baseline**: 19 tests (parser edge cases)
 
 ### What This Means
@@ -13,6 +13,7 @@ We only run tests that Neo4j 3.5 actually passes. This gives us a realistic, ach
 - `clauses/call` - CALL procedures not yet supported
 
 ## Recent Fixes
+- **List Indexing Type Validation (18 tests)**: Added runtime type checking for list/map indexing. Lists require integer indices (`list[0]`), maps allow string keys (`map['key']`). Trying to index a non-subscriptable value (boolean, integer, float, string) now throws `TypeError`. Tests fixed: List1 6:1-4 (non-list), List1 8:1-5 (non-integer index), Map2 5:1-3,6 (map string key access), Boolean4 4:39,42-44,46.
 - **Boolean Type Strictness (48 tests)**: AND/OR/NOT operators now reject non-boolean operands at compile time. `RETURN 123 AND true` now correctly throws `SyntaxError: InvalidArgumentType`.
 - **Match7-24**: Fixed self-loop matching in OPTIONAL MATCH - undirected patterns `(a)-[r]-(a)` now correctly return self-loops once instead of twice. The fix adds a NOT condition to prevent duplicate matches when `source_id = target_id`.
 - **Match7-28**: Fixed OPTIONAL MATCH with inline label predicate - when the target node with a specific label doesn't exist, the query now correctly returns 1 row with NULL instead of multiple rows. The fix adds `DISTINCT` to the SELECT when there's an OPTIONAL MATCH with a label predicate on a new edge's target node, preventing row multiplication from multiple edges that don't match the label.
@@ -143,7 +144,7 @@ These tests verify that our implementation correctly rejects invalid Cypher.
 
 ## Expected Error Tests Breakdown
 
-Of the 1297 failing tests, **69 are expected-error tests** where we should reject the query but currently don't.
+Of the 1279 failing tests, **~56 are expected-error tests** where we should reject the query but currently don't.
 
 To list them: `npm run tck:failing -- --errors`
 
@@ -198,17 +199,16 @@ RETURN 1 AS a UNION RETURN 2 AS b
 
 **Fix**: Validate UNION column names match in translator.
 
-#### 5. List Indexing Type Errors (22 tests)
-Using non-integer indexes or indexing non-lists.
+#### 5. ~~List Indexing Type Errors~~ ✅ PARTIALLY FIXED (13 tests fixed)
+~~Using non-integer indexes or indexing non-lists.~~
 
-```cypher
--- Should fail (TypeError at runtime)
-WITH [1,2,3] AS list RETURN list[1.5]
-WITH [1,2,3] AS list RETURN list['a']
-WITH 'string' AS x RETURN x[0]
-```
+Now validates at translation time:
+- Indexing non-lists (boolean, integer, float, string) → `TypeError: X is not subscriptable`
+- Using non-integer index for lists (float, boolean, string, list, map) → `TypeError: expected Integer but was X`
+- Map access with string keys is allowed: `map['key']`
+- Null container returns null: `null[0]` → `null`
 
-**Fix**: Add runtime type checking in executor.
+**Still pending**: Tests 7:1-4 and 9:1-5 need parameter support in TCK test infrastructure.
 
 #### 6. Accessing Deleted Entities (3 tests)
 Accessing properties of deleted nodes/relationships.
@@ -245,8 +245,8 @@ RETURN '\uH'
 1. ~~**SKIP/LIMIT validation**~~ ✅ DONE - 7 tests fixed
 2. ~~**Duplicate column names**~~ ✅ DONE - 2 tests fixed (Return4|10, With4|4)
 3. ~~**Boolean strictness**~~ ✅ DONE - 48 tests fixed (AND/OR/NOT type checking)
-4. **Integer overflow** - 2 tests, parser only
-5. **Invalid unicode** - 1 test, tokenizer only
-6. **UNION column mismatch** - 4 tests, translator only
-7. **List indexing types** - 22 tests, runtime type checking
+4. ~~**List indexing types**~~ ✅ PARTIALLY DONE - 13 tests fixed (need TCK parameter support for remaining 9)
+5. **Integer overflow** - 2 tests, parser only
+6. **Invalid unicode** - 1 test, tokenizer only
+7. **UNION column mismatch** - 4 tests, translator only
 8. **Deleted entity access** - 3 tests, executor state tracking

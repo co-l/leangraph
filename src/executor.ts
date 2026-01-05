@@ -969,7 +969,13 @@ export class Executor {
         const props = typeof edgeRow.properties === "string"
           ? JSON.parse(edgeRow.properties)
           : edgeRow.properties;
-        outputRow.set(pattern.edge.variable, { ...props, _nf_id: edgeRow.id });
+        // Include _nf_start and _nf_end for startNode() and endNode() functions
+        outputRow.set(pattern.edge.variable, { 
+          ...props, 
+          _nf_id: edgeRow.id,
+          _nf_start: actualSource,
+          _nf_end: actualTarget
+        });
       }
     } else {
       // Create edge
@@ -980,7 +986,13 @@ export class Executor {
       );
       
       if (pattern.edge.variable) {
-        outputRow.set(pattern.edge.variable, { ...edgeProps, _nf_id: edgeId });
+        // Include _nf_start and _nf_end for startNode() and endNode() functions
+        outputRow.set(pattern.edge.variable, { 
+          ...edgeProps, 
+          _nf_id: edgeId,
+          _nf_start: actualSource,
+          _nf_end: actualTarget
+        });
         globalContext.edgeIds.set(pattern.edge.variable, edgeId);
       }
     }
@@ -1938,6 +1950,31 @@ export class Executor {
       case "binary":
         return this.evaluateBinaryInRow(expr, row, params);
         
+      case "propertyAccess": {
+        // Handle expressions like startNode(r).id - property access on function result
+        const objValue = this.evaluateExpressionInRow(expr.object!, row, params);
+        if (objValue === null || objValue === undefined) return null;
+        
+        // Get the property from the object
+        if (typeof objValue === "object" && objValue !== null) {
+          return (objValue as Record<string, unknown>)[expr.property!] ?? null;
+        }
+        
+        // If it's a JSON string, try to parse and extract
+        if (typeof objValue === "string") {
+          try {
+            const parsed = JSON.parse(objValue);
+            if (typeof parsed === "object" && parsed !== null) {
+              return parsed[expr.property!] ?? null;
+            }
+          } catch {
+            // Not valid JSON
+          }
+        }
+        
+        return null;
+      }
+        
       default:
         return null;
     }
@@ -2029,6 +2066,84 @@ export class Executor {
         
         if (result.rows.length > 0) {
           return result.rows[0].type;
+        }
+        return null;
+      }
+      
+      case "STARTNODE": {
+        if (args.length === 0) return null;
+        const edgeVal = this.evaluateExpressionInRow(args[0], row, params);
+        
+        // Extract start node ID from edge object
+        let startNodeId: string | null = null;
+        if (typeof edgeVal === "object" && edgeVal !== null) {
+          const edgeObj = edgeVal as Record<string, unknown>;
+          if ("_nf_start" in edgeObj) {
+            startNodeId = edgeObj._nf_start as string;
+          } else if ("_nf_id" in edgeObj) {
+            // Look up edge from database to get source_id
+            const edgeResult = this.db.execute(
+              "SELECT source_id FROM edges WHERE id = ?",
+              [edgeObj._nf_id]
+            );
+            if (edgeResult.rows.length > 0) {
+              startNodeId = edgeResult.rows[0].source_id as string;
+            }
+          }
+        }
+        
+        if (!startNodeId) return null;
+        
+        // Look up node from database
+        const nodeResult = this.db.execute(
+          "SELECT id, properties FROM nodes WHERE id = ?",
+          [startNodeId]
+        );
+        
+        if (nodeResult.rows.length > 0) {
+          const nodeProps = typeof nodeResult.rows[0].properties === "string"
+            ? JSON.parse(nodeResult.rows[0].properties)
+            : nodeResult.rows[0].properties;
+          return { ...nodeProps, _nf_id: nodeResult.rows[0].id };
+        }
+        return null;
+      }
+      
+      case "ENDNODE": {
+        if (args.length === 0) return null;
+        const edgeVal = this.evaluateExpressionInRow(args[0], row, params);
+        
+        // Extract end node ID from edge object
+        let endNodeId: string | null = null;
+        if (typeof edgeVal === "object" && edgeVal !== null) {
+          const edgeObj = edgeVal as Record<string, unknown>;
+          if ("_nf_end" in edgeObj) {
+            endNodeId = edgeObj._nf_end as string;
+          } else if ("_nf_id" in edgeObj) {
+            // Look up edge from database to get target_id
+            const edgeResult = this.db.execute(
+              "SELECT target_id FROM edges WHERE id = ?",
+              [edgeObj._nf_id]
+            );
+            if (edgeResult.rows.length > 0) {
+              endNodeId = edgeResult.rows[0].target_id as string;
+            }
+          }
+        }
+        
+        if (!endNodeId) return null;
+        
+        // Look up node from database
+        const nodeResult = this.db.execute(
+          "SELECT id, properties FROM nodes WHERE id = ?",
+          [endNodeId]
+        );
+        
+        if (nodeResult.rows.length > 0) {
+          const nodeProps = typeof nodeResult.rows[0].properties === "string"
+            ? JSON.parse(nodeResult.rows[0].properties)
+            : nodeResult.rows[0].properties;
+          return { ...nodeProps, _nf_id: nodeResult.rows[0].id };
         }
         return null;
       }

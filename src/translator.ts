@@ -2408,6 +2408,27 @@ export class Translator {
       }
     }
     
+    // Before replacing withAliases, preserve any old WITH aliases that are referenced
+    // in the current WITH's expressions (even if not explicitly passed through)
+    const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+    if (oldWithAliases) {
+      // Find all variables referenced in current WITH items
+      const referencedVars = new Set<string>();
+      for (const item of clause.items) {
+        const vars = this.findVariablesInExpression(item.expression);
+        for (const v of vars) {
+          referencedVars.add(v);
+        }
+      }
+      
+      // Preserve old WITH aliases that are referenced but not yet in newWithAliases
+      for (const varName of referencedVars) {
+        if (oldWithAliases.has(varName) && !newWithAliases.has(varName)) {
+          newWithAliases.set(varName, oldWithAliases.get(varName)!);
+        }
+      }
+    }
+    
     // Replace withAliases with the new map for this WITH scope
     (this.ctx as any).withAliases = newWithAliases;
     
@@ -4035,6 +4056,34 @@ export class Translator {
       }
       
       case "property": {
+        // First check if this is a WITH alias (e.g., accessing properties of an object/map)
+        const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+        if (withAliases && withAliases.has(expr.variable!)) {
+          const originalExpr = withAliases.get(expr.variable!)!;
+          
+          // Check if this is a non-map type that should fail with type error
+          // Non-map types: numbers, strings, booleans, lists (all as literals)
+          const isNonMapType = originalExpr.type === "literal" && 
+                               originalExpr.value !== null &&
+                               (typeof originalExpr.value !== "object" || Array.isArray(originalExpr.value));
+          
+          // Only use the WITH alias if:
+          // 1. It's NOT a property expression with the same variable (to avoid infinite recursion)
+          // 2. It's NOT a non-map type (numbers, strings, booleans, lists should error)
+          if (!isNonMapType && (originalExpr.type !== "property" || originalExpr.variable !== expr.variable)) {
+            // This variable is a WITH alias - translate the underlying expression and access the property
+            const objectResult = this.translateExpression(originalExpr);
+            tables.push(...objectResult.tables);
+            params.push(...objectResult.params);
+            // Access property from the result using json_extract
+            return {
+              sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
+              tables,
+              params,
+            };
+          }
+        }
+        
         const varInfo = this.ctx.variables.get(expr.variable!);
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);
@@ -6932,6 +6981,13 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
       
       // Recurse into expression (general nested)
       if (e.expression) collect(e.expression);
+      
+      // Recurse into object properties
+      if (e.properties && Array.isArray(e.properties)) {
+        for (const prop of e.properties) {
+          if (prop.value) collect(prop.value);
+        }
+      }
     };
     
     collect(expr);

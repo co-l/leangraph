@@ -40,7 +40,7 @@ describe("Real-World Scenarios", () => {
       const users = exec("MATCH (u:User) RETURN u.name, id(u)").data;
       const userIds: Record<string, string> = {};
       for (const row of users) {
-        userIds[row.u_name as string] = row.id as string;
+        userIds[row["u.name"] as string] = row.id as string;
       }
 
       // Create friendships via raw DB (since we need existing node IDs)
@@ -54,8 +54,8 @@ describe("Real-World Scenarios", () => {
         MATCH (a:User {name: 'Alice'})-[:FRIENDS]->(friend:User) 
         RETURN friend.name
       `);
-      expect(aliceFriends.data.map((r) => r.friend_name)).toContain("Bob");
-      expect(aliceFriends.data.map((r) => r.friend_name)).toContain("Eve");
+      expect(aliceFriends.data.map((r) => r["friend.name"])).toContain("Bob");
+      expect(aliceFriends.data.map((r) => r["friend.name"])).toContain("Eve");
 
       // Count total friendships
       const friendshipCount = exec("MATCH (a:User)-[:FRIENDS]->(b:User) RETURN COUNT(a)");
@@ -73,7 +73,7 @@ describe("Real-World Scenarios", () => {
       const users = exec("MATCH (u:User) RETURN u.name, id(u)").data;
       const userIds: Record<string, string> = {};
       for (const row of users) {
-        userIds[row.u_name as string] = row.id as string;
+        userIds[row["u.name"] as string] = row.id as string;
       }
 
       // Alice blocks Troll
@@ -85,7 +85,7 @@ describe("Real-World Scenarios", () => {
       // Verify block exists
       const blocks = exec("MATCH (a:User {name: 'Alice'})-[:BLOCKS]->(blocked:User) RETURN blocked.name");
       expect(blocks.data).toHaveLength(1);
-      expect(blocks.data[0].blocked_name).toBe("Troll");
+      expect(blocks.data[0]["blocked.name"]).toBe("Troll");
 
       // Remove block
       db.deleteEdge("b1");
@@ -120,10 +120,10 @@ describe("Real-World Scenarios", () => {
       const prodIds: Record<string, string> = {};
 
       for (const row of categories) {
-        catIds[row.c_name as string] = row.id as string;
+        catIds[row["c.name"] as string] = row.id as string;
       }
       for (const row of products) {
-        prodIds[row.p_name as string] = row.id as string;
+        prodIds[row["p.name"] as string] = row.id as string;
       }
 
       db.insertEdge("pc1", "IN_CATEGORY", prodIds["Laptop"], catIds["Electronics"]);
@@ -145,7 +145,7 @@ describe("Real-World Scenarios", () => {
       // Find products with low stock
       const lowStock = exec("MATCH (p:Product) WHERE p.stock < 100 RETURN p.name, p.stock");
       expect(lowStock.data).toHaveLength(1);
-      expect(lowStock.data[0].p_name).toBe("Laptop");
+      expect(lowStock.data[0]["p.name"]).toBe("Laptop");
     });
 
     it("tracks order history", () => {
@@ -163,7 +163,7 @@ describe("Real-World Scenarios", () => {
 
       for (const order of orders) {
         db.insertEdge(
-          `placed-${order.o_orderId}`,
+          `placed-${order["o.orderId"]}`,
           "PLACED",
           customer.id as string,
           order.id as string
@@ -184,7 +184,7 @@ describe("Real-World Scenarios", () => {
         RETURN o.orderId, o.total
       `);
       expect(pending.data).toHaveLength(1);
-      expect(pending.data[0].o_orderId).toBe("ORD-003");
+      expect(pending.data[0]["o.orderId"]).toBe("ORD-003");
     });
   });
 
@@ -201,7 +201,7 @@ describe("Real-World Scenarios", () => {
       const entities = exec("MATCH (e:Entity) RETURN e.name, id(e)").data;
       const entityIds: Record<string, string> = {};
       for (const row of entities) {
-        entityIds[row.e_name as string] = row.id as string;
+        entityIds[row["e.name"] as string] = row.id as string;
       }
 
       // Create relationships
@@ -216,7 +216,7 @@ describe("Real-World Scenarios", () => {
         MATCH (e:Entity {name: 'Albert Einstein'})-[:DEVELOPED]->(t:Entity)
         RETURN t.name, t.type
       `);
-      expect(developed.data[0].t_name).toBe("Theory of Relativity");
+      expect(developed.data[0]["t.name"]).toBe("Theory of Relativity");
 
       // Query: Find all people (by type)
       const people = exec("MATCH (e:Entity) WHERE e.type = 'Person' RETURN e.name");
@@ -257,10 +257,10 @@ describe("Real-World Scenarios", () => {
       const taskIds: Record<string, string> = {};
 
       for (const row of members) {
-        memberIds[row.m_name as string] = row.id as string;
+        memberIds[row["m.name"] as string] = row.id as string;
       }
       for (const row of tasks) {
-        taskIds[row.t_title as string] = row.id as string;
+        taskIds[row["t.title"] as string] = row.id as string;
       }
 
       // Link tasks to project
@@ -337,9 +337,9 @@ describe("Real-World Scenarios", () => {
       const tagIds: Record<string, string> = {};
       const articleIds: Record<string, string> = {};
 
-      for (const row of authors) authorIds[row.a_name as string] = row.id as string;
-      for (const row of tags) tagIds[row.t_name as string] = row.id as string;
-      for (const row of articles) articleIds[row.a_slug as string] = row.id as string;
+      for (const row of authors) authorIds[row["a.name"] as string] = row.id as string;
+      for (const row of tags) tagIds[row["t.name"] as string] = row.id as string;
+      for (const row of articles) articleIds[row["a.slug"] as string] = row.id as string;
 
       // Link articles to authors
       db.insertEdge("w1", "WROTE", authorIds["Jane Writer"], articleIds["getting-started-typescript"]);
@@ -415,9 +415,9 @@ describe("Real-World Scenarios", () => {
 
       expect(result.data.length).toBeLessThanOrEqual(10);
       for (const row of result.data) {
-        expect(row.p_price).toBeGreaterThan(50);
-        expect(row.p_price).toBeLessThan(200);
-        expect(row.p_stock).toBeGreaterThan(30);
+        expect(row["p.price"]).toBeGreaterThan(50);
+        expect(row["p.price"]).toBeLessThan(200);
+        expect(row["p.stock"]).toBeGreaterThan(30);
       }
     });
 
@@ -472,9 +472,9 @@ describe("Real-World Scenarios", () => {
       exec("CREATE (u:User {name: '日本語', emoji: '🎉', arabic: 'مرحبا'})");
 
       const result = exec("MATCH (u:User) RETURN u.name, u.emoji, u.arabic");
-      expect(result.data[0].u_name).toBe("日本語");
-      expect(result.data[0].u_emoji).toBe("🎉");
-      expect(result.data[0].u_arabic).toBe("مرحبا");
+      expect(result.data[0]["u.name"]).toBe("日本語");
+      expect(result.data[0]["u.emoji"]).toBe("🎉");
+      expect(result.data[0]["u.arabic"]).toBe("مرحبا");
     });
 
     it("handles special characters in strings", () => {
@@ -490,9 +490,9 @@ describe("Real-World Scenarios", () => {
       exec("CREATE (u:User {name: 'Test', middleName: null, age: 25})");
 
       const result = exec("MATCH (u:User) RETURN u.name, u.middleName, u.age");
-      expect(result.data[0].u_name).toBe("Test");
-      expect(result.data[0].u_middleName).toBeNull();
-      expect(result.data[0].u_age).toBe(25);
+      expect(result.data[0]["u.name"]).toBe("Test");
+      expect(result.data[0]["u.middleName"]).toBeNull();
+      expect(result.data[0]["u.age"]).toBe(25);
     });
 
     it("handles boolean values correctly", () => {
@@ -500,15 +500,15 @@ describe("Real-World Scenarios", () => {
 
       const result = exec("MATCH (u:User) RETURN u.isActive, u.isAdmin");
       // Booleans are now properly returned as true/false (not 1/0)
-      expect(result.data[0].u_isActive).toBe(true);
-      expect(result.data[0].u_isAdmin).toBe(false);
+      expect(result.data[0]["u.isActive"]).toBe(true);
+      expect(result.data[0]["u.isAdmin"]).toBe(false);
     });
 
     it("handles arrays in properties", () => {
       exec("CREATE (u:User {name: 'Tagged', tags: ['admin', 'user', 'verified']})");
 
       const result = exec("MATCH (u:User) RETURN u.tags");
-      expect(result.data[0].u_tags).toEqual(["admin", "user", "verified"]);
+      expect(result.data[0]["u.tags"]).toEqual(["admin", "user", "verified"]);
     });
 
     it("handles very long property values", () => {
@@ -516,7 +516,7 @@ describe("Real-World Scenarios", () => {
       exec(`CREATE (n:Note {content: '${longString}'})`);
 
       const result = exec("MATCH (n:Note) RETURN n.content");
-      expect(result.data[0].n_content).toHaveLength(10000);
+      expect(result.data[0]["n.content"]).toHaveLength(10000);
     });
 
     it("handles numeric edge cases", () => {
@@ -524,10 +524,10 @@ describe("Real-World Scenarios", () => {
 
       const result = exec("MATCH (n:Number) RETURN n.int, n.negative, n.float, n.large");
 
-      expect(result.data[0].n_int).toBe(0);
-      expect(result.data[0].n_negative).toBe(-42);
-      expect(result.data[0].n_float).toBeCloseTo(3.14159);
-      expect(result.data[0].n_large).toBe(9999999999);
+      expect(result.data[0]["n.int"]).toBe(0);
+      expect(result.data[0]["n.negative"]).toBe(-42);
+      expect(result.data[0]["n.float"]).toBeCloseTo(3.14159);
+      expect(result.data[0]["n.large"]).toBe(9999999999);
     });
   });
 });

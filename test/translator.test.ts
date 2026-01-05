@@ -172,13 +172,15 @@ describe("Translator", () => {
 
       // Uses -> operator to preserve JSON types (booleans as true/false, not 1/0)
       expect(result.statements[0].sql).toContain("-> '$.name'");
-      expect(result.returnColumns).toEqual(["n_name"]);
+      // Column name uses dot notation to match Cypher/Neo4j convention
+      expect(result.returnColumns).toEqual(["n.name"]);
     });
 
     it("returns multiple properties", () => {
       const result = translateCypher("MATCH (n:Person) RETURN n.name, n.age");
 
-      expect(result.returnColumns).toEqual(["n_name", "n_age"]);
+      // Column names use dot notation to match Cypher/Neo4j convention
+      expect(result.returnColumns).toEqual(["n.name", "n.age"]);
     });
 
     it("respects LIMIT clause", () => {
@@ -771,7 +773,8 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("SELECT");
       // Integer literals are inlined in SQL (not params) to preserve integer division
       expect(result.statements[0].sql).toContain("1");
-      expect(result.returnColumns).toEqual(["expr"]);
+      // Neo4j uses the literal value as column name
+      expect(result.returnColumns).toEqual(["1"]);
     });
 
     it("handles RETURN with literal string", () => {
@@ -2483,6 +2486,36 @@ describe("Translator", () => {
         const sql = result.statements[0].sql;
         expect(sql).toContain("json_each");
         expect(result.returnColumns).toEqual(["result"]);
+      });
+    });
+  });
+
+  describe("Semantic validation", () => {
+    describe("Duplicate column names", () => {
+      it("rejects RETURN with duplicate column aliases", () => {
+        expect(() => translateCypher("RETURN 1 AS a, 2 AS a")).toThrow(
+          /SyntaxError.*ColumnNameConflict|Multiple result columns with the same name/i
+        );
+      });
+
+      it("rejects WITH with duplicate column aliases", () => {
+        expect(() => translateCypher("WITH 1 AS a, 2 AS a RETURN a")).toThrow(
+          /SyntaxError.*ColumnNameConflict|Multiple result columns with the same name/i
+        );
+      });
+
+      it("rejects RETURN with duplicate implicit names", () => {
+        // Both resolve to "n.name" as the implicit alias
+        expect(() => translateCypher("MATCH (n) RETURN n.name, n.name")).toThrow(
+          /SyntaxError.*ColumnNameConflict|Multiple result columns with the same name/i
+        );
+      });
+
+      it("allows same alias in different WITH clauses", () => {
+        // This should work - each WITH creates a new scope
+        // Using simpler pattern that doesn't trigger recursive alias resolution
+        const result = translateCypher("WITH 1 AS a WITH 2 AS a RETURN a");
+        expect(result.returnColumns).toEqual(["a"]);
       });
     });
   });

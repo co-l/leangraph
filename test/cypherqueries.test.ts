@@ -999,7 +999,8 @@ describe("CypherQueries.json Patterns", () => {
       const result = exec("RETURN 1");
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].expr).toBe(1);
+      // Neo4j uses the literal value as the column name
+      expect(result.data[0]["1"]).toBe(1);
     });
   });
 
@@ -1040,7 +1041,8 @@ describe("CypherQueries.json Patterns", () => {
         const company = exec("MATCH (c:Company) RETURN id(c) as cid").data[0];
         
         for (const user of users) {
-          db.insertEdge(`admin-${user.u_user_id}`, "IS_ADMIN", user.uid as string, company.cid as string);
+          // Column name uses dot notation: u.user_id
+          db.insertEdge(`admin-${user["u.user_id"]}`, "IS_ADMIN", user.uid as string, company.cid as string);
         }
 
         // Collect users into objects
@@ -1104,8 +1106,9 @@ describe("CypherQueries.json Patterns", () => {
         
         const productInfos = exec("MATCH (pi:ProductInfo) RETURN pi.title, id(pi) as piid").data;
         
-        const usInfo = productInfos.find(pi => pi.pi_title === "US Product");
-        const euInfo = productInfos.find(pi => pi.pi_title === "EU Product");
+        // Column name uses dot notation: pi.title
+        const usInfo = productInfos.find(pi => pi["pi.title"] === "US Product");
+        const euInfo = productInfos.find(pi => pi["pi.title"] === "EU Product");
         
         db.insertEdge("pi-us", "PRODUCT_INFO", product.pid as string, usInfo?.piid as string, { market_place: "us" });
         db.insertEdge("pi-eu", "PRODUCT_INFO", product.pid as string, euInfo?.piid as string, { market_place: "eu" });
@@ -1265,9 +1268,10 @@ describe("CypherQueries.json Patterns", () => {
         
         const users = exec("MATCH (u:User) RETURN u.email, u.company_id, id(u) as uid").data;
         for (const user of users) {
-          const company = companies.find(c => c.c_company_id === user.u_company_id);
+          // Column names use dot notation
+          const company = companies.find(c => c["c.company_id"] === user["u.company_id"]);
           if (company) {
-            db.insertEdge(`admin-${user.u_email}`, "IS_ADMIN", user.uid as string, company.cid as string);
+            db.insertEdge(`admin-${user["u.email"]}`, "IS_ADMIN", user.uid as string, company.cid as string);
           }
         }
 

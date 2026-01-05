@@ -73,8 +73,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].n_age).toBe(30);
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["n.age"]).toBe(30);
     });
 
     it("uses LIMIT correctly", () => {
@@ -112,9 +112,9 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(3);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[1].n_name).toBe("Bob");
-      expect(result.data[2].n_name).toBe("Charlie");
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[1]["n.name"]).toBe("Bob");
+      expect(result.data[2]["n.name"]).toBe("Charlie");
     });
 
     it("orders results by property DESC", () => {
@@ -127,9 +127,9 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(3);
-      expect(result.data[0].n_age).toBe(35);
-      expect(result.data[1].n_age).toBe(30);
-      expect(result.data[2].n_age).toBe(25);
+      expect(result.data[0]["n.age"]).toBe(35);
+      expect(result.data[1]["n.age"]).toBe(30);
+      expect(result.data[2]["n.age"]).toBe(25);
     });
 
     it("orders results by multiple fields", () => {
@@ -143,9 +143,9 @@ describe("Integration Tests", () => {
 
       expect(result.data).toHaveLength(3);
       // Engineering comes first alphabetically, then sorted by name within dept
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[1].n_name).toBe("Bob");
-      expect(result.data[2].n_name).toBe("Charlie");
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[1]["n.name"]).toBe("Bob");
+      expect(result.data[2]["n.name"]).toBe("Charlie");
     });
 
     it("orders results with LIMIT", () => {
@@ -158,8 +158,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(2);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[1].n_name).toBe("Bob");
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[1]["n.name"]).toBe("Bob");
     });
 
     it("uses SKIP correctly", () => {
@@ -172,8 +172,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(2);
-      expect(result.data[0].n_name).toBe("Bob");
-      expect(result.data[1].n_name).toBe("Charlie");
+      expect(result.data[0]["n.name"]).toBe("Bob");
+      expect(result.data[1]["n.name"]).toBe("Charlie");
     });
 
     it("uses SKIP with LIMIT for pagination", () => {
@@ -188,23 +188,23 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 0 LIMIT 2")
       );
       expect(page1.data).toHaveLength(2);
-      expect(page1.data[0].n_name).toBe("Alice");
-      expect(page1.data[1].n_name).toBe("Bob");
+      expect(page1.data[0]["n.name"]).toBe("Alice");
+      expect(page1.data[1]["n.name"]).toBe("Bob");
 
       // Page 2: next 2 results
       const page2 = expectSuccess(
         executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 2 LIMIT 2")
       );
       expect(page2.data).toHaveLength(2);
-      expect(page2.data[0].n_name).toBe("Charlie");
-      expect(page2.data[1].n_name).toBe("Dave");
+      expect(page2.data[0]["n.name"]).toBe("Charlie");
+      expect(page2.data[1]["n.name"]).toBe("Dave");
 
       // Page 3: last result
       const page3 = expectSuccess(
         executor.execute("MATCH (n:Person) RETURN n.name ORDER BY n.name SKIP 4 LIMIT 2")
       );
       expect(page3.data).toHaveLength(1);
-      expect(page3.data[0].n_name).toBe("Eve");
+      expect(page3.data[0]["n.name"]).toBe("Eve");
     });
 
     it("uses ORDER BY with DESC and SKIP and LIMIT", () => {
@@ -219,8 +219,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(2);
-      expect(result.data[0].n_score).toBe(92); // Charlie (2nd highest)
-      expect(result.data[1].n_score).toBe(85); // Bob (3rd highest)
+      expect(result.data[0]["n.score"]).toBe(92); // Charlie (2nd highest)
+      expect(result.data[1]["n.score"]).toBe(85); // Bob (3rd highest)
     });
   });
 
@@ -267,7 +267,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].proj_name).toBe("Alpha");
+      expect(result.data[0]["proj.name"]).toBe("Alpha");
     });
 
     it("filters by target node properties in relationships", () => {
@@ -285,7 +285,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].proj_name).toBe("Alpha");
+      expect(result.data[0]["proj.name"]).toBe("Alpha");
     });
 
     it("filters by both source and target node properties", () => {
@@ -314,8 +314,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].u_name).toBe("Alice");
-      expect(result.data[0].p_name).toBe("Premium Widget");
+      expect(result.data[0]["u.name"]).toBe("Alice");
+      expect(result.data[0]["p.name"]).toBe("Premium Widget");
     });
 
     it("filters relationships with parameter values on endpoints", () => {
@@ -341,7 +341,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].e_name).toBe("Alice");
+      expect(result.data[0]["e.name"]).toBe("Alice");
     });
   });
 
@@ -433,7 +433,7 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (n:Person) WHERE n.email IS NOT NULL RETURN n.name")
       );
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Eve");
+      expect(result.data[0]["n.name"]).toBe("Eve");
     });
 
     it("filters with parenthesized OR condition", () => {
@@ -458,7 +458,7 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (n:Customer) WHERE n.archived IS NULL OR n.archived = false RETURN n.name")
       );
       expect(result.data).toHaveLength(2);
-      const names = result.data.map(d => d.n_name);
+      const names = result.data.map(d => d["n.name"]);
       expect(names).toContain("Active Co");
       expect(names).toContain("Visible Inc");
     });
@@ -627,8 +627,8 @@ describe("Integration Tests", () => {
       );
 
       expect(queryResult.data).toHaveLength(1);
-      expect(queryResult.data[0].n_name).toBe("Widget");
-      expect(queryResult.data[0].n_price).toBe(9.99);
+      expect(queryResult.data[0]["n.name"]).toBe("Widget");
+      expect(queryResult.data[0]["n.price"]).toBe(9.99);
     });
 
     it("applies only ON MATCH SET when node exists", () => {
@@ -654,8 +654,8 @@ describe("Integration Tests", () => {
       );
 
       expect(queryResult.data).toHaveLength(1);
-      expect(queryResult.data[0].n_name).toBe("Original Widget"); // Name unchanged
-      expect(queryResult.data[0].n_price).toBe(12.99); // Price updated
+      expect(queryResult.data[0]["n.name"]).toBe("Original Widget"); // Name unchanged
+      expect(queryResult.data[0]["n.price"]).toBe(12.99); // Price updated
     });
 
     it("handles MERGE with relationship and ON CREATE SET", () => {
@@ -688,9 +688,9 @@ describe("Integration Tests", () => {
       );
 
       expect(verifyResult.data).toHaveLength(1);
-      expect(verifyResult.data[0].l_language).toBe("French");
-      expect(verifyResult.data[0].l_proficiency).toBe("beginner");
-      expect(verifyResult.data[0].l_created_at).toBe("2024-01-01");
+      expect(verifyResult.data[0]["l.language"]).toBe("French");
+      expect(verifyResult.data[0]["l.proficiency"]).toBe("beginner");
+      expect(verifyResult.data[0]["l.created_at"]).toBe("2024-01-01");
     });
 
     it("handles MERGE relationship with ON MATCH SET", () => {
@@ -847,8 +847,8 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (u:CC_User)-[:HAS_REPORT]->(r:CC_MonthlyReport) RETURN u.name, r.id")
       );
       expect(relResult.data).toHaveLength(1);
-      expect(relResult.data[0].u_name).toBe("Alice");
-      expect(relResult.data[0].r_id).toBe("report-456");
+      expect(relResult.data[0]["u.name"]).toBe("Alice");
+      expect(relResult.data[0]["r.id"]).toBe("report-456");
     });
 
     it("creates relationship from new node to matched node", () => {
@@ -869,8 +869,8 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (e:Employee)-[:WORKS_FOR]->(c:Company) RETURN e.name, c.name")
       );
       expect(relResult.data).toHaveLength(1);
-      expect(relResult.data[0].e_name).toBe("Bob");
-      expect(relResult.data[0].c_name).toBe("Acme Corp");
+      expect(relResult.data[0]["e.name"]).toBe("Bob");
+      expect(relResult.data[0]["c.name"]).toBe("Acme Corp");
     });
 
     it("fails gracefully when matched node does not exist", () => {
@@ -1016,8 +1016,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].a_id).toBe("a1");
-      expect(result.data[0].d_id).toBe("d1");
+      expect(result.data[0]["a.id"]).toBe("a1");
+      expect(result.data[0]["d.id"]).toBe("d1");
     });
 
     it("returns empty when multi-hop path does not exist", () => {
@@ -1067,7 +1067,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].i_id).toBe("ti1");
+      expect(result.data[0]["i.id"]).toBe("ti1");
     });
   });
 
@@ -1160,14 +1160,16 @@ describe("Integration Tests", () => {
       const result = expectSuccess(executor.execute("RETURN 1"));
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].expr).toBe(1);
+      // Neo4j uses the literal value as the column name
+      expect(result.data[0]["1"]).toBe(1);
     });
 
     it("returns literal string", () => {
       const result = expectSuccess(executor.execute("RETURN 'hello'"));
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].expr).toBe("hello");
+      // Neo4j uses the literal string (with quotes) as the column name
+      expect(result.data[0]["'hello'"]).toBe("hello");
     });
 
     it("returns literal with alias", () => {
@@ -1181,8 +1183,10 @@ describe("Integration Tests", () => {
       const result = expectSuccess(executor.execute("RETURN 1, 'hello', true"));
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].expr).toBe(1);
-      // Note: second and third columns will have generated names
+      // Neo4j uses literal values as column names
+      expect(result.data[0]["1"]).toBe(1);
+      expect(result.data[0]["'hello'"]).toBe("hello");
+      expect(result.data[0]["true"]).toBe(1); // SQLite stores booleans as 1/0
     });
 
     it("returns boolean literals", () => {
@@ -1219,16 +1223,16 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (p:Pet) RETURN p.name, p.species")
       );
       expect(petResult.data).toHaveLength(1);
-      expect(petResult.data[0].p_name).toBe("Fluffy");
-      expect(petResult.data[0].p_species).toBe("cat");
+      expect(petResult.data[0]["p.name"]).toBe("Fluffy");
+      expect(petResult.data[0]["p.species"]).toBe("cat");
 
       // Verify the relationship exists
       const relResult = expectSuccess(
         executor.execute("MATCH (u:User)-[:OWNS]->(p:Pet) RETURN u.name, p.name")
       );
       expect(relResult.data).toHaveLength(1);
-      expect(relResult.data[0].u_name).toBe("Alice");
-      expect(relResult.data[0].p_name).toBe("Fluffy");
+      expect(relResult.data[0]["u.name"]).toBe("Alice");
+      expect(relResult.data[0]["p.name"]).toBe("Fluffy");
     });
 
     it("creates new source node inline when matching target", () => {
@@ -1248,16 +1252,16 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (e:Employee) RETURN e.name, e.role")
       );
       expect(empResult.data).toHaveLength(1);
-      expect(empResult.data[0].e_name).toBe("Bob");
-      expect(empResult.data[0].e_role).toBe("developer");
+      expect(empResult.data[0]["e.name"]).toBe("Bob");
+      expect(empResult.data[0]["e.role"]).toBe("developer");
 
       // Verify the relationship exists
       const relResult = expectSuccess(
         executor.execute("MATCH (e:Employee)-[:WORKS_AT]->(c:Company) RETURN e.name, c.name")
       );
       expect(relResult.data).toHaveLength(1);
-      expect(relResult.data[0].e_name).toBe("Bob");
-      expect(relResult.data[0].c_name).toBe("Acme Inc");
+      expect(relResult.data[0]["e.name"]).toBe("Bob");
+      expect(relResult.data[0]["c.name"]).toBe("Acme Inc");
     });
 
     it("creates both source and target nodes inline", () => {
@@ -1273,13 +1277,13 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (a:Author) RETURN a.name")
       );
       expect(authorResult.data).toHaveLength(1);
-      expect(authorResult.data[0].a_name).toBe("Jane");
+      expect(authorResult.data[0]["a.name"]).toBe("Jane");
 
       const bookResult = expectSuccess(
         executor.execute("MATCH (b:Book) RETURN b.title")
       );
       expect(bookResult.data).toHaveLength(1);
-      expect(bookResult.data[0].b_title).toBe("My Story");
+      expect(bookResult.data[0]["b.title"]).toBe("My Story");
 
       // Verify relationship
       const relResult = expectSuccess(
@@ -1306,8 +1310,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].a_name).toBe("Alice");
-      expect(result.data[0].b_name).toBe("Bob");
+      expect(result.data[0]["a.name"]).toBe("Alice");
+      expect(result.data[0]["b.name"]).toBe("Bob");
     });
 
     it("handles edge variable in CREATE and RETURN", () => {
@@ -1333,8 +1337,8 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (u:User)-[r:FOLLOWS]->(t:Topic) RETURN u.name, t.name")
       );
       expect(relResult.data).toHaveLength(1);
-      expect(relResult.data[0].u_name).toBe("Charlie");
-      expect(relResult.data[0].t_name).toBe("GraphDB");
+      expect(relResult.data[0]["u.name"]).toBe("Charlie");
+      expect(relResult.data[0]["t.name"]).toBe("GraphDB");
     });
 
     it("reuses node variable across multiple relationship patterns", () => {
@@ -1355,7 +1359,7 @@ describe("Integration Tests", () => {
         executor.execute("MATCH (h:Hub)-[:CONNECTS]->(s:Spoke) RETURN s.name")
       );
       expect(spokeResult.data).toHaveLength(2);
-      const spokeNames = spokeResult.data.map(r => r.s_name);
+      const spokeNames = spokeResult.data.map(r => r["s.name"]);
       expect(spokeNames).toContain("Spoke1");
       expect(spokeNames).toContain("Spoke2");
     });
@@ -1402,9 +1406,9 @@ describe("Integration Tests", () => {
       );
 
       expect(readResult.data).toHaveLength(1);
-      expect(readResult.data[0].p_name).toBe("Widget Pro");
-      expect(readResult.data[0].p_price).toBe(29.99);
-      expect(readResult.data[0].p_stock).toBe(100);
+      expect(readResult.data[0]["p.name"]).toBe("Widget Pro");
+      expect(readResult.data[0]["p.price"]).toBe(29.99);
+      expect(readResult.data[0]["p.stock"]).toBe(100);
 
       // === UPDATE ===
       const updateResult = expectSuccess(
@@ -1436,8 +1440,8 @@ describe("Integration Tests", () => {
           { id: "prod-001" }
         )
       );
-      expect(verifyUpdate.data[0].p_price).toBe(24.99);
-      expect(verifyUpdate.data[0].p_stock).toBe(85);
+      expect(verifyUpdate.data[0]["p.price"]).toBe(24.99);
+      expect(verifyUpdate.data[0]["p.stock"]).toBe(85);
 
       // === DELETE ===
       const deleteResult = expectSuccess(
@@ -1476,8 +1480,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].m_name).toBeNull();
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["m.name"]).toBeNull();
     });
 
     it("returns matched nodes when optional pattern exists", () => {
@@ -1496,8 +1500,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].m_name).toBe("Bob");
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["m.name"]).toBe("Bob");
     });
 
     it("returns multiple rows when optional match has multiple results", () => {
@@ -1519,7 +1523,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(2);
-      const names = result.data.map((r: Record<string, unknown>) => r.m_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["m.name"]);
       expect(names).toContain("Bob");
       expect(names).toContain("Charlie");
     });
@@ -1543,9 +1547,9 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].friend_name).toBe("Bob");
-      expect(result.data[0].company_name).toBeNull();
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["friend.name"]).toBe("Bob");
+      expect(result.data[0]["company.name"]).toBeNull();
     });
 
     it("handles OPTIONAL MATCH with WHERE clause", () => {
@@ -1567,8 +1571,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].m_name).toBe("Bob");
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["m.name"]).toBe("Bob");
     });
 
     it("combines required MATCH with OPTIONAL MATCH", () => {
@@ -1589,9 +1593,9 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].c_name).toBe("Acme");
-      expect(result.data[0].m_name).toBeNull();
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["c.name"]).toBe("Acme");
+      expect(result.data[0]["m.name"]).toBeNull();
     });
 
     it("returns empty when required MATCH fails", () => {
@@ -1619,7 +1623,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(3);
-      const cities = result.data.map((r: Record<string, unknown>) => r.n_city);
+      const cities = result.data.map((r: Record<string, unknown>) => r["n.city"]);
       expect(cities).toContain("NYC");
       expect(cities).toContain("LA");
       expect(cities).toContain("Chicago");
@@ -1650,9 +1654,9 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(3);
-      expect(result.data[0].n_city).toBe("Chicago");
-      expect(result.data[1].n_city).toBe("LA");
-      expect(result.data[2].n_city).toBe("NYC");
+      expect(result.data[0]["n.city"]).toBe("Chicago");
+      expect(result.data[1]["n.city"]).toBe("LA");
+      expect(result.data[2]["n.city"]).toBe("NYC");
     });
 
     it("returns distinct with LIMIT", () => {
@@ -1816,7 +1820,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(4);
-      const names = result.data.map((r: Record<string, unknown>) => r.n_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["n.name"]);
       expect(names).toContain("Alice");
       expect(names).toContain("Bob");
     });
@@ -1844,8 +1848,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(4);
-      expect(result.data[0].n_age).toBe(35); // Charlie
-      expect(result.data[3].n_age).toBe(25); // Bob
+      expect(result.data[0]["n.age"]).toBe(35); // Charlie
+      expect(result.data[3]["n.age"]).toBe(25); // Bob
     });
 
     it("applies ORDER BY and LIMIT in WITH", () => {
@@ -1854,8 +1858,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(2);
-      expect(result.data[0].n_age).toBe(25); // Bob (youngest)
-      expect(result.data[1].n_age).toBe(28); // Diana (second youngest)
+      expect(result.data[0]["n.age"]).toBe(25); // Bob (youngest)
+      expect(result.data[1]["n.age"]).toBe(28); // Diana (second youngest)
     });
 
     it("applies WITH DISTINCT", () => {
@@ -1911,8 +1915,8 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
-      expect(result.data[0].m_name).toBe("Bob");
+      expect(result.data[0]["n.name"]).toBe("Alice");
+      expect(result.data[0]["m.name"]).toBe("Bob");
     });
 
     it("handles multiple items in WITH", () => {
@@ -1936,7 +1940,7 @@ describe("Integration Tests", () => {
 
       expect(result.data).toHaveLength(2);
       // After skipping 2 youngest (Bob 25, Diana 28), should have Alice 30 and Charlie 35
-      const ages = result.data.map((r: Record<string, unknown>) => r.n_age);
+      const ages = result.data.map((r: Record<string, unknown>) => r["n.age"]);
       expect(ages).toContain(30);
       expect(ages).toContain(35);
     });
@@ -1964,7 +1968,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].c_name).toBe("Charlie");
+      expect(result.data[0]["c.name"]).toBe("Charlie");
     });
 
     it("finds paths within a range", () => {
@@ -1993,7 +1997,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(2);
-      const names = result.data.map((r: Record<string, unknown>) => r.target_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["target.name"]);
       expect(names).toContain("Bob");     // 1 hop
       expect(names).toContain("Charlie"); // 2 hops
     });
@@ -2019,7 +2023,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].target_name).toBe("Bob");
+      expect(result.data[0]["target.name"]).toBe("Bob");
     });
 
     it("finds any length path with *", () => {
@@ -2048,7 +2052,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(3); // B, C, D
-      const names = result.data.map((r: Record<string, unknown>) => r.target_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["target.name"]);
       expect(names).toContain("B");
       expect(names).toContain("C");
       expect(names).toContain("D");
@@ -2158,7 +2162,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
+      expect(result.data[0]["n.name"]).toBe("Alice");
     });
 
     it("filters nodes that do not have a relationship with NOT EXISTS", () => {
@@ -2179,7 +2183,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(2);
-      const names = result.data.map((r: Record<string, unknown>) => r.n_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["n.name"]);
       expect(names).toContain("Bob");
       expect(names).toContain("Charlie");
     });
@@ -2206,7 +2210,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(2);
-      const names = result.data.map((r: Record<string, unknown>) => r.n_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["n.name"]);
       expect(names).toContain("Alice");
       expect(names).toContain("Charlie");
     });
@@ -2233,7 +2237,7 @@ describe("Integration Tests", () => {
       );
       
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].n_name).toBe("Alice");
+      expect(result.data[0]["n.name"]).toBe("Alice");
     });
   });
 
@@ -2296,7 +2300,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(2);
-      const names = result.data.map((r: Record<string, unknown>) => r.p_name);
+      const names = result.data.map((r: Record<string, unknown>) => r["p.name"]);
       expect(names).toContain("Alice");
       expect(names).toContain("Charlie");
       expect(names).not.toContain("Bob");
@@ -2320,9 +2324,9 @@ describe("Integration Tests", () => {
       );
 
       expect(verifyResult.data).toHaveLength(3);
-      expect(verifyResult.data[0].n_value).toBe("apple");
-      expect(verifyResult.data[1].n_value).toBe("banana");
-      expect(verifyResult.data[2].n_value).toBe("cherry");
+      expect(verifyResult.data[0]["n.value"]).toBe("apple");
+      expect(verifyResult.data[1]["n.value"]).toBe("banana");
+      expect(verifyResult.data[2]["n.value"]).toBe("cherry");
     });
 
     it("handles UNWIND with mixed types", () => {

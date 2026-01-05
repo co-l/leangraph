@@ -39,7 +39,7 @@ describe("Security Tests", () => {
       const check = executor.execute("MATCH (n:Test) RETURN n.value");
       expect(check.success).toBe(true);
       if (check.success) {
-        expect(check.data[0].n_value).toBe("'; DROP TABLE nodes; --");
+        expect(check.data[0]["n.value"]).toBe("'; DROP TABLE nodes; --");
       }
 
       // Verify nodes table still has data

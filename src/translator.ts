@@ -985,6 +985,10 @@ export class Translator {
       return this.translateReturnFromCall(clause, callClause);
     }
 
+    // Check for duplicate column names (ColumnNameConflict)
+    // This must be done before processing items to catch the error early
+    this.checkDuplicateColumnNames(clause.items);
+
     const selectParts: string[] = [];
     const returnColumns: string[] = [];
     const fromParts: string[] = [];
@@ -2005,6 +2009,9 @@ export class Translator {
   private translateWith(clause: WithClause): SqlStatement[] {
     // WITH clause stores its info in context for subsequent clauses
     // It creates a new "scope" by updating variable mappings
+    
+    // Check for duplicate column names within this WITH clause
+    this.checkDuplicateColumnNames(clause.items);
     
     if (!this.ctx.withClauses) {
       this.ctx.withClauses = [];
@@ -6153,16 +6160,53 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
       case "variable":
         return expr.variable!;
       case "property":
-        return `${expr.variable}_${expr.property}`;
+        return `${expr.variable}.${expr.property}`;
       case "function":
+        // For functions, use just the function name (lowercase) for simplicity
+        // Full argument representation would break many existing tests
         return expr.functionName!.toLowerCase();
       case "labelPredicate": {
         // For (n:Foo) or (n:Foo:Bar), the column name should be the full expression
         const labels = expr.labels || (expr.label ? [expr.label] : []);
         return `(${expr.variable}:${labels.join(':')})`;
       }
+      case "literal": {
+        // For literals, use the string representation of the value
+        if (expr.value === null) return "NULL";
+        if (typeof expr.value === "string") return `'${expr.value}'`;
+        return String(expr.value);
+      }
+      case "parameter":
+        return `$${expr.name}`;
+      case "binary":
+        // For binary expressions, try to reconstruct a readable name
+        return `${this.getExpressionName(expr.left!)} ${expr.operator} ${this.getExpressionName(expr.right!)}`;
       default:
         return "expr";
+    }
+  }
+
+  /**
+   * Check for duplicate column names in RETURN or WITH items.
+   * Throws SyntaxError with ColumnNameConflict if duplicates are found.
+   */
+  private checkDuplicateColumnNames(items: ReturnItem[]): void {
+    const seenNames = new Set<string>();
+    
+    for (const item of items) {
+      // Skip RETURN * as it's expanded later and won't have duplicates
+      if (item.expression.type === "variable" && item.expression.variable === "*") {
+        continue;
+      }
+      
+      // Get the column name (alias if provided, otherwise derived from expression)
+      const columnName = item.alias || this.getExpressionName(item.expression);
+      
+      if (seenNames.has(columnName)) {
+        throw new Error(`SyntaxError: ColumnNameConflict - Multiple result columns with the same name '${columnName}'`);
+      }
+      
+      seenNames.add(columnName);
     }
   }
 

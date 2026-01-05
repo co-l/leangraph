@@ -2,8 +2,8 @@
 
 ## Current Status (vs Neo4j 3.5 Baseline)
 - **Target**: 2703 tests (what Neo4j 3.5 passes)
-- **Passing**: 1327 tests (49.0% of target)
-- **Failing**: 1357 tests (to be fixed)
+- **Passing**: 1336 tests (49.4% of target)
+- **Failing**: 1348 tests (to be fixed)
 - **Not in baseline**: 19 tests (parser edge cases)
 
 ### What This Means
@@ -99,3 +99,143 @@ Copy these commented lines to `failing-tests.ts` to mark them as passing.
 | `near "X": syntax error` | translator.ts |
 | `Too few parameter values` | translator.ts or executor.ts |
 | `Unknown variable` | translator.ts |
+
+## Test Types
+
+The TCK includes two main types of tests:
+
+### 1. Expected Result Tests (majority)
+Tests where a query should succeed and return specific data:
+```gherkin
+When executing query:
+  """
+  MATCH (n:Person) RETURN n.name
+  """
+Then the result should be:
+  | n.name  |
+  | 'Alice' |
+```
+
+### 2. Expected Error Tests (127 in failing list)
+Tests where a query should be **rejected** with an error:
+```gherkin
+When executing query:
+  """
+  RETURN 1 AS a, 2 AS a
+  """
+Then a SyntaxError should be raised at compile time
+```
+
+These tests verify that our implementation correctly rejects invalid Cypher.
+
+## Expected Error Tests Breakdown
+
+Of the 1348 failing tests, **120 are expected-error tests** where we should reject the query but currently don't.
+
+### By Error Type
+
+| Error Type | Count | Description | Fix Location |
+|------------|-------|-------------|--------------|
+| SyntaxError | 94 | Parser should reject | parser.ts |
+| TypeError | 22 | Type mismatch at runtime | executor.ts |
+| ArgumentError | 6 | Invalid function arguments | translator.ts/executor.ts |
+| EntityNotFound | 3 | Access deleted node/rel | executor.ts |
+| SemanticError | 2 | Semantic validation | translator.ts |
+
+### Priority Categories
+
+#### 1. Boolean Type Strictness (32 tests)
+Queries like `RETURN 123 AND true` or `RETURN NOT 0` should fail.
+AND/OR/NOT require boolean operands, not numbers/strings/maps.
+
+```cypher
+-- Should fail (SyntaxError at compile)
+RETURN 123 AND true
+RETURN NOT 0
+RETURN 'foo' OR false
+```
+
+**Fix**: Add type checking in parser or translator for boolean operators.
+
+#### 2. ~~SKIP/LIMIT Validation~~ ✅ FIXED (7 tests fixed)
+~~Negative or float values should be rejected.~~
+
+Now validates:
+- Negative integers in SKIP/LIMIT → `NegativeIntegerArgument` error
+- Floating point values in SKIP/LIMIT → `InvalidArgumentType` error
+
+Parameters are rejected at parse time (not supported yet).
+
+#### 3. Duplicate Column Names (4 tests)
+Duplicate aliases in RETURN/WITH should be rejected.
+
+```cypher
+-- Should fail (SyntaxError at compile)
+RETURN 1 AS a, 2 AS a
+WITH 1 AS a, 2 AS a RETURN a
+```
+
+**Fix**: Check for duplicate aliases in translator.
+
+#### 4. UNION Column Mismatch (4 tests)
+UNION requires matching column names.
+
+```cypher
+-- Should fail (SyntaxError at compile)
+RETURN 1 AS a UNION RETURN 2 AS b
+```
+
+**Fix**: Validate UNION column names match in translator.
+
+#### 5. List Indexing Type Errors (22 tests)
+Using non-integer indexes or indexing non-lists.
+
+```cypher
+-- Should fail (TypeError at runtime)
+WITH [1,2,3] AS list RETURN list[1.5]
+WITH [1,2,3] AS list RETURN list['a']
+WITH 'string' AS x RETURN x[0]
+```
+
+**Fix**: Add runtime type checking in executor.
+
+#### 6. Accessing Deleted Entities (3 tests)
+Accessing properties of deleted nodes/relationships.
+
+```cypher
+-- Should fail (EntityNotFound at runtime)
+MATCH (n) DELETE n RETURN n.name
+```
+
+**Fix**: Track deleted entities in executor, error on access.
+
+#### 7. Integer Overflow (2 tests)
+Integers beyond int64 range should fail.
+
+```cypher
+-- Should fail (SyntaxError at compile)
+RETURN 9223372036854775808
+```
+
+**Fix**: Validate integer literals in parser.
+
+#### 8. Invalid Unicode Escapes (1 test)
+Invalid escape sequences in strings.
+
+```cypher
+-- Should fail (SyntaxError at compile)
+RETURN '\uH'
+```
+
+**Fix**: Validate unicode escapes in tokenizer.
+
+### Recommended Fix Order
+
+1. ~~**SKIP/LIMIT validation**~~ ✅ DONE - 7 tests fixed
+2. **Duplicate column names** - 4 tests, translator only
+3. **Integer overflow** - 2 tests, parser only
+4. **Invalid unicode** - 1 test, tokenizer only
+5. **UNION column mismatch** - 4 tests, translator only
+6. **Boolean strictness** - 32 tests, requires type system changes
+7. **List indexing types** - 22 tests, runtime type checking
+8. **Deleted entity access** - 3 tests, executor state tracking

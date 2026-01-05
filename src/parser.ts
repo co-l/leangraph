@@ -1096,7 +1096,14 @@ export class Parser {
     if (this.checkKeyword("SKIP")) {
       this.advance();
       const skipToken = this.expect("NUMBER");
-      skip = parseInt(skipToken.value, 10);
+      const skipValue = parseFloat(skipToken.value);
+      if (!Number.isInteger(skipValue)) {
+        throw new Error("SKIP: InvalidArgumentType - expected an integer value");
+      }
+      if (skipValue < 0) {
+        throw new Error("SKIP: NegativeIntegerArgument - cannot be negative");
+      }
+      skip = skipValue;
     }
 
     // Parse LIMIT
@@ -1104,7 +1111,14 @@ export class Parser {
     if (this.checkKeyword("LIMIT")) {
       this.advance();
       const limitToken = this.expect("NUMBER");
-      limit = parseInt(limitToken.value, 10);
+      const limitValue = parseFloat(limitToken.value);
+      if (!Number.isInteger(limitValue)) {
+        throw new Error("LIMIT: InvalidArgumentType - expected an integer value");
+      }
+      if (limitValue < 0) {
+        throw new Error("LIMIT: NegativeIntegerArgument - cannot be negative");
+      }
+      limit = limitValue;
     }
 
     return { type: "RETURN", distinct, items, orderBy, skip, limit };
@@ -1182,7 +1196,14 @@ export class Parser {
     if (this.checkKeyword("SKIP")) {
       this.advance();
       const skipToken = this.expect("NUMBER");
-      skip = parseInt(skipToken.value, 10);
+      const skipValue = parseFloat(skipToken.value);
+      if (!Number.isInteger(skipValue)) {
+        throw new Error("SKIP: InvalidArgumentType - expected an integer value");
+      }
+      if (skipValue < 0) {
+        throw new Error("SKIP: NegativeIntegerArgument - cannot be negative");
+      }
+      skip = skipValue;
     }
 
     // Parse LIMIT
@@ -1190,7 +1211,14 @@ export class Parser {
     if (this.checkKeyword("LIMIT")) {
       this.advance();
       const limitToken = this.expect("NUMBER");
-      limit = parseInt(limitToken.value, 10);
+      const limitValue = parseFloat(limitToken.value);
+      if (!Number.isInteger(limitValue)) {
+        throw new Error("LIMIT: InvalidArgumentType - expected an integer value");
+      }
+      if (limitValue < 0) {
+        throw new Error("LIMIT: NegativeIntegerArgument - cannot be negative");
+      }
+      limit = limitValue;
     }
 
     // Parse optional WHERE clause after WITH items

@@ -364,21 +364,21 @@ export const FAILING_TESTS = new Set<string>([
   "clauses/return > Return6 - Implicit grouping with aggregates|6",
   // "clauses/return > Return7 - Return all variables|2",
   // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|10",
-  "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|11",
+  // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|11", // Fixed: SKIP negative value validation
   "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|3",
   // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|5",
   // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|6",
-  "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|7",
+  // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|7", // Fixed: SKIP negative value validation
   // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|8",
-  "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|9",
+  // "clauses/return-skip-limit > ReturnSkipLimit1 - Skip|9", // Fixed: SKIP float value validation
   // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|10",
   // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|11",
-  "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|12",
-  "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|13",
+  // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|12", // Fixed: LIMIT negative value validation
+  // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|13", // Fixed: LIMIT negative value validation
   // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|14",
   // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|15",
-  "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|16",
-  "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|17",
+  // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|16", // Fixed: LIMIT float value validation
+  // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|17", // Fixed: LIMIT float value validation
   "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|6",
   // "clauses/return-skip-limit > ReturnSkipLimit2 - Limit|9",
   "clauses/set > Set1 - Set a Property|10",

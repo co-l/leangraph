@@ -6966,6 +6966,8 @@ export class Executor {
     const allCapturedPropertyValues: Record<string, unknown>[] = [];
     // Keep track of captured edge types (before edges are deleted)
     const allCapturedEdgeTypes: Record<string, string>[] = [];
+    // Keep track of deleted variables
+    const allDeletedVariables: Set<string>[] = [];
     
     this.db.transaction(() => {
       for (const row of matchedRows) {
@@ -7011,17 +7013,18 @@ export class Executor {
           this.executeSetWithResolvedIds(setClause, resolvedIds, params);
         }
 
-        // Execute DELETE with resolved IDs
+        // Execute DELETE with resolved IDs and track deleted variables
+        const deletedVariables = new Set<string>();
         for (const deleteClause of deleteClauses) {
-          this.executeDeleteWithResolvedIds(deleteClause, resolvedIds);
+          const deleted = this.executeDeleteWithResolvedIds(deleteClause, resolvedIds);
+          deleted.forEach(v => deletedVariables.add(v));
         }
         
         // Save the resolved IDs for this row (including newly created nodes)
         allResolvedIds.push({ ...resolvedIds });
-        // Save the captured property values
         allCapturedPropertyValues.push(capturedPropertyValues);
-        // Save the captured edge types
         allCapturedEdgeTypes.push(capturedEdgeTypes);
+        allDeletedVariables.push(deletedVariables);
       }
     });
 
@@ -7077,7 +7080,7 @@ export class Executor {
         }
         
         // RETURN references created nodes, aliased vars, property aliases, or data was modified - use buildReturnResults with resolved IDs
-        return this.buildReturnResults(returnClause, filteredResolvedIds, filteredPropertyValues, propertyAliasMap, withAggregateMap, filteredEdgeTypes);
+        return this.buildReturnResults(returnClause, filteredResolvedIds, filteredPropertyValues, propertyAliasMap, withAggregateMap, filteredEdgeTypes, allDeletedVariables);
       } else {
         // RETURN only references matched nodes and no mutations - use translator-based approach
         const fullQuery: Query = {
@@ -7137,7 +7140,8 @@ export class Executor {
     allCapturedPropertyValues: Record<string, unknown>[] = [],
     propertyAliasMap: Map<string, { variable: string; property: string }> = new Map(),
     withAggregateMap: Map<string, { functionName: string; argVariable: string }> = new Map(),
-    allCapturedEdgeTypes: Record<string, string>[] = []
+    allCapturedEdgeTypes: Record<string, string>[] = [],
+    allDeletedVariables: Set<string>[] = []
   ): Record<string, unknown>[] {
     // Check if all return items are aggregates (like count(*))
     // If so, we should return a single aggregated row instead of per-row results
@@ -7438,6 +7442,13 @@ export class Executor {
         } else if (item.expression.type === "property") {
           const variable = item.expression.variable!;
           const property = item.expression.property!;
+          
+          // Check if this variable was deleted
+          const deletedVariables = allDeletedVariables[i] || new Set();
+          if (deletedVariables.has(variable)) {
+            throw new Error(`EntityNotFound: The deleted entity ${variable} no longer exists in the graph.`);
+          }
+          
           const nodeId = resolvedIds[variable];
           
           if (nodeId) {
@@ -7724,11 +7735,13 @@ export class Executor {
 
   /**
    * Execute DELETE clause with pre-resolved node/edge IDs
+   * Returns the set of variables that were deleted
    */
   private executeDeleteWithResolvedIds(
     deleteClause: DeleteClause,
     resolvedIds: Record<string, string>
-  ): void {
+  ): Set<string> {
+    const deletedVariables = new Set<string>();
     for (const variable of deleteClause.variables) {
       const id = resolvedIds[variable];
       if (!id) {
@@ -7756,7 +7769,12 @@ export class Executor {
         // Try deleting from edges
         this.db.execute("DELETE FROM edges WHERE id = ?", [id]);
       }
+      
+      // Mark variable as deleted
+      deletedVariables.add(variable);
     }
+    
+    return deletedVariables;
   }
 
   /**

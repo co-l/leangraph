@@ -4979,6 +4979,10 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
 
     // Handle logical operators (AND, OR)
     if (expr.operator === "AND" || expr.operator === "OR") {
+      // Validate that both operands are boolean types
+      this.validateBooleanOperand(expr.left!, expr.operator);
+      this.validateBooleanOperand(expr.right!, expr.operator);
+      
       return {
         sql: `(${leftResult.sql} ${expr.operator} ${rightResult.sql})`,
         tables,
@@ -5514,6 +5518,94 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
   }
 
   /**
+   * Get the static type of an expression when it can be determined at compile time.
+   * Returns the type name for literals and expressions with known types, or null for dynamic types.
+   */
+  private getStaticExpressionType(expr: Expression): "boolean" | "number" | "string" | "list" | "map" | "null" | null {
+    switch (expr.type) {
+      case "literal": {
+        if (expr.value === null) return "null";
+        if (typeof expr.value === "boolean") return "boolean";
+        if (typeof expr.value === "number") return "number";
+        if (typeof expr.value === "string") return "string";
+        if (Array.isArray(expr.value)) return "list";
+        if (typeof expr.value === "object") return "map";
+        return null;
+      }
+      
+      case "object":
+        return "map";
+        
+      case "comparison":
+      case "labelPredicate":
+      case "listPredicate":
+        // Comparisons always return boolean
+        return "boolean";
+        
+      case "binary": {
+        // Boolean operators return boolean (if operands are valid)
+        if (expr.operator === "AND" || expr.operator === "OR") {
+          return "boolean";
+        }
+        // Arithmetic operators return number
+        if (["+", "-", "*", "/", "%", "^"].includes(expr.operator!)) {
+          // But + can also be string concatenation or list concatenation
+          const leftType = this.getStaticExpressionType(expr.left!);
+          const rightType = this.getStaticExpressionType(expr.right!);
+          if (leftType === "string" || rightType === "string") return "string";
+          if (leftType === "list" || rightType === "list") return "list";
+          return "number";
+        }
+        return null;
+      }
+      
+      case "unary": {
+        if (expr.operator === "NOT") return "boolean";
+        if (expr.operator === "-") return "number";
+        return null;
+      }
+      
+      case "function": {
+        // Some functions have known return types
+        const fn = (expr.functionName || "").toUpperCase();
+        const boolFunctions = ["EXISTS", "STARTSWITH", "ENDSWITH", "CONTAINS"];
+        const numFunctions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "SIZE", "LENGTH", "ABS", "CEIL", "FLOOR", "ROUND", "SIGN", "TOINTEGER", "TOFLOAT", "TOBOOLEAN"];
+        const strFunctions = ["TOSTRING", "TRIM", "LTRIM", "RTRIM", "REPLACE", "SUBSTRING", "TOUPPER", "TOLOWER", "LEFT", "RIGHT", "REVERSE"];
+        const listFunctions = ["COLLECT", "RANGE", "KEYS", "LABELS", "TAIL", "SPLIT", "NODES", "RELATIONSHIPS"];
+        
+        if (boolFunctions.includes(fn)) return "boolean";
+        if (numFunctions.includes(fn)) return "number";
+        if (strFunctions.includes(fn)) return "string";
+        if (listFunctions.includes(fn)) return "list";
+        return null;
+      }
+      
+      // Variable, property, parameter types are dynamic
+      case "variable":
+      case "property":
+      case "parameter":
+      case "case":
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Check if expression type is valid for boolean operators (AND, OR, NOT).
+   * Throws SyntaxError if the type is definitely invalid.
+   */
+  private validateBooleanOperand(expr: Expression, operator: string): void {
+    const type = this.getStaticExpressionType(expr);
+    // Only reject if we can statically determine it's not a valid boolean type
+    // null (unknown type) is allowed at compile time, will be checked at runtime
+    // "boolean" is obviously allowed
+    // "null" (the literal null) is allowed in three-valued logic
+    if (type !== null && type !== "boolean" && type !== "null") {
+      throw new Error(`SyntaxError: InvalidArgumentType - ${operator.toUpperCase()} requires boolean operands, got ${type}`);
+    }
+  }
+
+  /**
    * Translate a unary expression: NOT expr
    */
   private translateUnaryExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
@@ -5521,6 +5613,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
     const params: unknown[] = [];
     
     if (expr.operator === "NOT") {
+      // Validate that the operand is a boolean type
+      this.validateBooleanOperand(expr.operand!, "NOT");
+      
       const operandResult = this.translateExpression(expr.operand!);
       tables.push(...operandResult.tables);
       params.push(...operandResult.params);

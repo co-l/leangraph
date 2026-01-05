@@ -2,8 +2,8 @@
 
 ## Current Status (vs Neo4j 3.5 Baseline)
 - **Target**: 2703 tests (what Neo4j 3.5 passes)
-- **Passing**: 1336 tests (49.4% of target)
-- **Failing**: 1348 tests (to be fixed)
+- **Passing**: 1387 tests (51.3% of target)
+- **Failing**: 1297 tests (to be fixed)
 - **Not in baseline**: 19 tests (parser edge cases)
 
 ### What This Means
@@ -13,6 +13,7 @@ We only run tests that Neo4j 3.5 actually passes. This gives us a realistic, ach
 - `clauses/call` - CALL procedures not yet supported
 
 ## Recent Fixes
+- **Boolean Type Strictness (48 tests)**: AND/OR/NOT operators now reject non-boolean operands at compile time. `RETURN 123 AND true` now correctly throws `SyntaxError: InvalidArgumentType`.
 - **Match7-24**: Fixed self-loop matching in OPTIONAL MATCH - undirected patterns `(a)-[r]-(a)` now correctly return self-loops once instead of twice. The fix adds a NOT condition to prevent duplicate matches when `source_id = target_id`.
 - **Match7-28**: Fixed OPTIONAL MATCH with inline label predicate - when the target node with a specific label doesn't exist, the query now correctly returns 1 row with NULL instead of multiple rows. The fix adds `DISTINCT` to the SELECT when there's an OPTIONAL MATCH with a label predicate on a new edge's target node, preventing row multiplication from multiple edges that don't match the label.
 - **Match7-8**: Fixed multi-hop OPTIONAL MATCH - for a chain like `(a)-->(b)-->(c)`, if the intermediate node b is found but there's no edge from b to c, the query now correctly returns NULL for b instead of the node. The fix adds clause boundary tracking and checks if all edges in a connected optional chain exist before returning intermediate nodes. Separate OPTIONAL MATCH clauses are correctly treated as independent patterns.
@@ -130,13 +131,13 @@ These tests verify that our implementation correctly rejects invalid Cypher.
 
 ## Expected Error Tests Breakdown
 
-Of the 1348 failing tests, **120 are expected-error tests** where we should reject the query but currently don't.
+Of the 1297 failing tests, **~72 are expected-error tests** where we should reject the query but currently don't.
 
 ### By Error Type
 
 | Error Type | Count | Description | Fix Location |
 |------------|-------|-------------|--------------|
-| SyntaxError | 94 | Parser should reject | parser.ts |
+| SyntaxError | ~46 | Parser should reject | parser.ts |
 | TypeError | 22 | Type mismatch at runtime | executor.ts |
 | ArgumentError | 6 | Invalid function arguments | translator.ts/executor.ts |
 | EntityNotFound | 3 | Access deleted node/rel | executor.ts |
@@ -144,18 +145,14 @@ Of the 1348 failing tests, **120 are expected-error tests** where we should reje
 
 ### Priority Categories
 
-#### 1. Boolean Type Strictness (32 tests)
-Queries like `RETURN 123 AND true` or `RETURN NOT 0` should fail.
-AND/OR/NOT require boolean operands, not numbers/strings/maps.
+#### 1. ~~Boolean Type Strictness~~ ✅ FIXED (48 tests fixed)
+~~Queries like `RETURN 123 AND true` or `RETURN NOT 0` should fail.~~
 
-```cypher
--- Should fail (SyntaxError at compile)
-RETURN 123 AND true
-RETURN NOT 0
-RETURN 'foo' OR false
-```
+Now validates:
+- AND/OR operands must be boolean → `SyntaxError: InvalidArgumentType`
+- NOT operand must be boolean → `SyntaxError: InvalidArgumentType`
 
-**Fix**: Add type checking in parser or translator for boolean operators.
+Static type checking at translation time rejects literals, lists, maps, etc.
 
 #### 2. ~~SKIP/LIMIT Validation~~ ✅ FIXED (7 tests fixed)
 ~~Negative or float values should be rejected.~~
@@ -232,10 +229,10 @@ RETURN '\uH'
 ### Recommended Fix Order
 
 1. ~~**SKIP/LIMIT validation**~~ ✅ DONE - 7 tests fixed
-2. **Duplicate column names** - 4 tests, translator only
-3. **Integer overflow** - 2 tests, parser only
-4. **Invalid unicode** - 1 test, tokenizer only
-5. **UNION column mismatch** - 4 tests, translator only
-6. **Boolean strictness** - 32 tests, requires type system changes
+2. ~~**Duplicate column names**~~ ✅ DONE - 2 tests fixed (Return4|10, With4|4)
+3. ~~**Boolean strictness**~~ ✅ DONE - 48 tests fixed (AND/OR/NOT type checking)
+4. **Integer overflow** - 2 tests, parser only
+5. **Invalid unicode** - 1 test, tokenizer only
+6. **UNION column mismatch** - 4 tests, translator only
 7. **List indexing types** - 22 tests, runtime type checking
 8. **Deleted entity access** - 3 tests, executor state tracking

@@ -7758,11 +7758,212 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           }
         }
       } else {
-        resolved[key] = value;
+        // Evaluate deterministic property-value expressions (e.g., date({year: 1980, ...}))
+        // when they are fully-resolvable at compile time.
+        try {
+          resolved[key] = this.evaluatePropertyValue(value as PropertyValue);
+        } catch {
+          resolved[key] = value;
+        }
       }
     }
 
     return { json: JSON.stringify(resolved), params };
+  }
+
+  private isFunctionPropertyValue(value: PropertyValue): value is { type: "function"; name: string; args: PropertyValue[] } {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      "type" in value &&
+      (value as any).type === "function" &&
+      typeof (value as any).name === "string" &&
+      Array.isArray((value as any).args)
+    );
+  }
+
+  private isBinaryPropertyValue(value: PropertyValue): value is { type: "binary"; operator: string; left: PropertyValue; right: PropertyValue } {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      "type" in value &&
+      (value as any).type === "binary" &&
+      typeof (value as any).operator === "string" &&
+      "left" in (value as any) &&
+      "right" in (value as any)
+    );
+  }
+
+  private isMapPropertyValue(value: PropertyValue): value is { type: "map"; properties: Record<string, PropertyValue> } {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      "type" in value &&
+      (value as any).type === "map" &&
+      typeof (value as any).properties === "object" &&
+      (value as any).properties !== null
+    );
+  }
+
+  private evaluatePropertyValue(value: PropertyValue): unknown {
+    if (Array.isArray(value)) {
+      return value.map((v) => this.evaluatePropertyValue(v));
+    }
+
+    if (typeof value !== "object" || value === null) {
+      return value;
+    }
+
+    if (this.isParameterRef(value)) {
+      return this.ctx.paramValues[value.name];
+    }
+
+    // Cannot evaluate references to runtime variables at compile time.
+    if (this.isVariableRef(value)) {
+      throw new Error("Cannot evaluate variable ref");
+    }
+    if ((value as any).type === "property") {
+      throw new Error("Cannot evaluate property ref");
+    }
+
+    if (this.isBinaryPropertyValue(value)) {
+      const left = this.evaluatePropertyValue(value.left);
+      const right = this.evaluatePropertyValue(value.right);
+      const op = value.operator;
+
+      if (op === "+" && (typeof left === "string" || typeof right === "string")) {
+        return String(left) + String(right);
+      }
+
+      const leftNum = typeof left === "number" ? left : Number(left);
+      const rightNum = typeof right === "number" ? right : Number(right);
+      if (!Number.isFinite(leftNum) || !Number.isFinite(rightNum)) {
+        throw new Error("Cannot evaluate non-numeric binary");
+      }
+
+      switch (op) {
+        case "+": return leftNum + rightNum;
+        case "-": return leftNum - rightNum;
+        case "*": return leftNum * rightNum;
+        case "/": return leftNum / rightNum;
+        case "%": return leftNum % rightNum;
+        case "^": return Math.pow(leftNum, rightNum);
+        default: throw new Error("Unknown operator");
+      }
+    }
+
+    if (this.isFunctionPropertyValue(value)) {
+      const fn = value.name.toUpperCase();
+      const args = value.args;
+
+      const pad2 = (n: number): string => String(n).padStart(2, "0");
+      const pad4 = (n: number): string => String(n).padStart(4, "0");
+
+      const evalMapArg = (arg: PropertyValue): Record<string, unknown> => {
+        if (!this.isMapPropertyValue(arg)) throw new Error("Expected map arg");
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(arg.properties)) {
+          out[k] = this.evaluatePropertyValue(v);
+        }
+        return out;
+      };
+
+      switch (fn) {
+        case "TIMESTAMP":
+          return Date.now();
+        case "RANDOMUUID":
+          return crypto.randomUUID();
+        case "DATE": {
+          if (args.length === 0) return new Date().toISOString().split("T")[0];
+          if (this.isMapPropertyValue(args[0])) {
+            const map = evalMapArg(args[0]);
+            const year = Number(map.year);
+            const month = Number(map.month ?? 1);
+            const day = Number(map.day ?? 1);
+            if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+              throw new Error("Invalid DATE map");
+            }
+            return `${pad4(Math.trunc(year))}-${pad2(Math.trunc(month))}-${pad2(Math.trunc(day))}`;
+          }
+          const arg0 = this.evaluatePropertyValue(args[0]);
+          return String(arg0).split("T")[0];
+        }
+        case "TIME": {
+          if (args.length === 0) return new Date().toISOString().split("T")[1].split(".")[0];
+          if (this.isMapPropertyValue(args[0])) {
+            const map = evalMapArg(args[0]);
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            const tz = map.timezone !== undefined ? String(map.timezone) : "";
+
+            let out = hasSecond ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}` : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) out += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return out + tz;
+          }
+          const arg0 = this.evaluatePropertyValue(args[0]);
+          return String(arg0);
+        }
+        case "LOCALTIME": {
+          if (args.length === 0) return new Date().toISOString().split("T")[1].split(".")[0];
+          if (this.isMapPropertyValue(args[0])) {
+            const map = evalMapArg(args[0]);
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            let out = hasSecond ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}` : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) out += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return out;
+          }
+          const arg0 = this.evaluatePropertyValue(args[0]);
+          return String(arg0);
+        }
+        case "DATETIME":
+        case "LOCALDATETIME": {
+          if (args.length === 0) return new Date().toISOString();
+          if (this.isMapPropertyValue(args[0])) {
+            const map = evalMapArg(args[0]);
+            const year = Number(map.year);
+            const month = Number(map.month ?? 1);
+            const day = Number(map.day ?? 1);
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            const tz = fn === "DATETIME" && map.timezone !== undefined ? String(map.timezone) : "";
+
+            let time = hasSecond ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}` : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) time += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return `${pad4(Math.trunc(year))}-${pad2(Math.trunc(month))}-${pad2(Math.trunc(day))}T${time}${tz}`;
+          }
+          const arg0 = this.evaluatePropertyValue(args[0]);
+          return String(arg0);
+        }
+        default:
+          throw new Error(`Unknown function in property value: ${fn}`);
+      }
+    }
+
+    if (this.isMapPropertyValue(value)) {
+      // Maps are not valid storable property values.
+      throw new Error("TypeError: InvalidPropertyType");
+    }
+
+    throw new Error("Cannot evaluate property value");
   }
   
   private isVariableRef(value: unknown): boolean {

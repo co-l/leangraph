@@ -4480,6 +4480,13 @@ export class Executor {
         // Function call in property value (e.g., datetime())
         const funcValue = typedValue as { type: "function"; name: string; args?: unknown[] };
         return this.evaluateFunctionInProperty(funcValue.name, funcValue.args || [], params, unwindContext);
+      } else if (typedValue.type === "map") {
+        const mapValue = typedValue as { type: "map"; properties?: Record<string, unknown> };
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(mapValue.properties || {})) {
+          out[k] = this.resolvePropertyValueWithUnwind(v, params, unwindContext);
+        }
+        return out;
       }
       return value;
     }
@@ -4496,13 +4503,36 @@ export class Executor {
     unwindContext: Record<string, unknown>
   ): unknown {
     const upperName = funcName.toUpperCase();
+
+    const pad2 = (n: number): string => String(n).padStart(2, "0");
+    const pad4 = (n: number): string => String(n).padStart(4, "0");
     
     switch (upperName) {
       case "DATETIME": {
         // datetime() returns current ISO datetime string
         // datetime(string) parses the string
+        // datetime(map) formats from components (optionally with timezone)
         if (args.length > 0) {
           const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+            const map = arg as Record<string, unknown>;
+            const year = Number(map.year);
+            const month = Number(map.month ?? 1);
+            const day = Number(map.day ?? 1);
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            const tz = map.timezone !== undefined ? String(map.timezone) : "";
+            let time = hasSecond
+              ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}`
+              : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) time += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return `${pad4(Math.trunc(year))}-${pad2(Math.trunc(month))}-${pad2(Math.trunc(day))}T${time}${tz}`;
+          }
           return String(arg);
         }
         return new Date().toISOString();
@@ -4510,19 +4540,94 @@ export class Executor {
       case "DATE": {
         // date() returns current date string (YYYY-MM-DD)
         // date(string) parses the string
+        // date(map) formats from components
         if (args.length > 0) {
           const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+            const map = arg as Record<string, unknown>;
+            const year = Number(map.year);
+            const month = Number(map.month ?? 1);
+            const day = Number(map.day ?? 1);
+            if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+              return String(arg).split("T")[0];
+            }
+            return `${pad4(Math.trunc(year))}-${pad2(Math.trunc(month))}-${pad2(Math.trunc(day))}`;
+          }
           return String(arg).split("T")[0];
         }
         return new Date().toISOString().split("T")[0];
       }
       case "TIME": {
         // time() returns current time string (HH:MM:SS)
+        // time(map) formats from components (optionally with timezone)
         if (args.length > 0) {
           const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+            const map = arg as Record<string, unknown>;
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            const tz = map.timezone !== undefined ? String(map.timezone) : "";
+            let out = hasSecond
+              ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}`
+              : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) out += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return out + tz;
+          }
           const str = String(arg);
           const match = str.match(/(\d{2}:\d{2}:\d{2})/);
           return match ? match[1] : str;
+        }
+        return new Date().toISOString().split("T")[1].split(".")[0];
+      }
+      case "LOCALDATETIME": {
+        if (args.length > 0) {
+          const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+            const map = arg as Record<string, unknown>;
+            const year = Number(map.year);
+            const month = Number(map.month ?? 1);
+            const day = Number(map.day ?? 1);
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            let time = hasSecond
+              ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}`
+              : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) time += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return `${pad4(Math.trunc(year))}-${pad2(Math.trunc(month))}-${pad2(Math.trunc(day))}T${time}`;
+          }
+          return String(arg);
+        }
+        return new Date().toISOString().replace(/Z$/, "");
+      }
+      case "LOCALTIME": {
+        if (args.length > 0) {
+          const arg = this.resolvePropertyValueWithUnwind(args[0], params, unwindContext);
+          if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+            const map = arg as Record<string, unknown>;
+            const hour = Number(map.hour ?? 0);
+            const minute = Number(map.minute ?? 0);
+            const secondVal = map.second;
+            const nanosVal = map.nanosecond;
+            const hasSecond = secondVal !== undefined || nanosVal !== undefined;
+            const second = Number(secondVal ?? 0);
+            const nanos = Number(nanosVal ?? 0);
+            let out = hasSecond
+              ? `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}:${pad2(Math.trunc(second))}`
+              : `${pad2(Math.trunc(hour))}:${pad2(Math.trunc(minute))}`;
+            if (nanosVal !== undefined) out += `.${String(Math.trunc(nanos)).padStart(9, "0")}`;
+            return out;
+          }
+          return String(arg);
         }
         return new Date().toISOString().split("T")[1].split(".")[0];
       }

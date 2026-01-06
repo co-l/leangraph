@@ -61,6 +61,11 @@ export interface FunctionPropertyValue {
   args: PropertyValue[];
 }
 
+export interface MapPropertyValue {
+  type: "map";
+  properties: Record<string, PropertyValue>;
+}
+
 export type PropertyValue =
   | string
   | number
@@ -70,6 +75,7 @@ export type PropertyValue =
   | VariableRef
   | PropertyRef
   | BinaryPropertyValue
+  | MapPropertyValue
   | FunctionPropertyValue
   | PropertyValue[];
 
@@ -1806,6 +1812,11 @@ export class Parser {
       return this.parseArray();
     }
 
+    // Map literal (e.g., {year: 1980, month: 10, day: 24}) - used in temporal functions like date({..})
+    if (token.type === "LBRACE") {
+      return this.parseMapPropertyValue();
+    }
+
     // Handle variable references (e.g., from UNWIND), property access (e.g., person.bornIn), or function calls (e.g., datetime())
     if (token.type === "IDENTIFIER") {
       this.advance();
@@ -1841,6 +1852,27 @@ export class Parser {
     }
 
     throw new Error(`Expected property value, got ${token.type} '${token.value}'`);
+  }
+
+  private parseMapPropertyValue(): MapPropertyValue {
+    this.expect("LBRACE");
+    const properties: Record<string, PropertyValue> = {};
+
+    if (!this.check("RBRACE")) {
+      do {
+        if (Object.keys(properties).length > 0) {
+          this.expect("COMMA");
+        }
+
+        const key = this.expectIdentifierOrKeyword();
+        this.expect("COLON");
+        const value = this.parsePropertyValue();
+        properties[key] = value;
+      } while (this.check("COMMA"));
+    }
+
+    this.expect("RBRACE");
+    return { type: "map", properties };
   }
 
   private parseArray(): PropertyValue[] {

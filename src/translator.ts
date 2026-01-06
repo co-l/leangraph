@@ -6143,6 +6143,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const tables: string[] = [];
     const params: unknown[] = [];
 
+    const temporalDuration = this.tryTranslateTemporalDurationArithmetic(expr);
+    if (temporalDuration) {
+      return temporalDuration;
+    }
+
     const leftResult = this.translateExpression(expr.left!);
     const rightResult = this.translateExpression(expr.right!);
 
@@ -6263,6 +6268,95 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
     return {
       sql: `(${leftSql} ${expr.operator} ${rightSql})`,
+      tables,
+      params,
+    };
+  }
+
+  private tryTranslateTemporalDurationArithmetic(
+    expr: Expression,
+  ): { sql: string; tables: string[]; params: unknown[] } | null {
+    if (expr.type !== "binary") return null;
+    if (expr.operator !== "+" && expr.operator !== "-") return null;
+    if (!expr.left || !expr.right) return null;
+
+    const isDurationFn = (e: Expression) =>
+      e.type === "function" &&
+      e.functionName === "DURATION" &&
+      Array.isArray(e.args) &&
+      e.args.length === 1 &&
+      e.args[0]?.type === "object";
+
+    const leftIsDuration = isDurationFn(expr.left);
+    const rightIsDuration = isDurationFn(expr.right);
+    if (!leftIsDuration && !rightIsDuration) return null;
+
+    const durationExpr = (leftIsDuration ? expr.left : expr.right) as Expression;
+    const temporalExpr = (leftIsDuration ? expr.right : expr.left) as Expression;
+
+    if (expr.operator === "-" && leftIsDuration) {
+      return null;
+    }
+
+    const temporalType =
+      temporalExpr.type === "property"
+        ? temporalExpr.property?.toLowerCase?.() === "date"
+          ? "date"
+          : temporalExpr.property?.toLowerCase?.() === "time"
+            ? "time"
+            : temporalExpr.property?.toLowerCase?.() === "datetime"
+              ? "datetime"
+              : null
+        : temporalExpr.type === "function"
+          ? temporalExpr.functionName === "DATE"
+            ? "date"
+            : temporalExpr.functionName === "LOCALTIME" || temporalExpr.functionName === "TIME"
+              ? "time"
+              : temporalExpr.functionName === "LOCALDATETIME" || temporalExpr.functionName === "DATETIME"
+                ? "datetime"
+                : null
+          : null;
+
+    if (!temporalType) return null;
+
+    const temporalResult = this.translateExpression(temporalExpr);
+    const baseSql = this.wrapForArithmetic(temporalExpr, temporalResult.sql);
+
+    const durationMap = durationExpr.args![0] as Expression;
+    const properties = durationMap.properties ?? [];
+    const byKey = new Map<string, Expression>();
+    for (const prop of properties) {
+      byKey.set(prop.key.toLowerCase(), prop.value);
+    }
+
+    const sign = expr.operator === "-" ? -1 : 1;
+    const tables: string[] = [...temporalResult.tables];
+    const params: unknown[] = [...temporalResult.params];
+    const modifiers: string[] = [];
+
+    const addIntUnit = (keys: string[], unit: string) => {
+      const valueExpr = keys.map(k => byKey.get(k)).find(Boolean);
+      if (!valueExpr) return;
+      const valueResult = this.translateExpression(valueExpr);
+      tables.push(...valueResult.tables);
+      params.push(...valueResult.params);
+      modifiers.push(
+        `printf('%+d ${unit}', (${sign}) * CAST(${valueResult.sql} AS INTEGER))`,
+      );
+    };
+
+    addIntUnit(["years", "year"], "years");
+    addIntUnit(["months", "month"], "months");
+    addIntUnit(["days", "day"], "days");
+    addIntUnit(["hours", "hour"], "hours");
+    addIntUnit(["minutes", "minute"], "minutes");
+    addIntUnit(["seconds", "second"], "seconds");
+
+    if (modifiers.length === 0) return null;
+
+    const sqliteTemporalFn = temporalType === "date" ? "DATE" : temporalType === "time" ? "TIME" : "DATETIME";
+    return {
+      sql: `${sqliteTemporalFn}(${baseSql}, ${modifiers.join(", ")})`,
       tables,
       params,
     };
@@ -7523,6 +7617,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
       
       case "binary": {
+        const temporalDuration = this.tryTranslateTemporalDurationArithmetic(expr);
+        if (temporalDuration) {
+          return { sql: temporalDuration.sql, params: temporalDuration.params };
+        }
         const left = this.translateOrderByComplexExpression(expr.left!, returnAliases);
         const right = this.translateOrderByComplexExpression(expr.right!, returnAliases);
         const operator = expr.operator;

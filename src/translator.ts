@@ -6186,7 +6186,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       };
     }
 
-    if (expr.operator === "+" && !leftIsList && !rightIsList && (leftIsStringLiteral || rightIsStringLiteral)) {
+    // String concatenation: if either side is definitely a string (literal or string concat chain),
+    // use || for concatenation instead of + (numeric addition)
+    const leftIsStringConcat = this.isStringConcatenation(expr.left!);
+    const rightIsStringConcat = this.isStringConcatenation(expr.right!);
+    if (expr.operator === "+" && !leftIsList && !rightIsList && (leftIsStringConcat || rightIsStringConcat)) {
       const leftSql = this.wrapForArithmetic(expr.left!, leftResult.sql);
       const rightSql = this.wrapForArithmetic(expr.right!, rightResult.sql);
       return { sql: `(${leftSql} || ${rightSql})`, tables, params };
@@ -6394,6 +6398,24 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // List-returning functions like collect(), range(), etc.
       const listFunctions = ["COLLECT", "RANGE", "KEYS", "LABELS", "SPLIT", "TAIL"];
       return listFunctions.includes(expr.functionName || "");
+    }
+    return false;
+  }
+
+  private isStringConcatenation(expr: Expression): boolean {
+    // Check if expression is a string concatenation chain
+    // (contains a string literal anywhere in a + chain)
+    if (expr.type === "literal" && typeof expr.value === "string") {
+      return true;
+    }
+    if (expr.type === "binary" && expr.operator === "+") {
+      // Recursively check if either side is a string concatenation
+      return this.isStringConcatenation(expr.left!) || this.isStringConcatenation(expr.right!);
+    }
+    if (expr.type === "function") {
+      // String-returning functions like toString(), toUpper(), toLower(), etc.
+      const stringFunctions = ["TOSTRING", "TOUPPER", "TOLOWER", "TRIM", "LTRIM", "RTRIM", "SUBSTRING", "REPLACE", "REVERSE", "LEFT", "RIGHT"];
+      return stringFunctions.includes((expr.functionName || "").toUpperCase());
     }
     return false;
   }
@@ -7632,11 +7654,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         const left = this.translateOrderByComplexExpression(expr.left!, returnAliases);
         const right = this.translateOrderByComplexExpression(expr.right!, returnAliases);
         const operator = expr.operator;
-        if (
-          operator === "+" &&
-          ((expr.left?.type === "literal" && typeof expr.left.value === "string") ||
-            (expr.right?.type === "literal" && typeof expr.right.value === "string"))
-        ) {
+        // String concatenation: use || when either side is a string (literal or concat chain)
+        if (operator === "+" && (this.isStringConcatenation(expr.left!) || this.isStringConcatenation(expr.right!))) {
           return { sql: `(${left.sql} || ${right.sql})`, params: [...left.params, ...right.params] };
         }
         return {

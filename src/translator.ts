@@ -5412,6 +5412,94 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("time() requires an argument");
         }
 
+        // LOCALDATETIME: create datetime without timezone from a map
+        if (expr.functionName === "LOCALDATETIME") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+
+            // localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12})
+            if (arg.type === "object") {
+              const props = arg.properties ?? [];
+              const byKey = new Map<string, Expression>();
+              for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+
+              const yearExpr = byKey.get("year");
+              const monthExpr = byKey.get("month");
+              const dayExpr = byKey.get("day");
+              const hourExpr = byKey.get("hour");
+              const minuteExpr = byKey.get("minute");
+              const secondExpr = byKey.get("second");
+              const nanosecondExpr = byKey.get("nanosecond");
+
+              if (!yearExpr || !monthExpr || !dayExpr || !hourExpr || !minuteExpr) {
+                throw new Error("localdatetime(map) requires year, month, day, hour, and minute");
+              }
+
+              const yearResult = this.translateExpression(yearExpr);
+              const monthResult = this.translateExpression(monthExpr);
+              const dayResult = this.translateExpression(dayExpr);
+              const hourResult = this.translateExpression(hourExpr);
+              const minuteResult = this.translateExpression(minuteExpr);
+              tables.push(
+                ...yearResult.tables,
+                ...monthResult.tables,
+                ...dayResult.tables,
+                ...hourResult.tables,
+                ...minuteResult.tables
+              );
+              params.push(
+                ...yearResult.params,
+                ...monthResult.params,
+                ...dayResult.params,
+                ...hourResult.params,
+                ...minuteResult.params
+              );
+
+              const yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
+              const monthSql = `CAST(${monthResult.sql} AS INTEGER)`;
+              const daySql = `CAST(${dayResult.sql} AS INTEGER)`;
+              const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
+              const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
+
+              if (!secondExpr) {
+                return {
+                  sql: `printf('%04d-%02d-%02dT%02d:%02d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const secondResult = this.translateExpression(secondExpr);
+              tables.push(...secondResult.tables);
+              params.push(...secondResult.params);
+              const secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
+
+              if (!nanosecondExpr) {
+                return {
+                  sql: `printf('%04d-%02d-%02dT%02d:%02d:%02d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}, ${secondSql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const nanosecondResult = this.translateExpression(nanosecondExpr);
+              tables.push(...nanosecondResult.tables);
+              params.push(...nanosecondResult.params);
+              const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
+
+              return {
+                sql: `printf('%04d-%02d-%02dT%02d:%02d:%02d.%09d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql})`,
+                tables,
+                params,
+              };
+            }
+
+            throw new Error("localdatetime() currently supports only map arguments");
+          }
+          // localdatetime() - current local datetime
+          return { sql: `DATETIME('now')`, tables, params };
+        }
+
         // DATETIME: get current datetime or parse datetime string
         if (expr.functionName === "DATETIME") {
           if (expr.args && expr.args.length > 0) {

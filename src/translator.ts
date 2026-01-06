@@ -5272,6 +5272,77 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           return { sql: `DATE('now')`, tables, params };
         }
 
+        // LOCALTIME: create time without timezone from a map or parse time string
+        if (expr.functionName === "LOCALTIME") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+
+            // localtime({hour: 10, minute: 35, second: 13, nanosecond: 645876123})
+            if (arg.type === "object") {
+              const props = arg.properties ?? [];
+              const byKey = new Map<string, Expression>();
+              for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+
+              const hourExpr = byKey.get("hour");
+              const minuteExpr = byKey.get("minute");
+              const secondExpr = byKey.get("second");
+              const nanosecondExpr = byKey.get("nanosecond");
+
+              if (!hourExpr || !minuteExpr) {
+                throw new Error("localtime(map) requires hour and minute");
+              }
+
+              const hourResult = this.translateExpression(hourExpr);
+              const minuteResult = this.translateExpression(minuteExpr);
+              tables.push(...hourResult.tables, ...minuteResult.tables);
+              params.push(...hourResult.params, ...minuteResult.params);
+
+              const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
+              const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
+
+              if (!secondExpr) {
+                return {
+                  sql: `printf('%02d:%02d', ${hourSql}, ${minuteSql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const secondResult = this.translateExpression(secondExpr);
+              tables.push(...secondResult.tables);
+              params.push(...secondResult.params);
+              const secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
+
+              if (!nanosecondExpr) {
+                return {
+                  sql: `printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const nanosecondResult = this.translateExpression(nanosecondExpr);
+              tables.push(...nanosecondResult.tables);
+              params.push(...nanosecondResult.params);
+              const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
+
+              return {
+                sql: `printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql})`,
+                tables,
+                params,
+              };
+            }
+
+            // localtime('12:34:56.123') - parse time string
+            const argResult = this.translateFunctionArg(arg);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `TIME(${argResult.sql})`, tables, params };
+          }
+          // localtime() - current local time
+          return { sql: `TIME('now')`, tables, params };
+        }
+
         // DATETIME: get current datetime or parse datetime string
         if (expr.functionName === "DATETIME") {
           if (expr.args && expr.args.length > 0) {

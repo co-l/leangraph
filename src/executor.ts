@@ -867,6 +867,17 @@ export class Executor {
         }
       }
       
+      // Check if MATCH after a WITH with SKIP or LIMIT - needs phase boundary
+      // This handles patterns like:
+      //   MATCH (a) WITH a.name AS property ORDER BY property SKIP 1 MATCH (b) WHERE b.id = idToUse
+      // The second MATCH needs to be in a new phase because SKIP affects the row set before joining
+      if (clause.type === "MATCH" && i > 0) {
+        const prevClause = clauses[i - 1];
+        if (prevClause.type === "WITH" && (prevClause.skip !== undefined || prevClause.limit !== undefined)) {
+          needsNewPhase = true;
+        }
+      }
+      
       // Check if OPTIONAL_MATCH after a WITH that followed only OPTIONAL_MATCH (no regular MATCH)
       // This pattern needs phased execution for proper OPTIONAL MATCH null semantics
       // Example: OPTIONAL MATCH (a) WITH a OPTIONAL MATCH (a)-->(b) RETURN b
@@ -1631,7 +1642,7 @@ export class Executor {
       newContext.rows = outputRows;
     } else {
       // Non-aggregate mode: transform each row
-      const newRows: Array<Map<string, unknown>> = [];
+      let newRows: Array<Map<string, unknown>> = [];
       
       for (const row of context.rows) {
         // Apply WHERE filter if present
@@ -1668,10 +1679,90 @@ export class Executor {
         newRows.push(outputRow);
       }
       
+      // Apply ORDER BY if present
+      if (clause.orderBy && clause.orderBy.length > 0) {
+        newRows = this.sortRowsByOrderBy(newRows, clause.orderBy, params);
+      }
+      
+      // Apply SKIP if present
+      if (clause.skip !== undefined) {
+        const skipValue = this.evaluateLiteralExpression(clause.skip, params);
+        if (typeof skipValue === "number" && skipValue > 0) {
+          newRows = newRows.slice(skipValue);
+        }
+      }
+      
+      // Apply LIMIT if present
+      if (clause.limit !== undefined) {
+        const limitValue = this.evaluateLiteralExpression(clause.limit, params);
+        if (typeof limitValue === "number" && limitValue >= 0) {
+          newRows = newRows.slice(0, limitValue);
+        }
+      }
+      
       newContext.rows = newRows;
     }
     
     return newContext;
+  }
+
+  /**
+   * Sort rows by ORDER BY expressions
+   */
+  private sortRowsByOrderBy(
+    rows: Array<Map<string, unknown>>,
+    orderBy: { expression: Expression; direction: "ASC" | "DESC" }[],
+    params: Record<string, unknown>
+  ): Array<Map<string, unknown>> {
+    return [...rows].sort((a, b) => {
+      for (const { expression, direction } of orderBy) {
+        const aVal = this.evaluateExpressionInRow(expression, a, params);
+        const bVal = this.evaluateExpressionInRow(expression, b, params);
+        
+        const cmp = this.compareValues(aVal, bVal);
+        if (cmp !== 0) {
+          return direction === "DESC" ? -cmp : cmp;
+        }
+      }
+      return 0;
+    });
+  }
+
+  /**
+   * Compare two values for sorting (Cypher ordering semantics)
+   */
+  private compareValues(a: unknown, b: unknown): number {
+    // Handle nulls - null comes first in Cypher
+    if (a === null && b === null) return 0;
+    if (a === null) return -1;
+    if (b === null) return 1;
+    
+    // Same type comparison
+    if (typeof a === "number" && typeof b === "number") {
+      return a - b;
+    }
+    if (typeof a === "string" && typeof b === "string") {
+      return a.localeCompare(b);
+    }
+    if (typeof a === "boolean" && typeof b === "boolean") {
+      return (a ? 1 : 0) - (b ? 1 : 0);
+    }
+    
+    // Different types - convert to string
+    return String(a).localeCompare(String(b));
+  }
+
+  /**
+   * Evaluate a literal expression (for SKIP/LIMIT)
+   */
+  private evaluateLiteralExpression(expr: Expression, params: Record<string, unknown>): unknown {
+    if (expr.type === "literal") {
+      return expr.value;
+    }
+    if (expr.type === "parameter") {
+      return params[expr.name || ""];
+    }
+    return null;
   }
 
   /**
@@ -1817,11 +1908,25 @@ export class Executor {
     const newContext = cloneContext(context);
     const newRows: Array<Map<string, unknown>> = [];
     
-    if (boundVars.size > 0) {
+    // Check if WHERE references context variables (not pattern variables)
+    const contextVarNames = new Set<string>();
+    for (const inputRow of context.rows) {
+      for (const [key, _] of inputRow) {
+        contextVarNames.add(key);
+      }
+      break; // All rows have same keys
+    }
+    
+    // Get variables referenced in WHERE that are context variables
+    const whereReferencesContext = clause.where ? 
+      this.whereReferencesContextVars(clause.where, contextVarNames, introducedVars) : false;
+    
+    if (boundVars.size > 0 || whereReferencesContext) {
       // For complex patterns (multi-hop, anonymous nodes), use SQL translation with 
       // constraints for bound variables. This handles patterns like:
       // WITH me, you MATCH (me)-[r1:ATE]->()<-[r2:ATE]-(you) 
       // where me and you are bound but the middle node is new.
+      // Also handles: WITH x MATCH (n) WHERE n.id = x (WHERE refs context)
       
       // Execute match for each input row using SQL with bound variable constraints
       for (const inputRow of context.rows) {
@@ -1850,7 +1955,7 @@ export class Executor {
       return newContext;
     }
     
-    // No bound variables - delegate to SQL translation for MATCH
+    // No bound variables and no context references - delegate to SQL translation for MATCH
     // This handles standalone MATCH clauses well
     
     const matchQuery: Query = {
@@ -2016,19 +2121,35 @@ export class Executor {
     introducedVars: Set<string>,
     params: Record<string, unknown>
   ): Array<Map<string, unknown>> {
+    // Create a map of context variable names for quick lookup
+    const contextVarNames = new Set<string>();
+    for (const [key, _] of inputRow) {
+      contextVarNames.add(key);
+    }
+    
+    // Transform the clause to substitute context variable references with parameters
+    // This handles cases like: WITH x AS foo MATCH (n) WHERE n.id = foo
+    const transformedClause = this.transformClauseForContext(clause, contextVarNames);
+    
     // Build a MATCH + RETURN query for all pattern variables
     const matchQuery: Query = {
       clauses: [
-        clause,
+        transformedClause,
         {
           type: "RETURN" as const,
-          items: this.buildReturnItemsForMatch(clause),
+          items: this.buildReturnItemsForMatch(transformedClause),
         },
       ],
     };
     
-    // Translate to SQL
-    const translator = new Translator(params);
+    // Create params with context values prefixed with _ctx_
+    const mergedParams: Record<string, unknown> = { ...params };
+    for (const [key, value] of inputRow) {
+      mergedParams[`_ctx_${key}`] = value;
+    }
+    
+    // Translate to SQL with merged parameters
+    const translator = new Translator(mergedParams);
     const translation = translator.translate(matchQuery);
     
     if (translation.statements.length === 0) {
@@ -2100,6 +2221,161 @@ export class Executor {
     }
     
     return matchedResults;
+  }
+
+  /**
+   * Transform a MATCH clause to substitute context variable references with parameter references.
+   * This converts WHERE conditions like `n.id = foo` (where foo is from context)
+   * to `n.id = $_ctx_foo` so the translator can handle it.
+   */
+  private transformClauseForContext(
+    clause: MatchClause,
+    contextVars: Set<string>
+  ): MatchClause {
+    if (!clause.where) {
+      return clause;
+    }
+    
+    // Deep clone the clause
+    const transformed: MatchClause = JSON.parse(JSON.stringify(clause));
+    
+    // Transform WHERE condition to use parameter references for context variables
+    if (transformed.where) {
+      transformed.where = this.transformWhereForContext(transformed.where, contextVars);
+    }
+    
+    return transformed;
+  }
+
+  /**
+   * Transform a WHERE condition to substitute context variable references with parameter references
+   */
+  private transformWhereForContext(
+    condition: WhereCondition,
+    contextVars: Set<string>
+  ): WhereCondition {
+    // Deep clone
+    const result: WhereCondition = JSON.parse(JSON.stringify(condition));
+    
+    // Transform based on condition type
+    if (result.type === "comparison") {
+      if (result.left) {
+        result.left = this.transformExpressionForContext(result.left, contextVars);
+      }
+      if (result.right) {
+        result.right = this.transformExpressionForContext(result.right, contextVars);
+      }
+    } else if (result.type === "and" || result.type === "or") {
+      if (result.conditions) {
+        result.conditions = result.conditions.map(c => 
+          this.transformWhereForContext(c, contextVars)
+        );
+      }
+    } else if (result.type === "not" && result.condition) {
+      result.condition = this.transformWhereForContext(result.condition, contextVars);
+    }
+    
+    return result;
+  }
+
+  /**
+   * Transform an expression to substitute context variable references with parameter references
+   */
+  private transformExpressionForContext(
+    expr: Expression,
+    contextVars: Set<string>
+  ): Expression {
+    // If this is a variable reference to a context variable, convert to parameter
+    if (expr.type === "variable" && expr.variable && contextVars.has(expr.variable)) {
+      return {
+        type: "parameter",
+        name: `_ctx_${expr.variable}`,
+      };
+    }
+    
+    // If this is a property access on a context variable, convert to parameter
+    if (expr.type === "property" && expr.variable && contextVars.has(expr.variable)) {
+      // Context variable with property access - this is trickier
+      // For now, return as-is and let it fail (shouldn't happen in typical usage)
+      return expr;
+    }
+    
+    // Deep clone and recursively transform
+    const result: Expression = JSON.parse(JSON.stringify(expr));
+    
+    if (result.type === "binary") {
+      if (result.left) {
+        result.left = this.transformExpressionForContext(result.left, contextVars);
+      }
+      if (result.right) {
+        result.right = this.transformExpressionForContext(result.right, contextVars);
+      }
+    } else if (result.type === "function" && result.args) {
+      result.args = result.args.map(arg => 
+        this.transformExpressionForContext(arg, contextVars)
+      );
+    }
+    
+    return result;
+  }
+
+  /**
+   * Check if a WHERE condition references context variables
+   */
+  private whereReferencesContextVars(
+    condition: WhereCondition,
+    contextVars: Set<string>,
+    patternVars: Set<string>
+  ): boolean {
+    if (condition.type === "comparison") {
+      if (condition.left && this.expressionReferencesContextVar(condition.left, contextVars, patternVars)) {
+        return true;
+      }
+      if (condition.right && this.expressionReferencesContextVar(condition.right, contextVars, patternVars)) {
+        return true;
+      }
+    } else if (condition.type === "and" || condition.type === "or") {
+      if (condition.conditions) {
+        for (const c of condition.conditions) {
+          if (this.whereReferencesContextVars(c, contextVars, patternVars)) {
+            return true;
+          }
+        }
+      }
+    } else if (condition.type === "not" && condition.condition) {
+      return this.whereReferencesContextVars(condition.condition, contextVars, patternVars);
+    }
+    return false;
+  }
+
+  /**
+   * Check if an expression references a context variable (not a pattern variable)
+   */
+  private expressionReferencesContextVar(
+    expr: Expression,
+    contextVars: Set<string>,
+    patternVars: Set<string>
+  ): boolean {
+    if (expr.type === "variable" && expr.variable) {
+      // It's a context variable if it's in contextVars but not in patternVars
+      return contextVars.has(expr.variable) && !patternVars.has(expr.variable);
+    }
+    if (expr.type === "binary") {
+      if (expr.left && this.expressionReferencesContextVar(expr.left, contextVars, patternVars)) {
+        return true;
+      }
+      if (expr.right && this.expressionReferencesContextVar(expr.right, contextVars, patternVars)) {
+        return true;
+      }
+    }
+    if (expr.type === "function" && expr.args) {
+      for (const arg of expr.args) {
+        if (this.expressionReferencesContextVar(arg, contextVars, patternVars)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -2193,18 +2469,32 @@ export class Executor {
             }
           }
         } else if (typeof rel === "string") {
-          // Edge ID string
-          const edgeResult = this.db.execute(
-            "SELECT id, source_id, target_id FROM edges WHERE id = ?",
-            [rel]
-          );
-          if (edgeResult.rows.length > 0) {
-            const row = edgeResult.rows[0];
-            edgeInfo = {
-              id: row.id as string,
-              source_id: row.source_id as string,
-              target_id: row.target_id as string
-            };
+          // Could be a JSON string like '{"_nf_id":"uuid"}' or a raw UUID string
+          let edgeId: string | null = null;
+          
+          try {
+            const parsed = JSON.parse(rel);
+            if (typeof parsed === "object" && parsed !== null) {
+              edgeId = (parsed._nf_id || parsed.id) as string;
+            }
+          } catch {
+            // Not JSON, assume it's a raw ID
+            edgeId = rel;
+          }
+          
+          if (edgeId) {
+            const edgeResult = this.db.execute(
+              "SELECT id, source_id, target_id FROM edges WHERE id = ?",
+              [edgeId]
+            );
+            if (edgeResult.rows.length > 0) {
+              const row = edgeResult.rows[0];
+              edgeInfo = {
+                id: row.id as string,
+                source_id: row.source_id as string,
+                target_id: row.target_id as string
+              };
+            }
           }
         }
         
@@ -2254,6 +2544,32 @@ export class Executor {
         continue;
       }
       
+      // Check if source/target variables are already bound - if so, verify they match
+      const boundSourceValue = inputRow.get(boundInfo.sourceVar);
+      const boundTargetValue = inputRow.get(boundInfo.targetVar);
+      
+      let skipDueToBoundMismatch = false;
+      
+      if (boundSourceValue !== undefined) {
+        const boundSourceId = this.extractNodeId(boundSourceValue);
+        if (boundSourceId && boundSourceId !== firstNodeId) {
+          // Source is bound but doesn't match path start - skip this row
+          skipDueToBoundMismatch = true;
+        }
+      }
+      
+      if (boundTargetValue !== undefined) {
+        const boundTargetId = this.extractNodeId(boundTargetValue);
+        if (boundTargetId && boundTargetId !== lastNodeId) {
+          // Target is bound but doesn't match path end - skip this row
+          skipDueToBoundMismatch = true;
+        }
+      }
+      
+      if (skipDueToBoundMismatch) {
+        continue;
+      }
+      
       // Look up the first and last nodes
       const firstNodeResult = this.db.execute(
         "SELECT id, properties FROM nodes WHERE id = ?",
@@ -2291,7 +2607,11 @@ export class Executor {
     if (newRows.length > 0) {
       newContext.rows = newRows;
     } else if (clause.type === "OPTIONAL_MATCH") {
+      // OPTIONAL MATCH with no results keeps the input rows
       newContext.rows = context.rows;
+    } else {
+      // Regular MATCH with no results returns empty (excludes the row)
+      newContext.rows = [];
     }
     
     return newContext;
@@ -2410,10 +2730,27 @@ export class Executor {
       // Non-aggregate mode: transform each row
       const newRows: Array<Map<string, unknown>> = [];
       
+      // Check if RETURN * - pass through all variables
+      const hasWildcard = clause.items.some(item => 
+        item.expression.type === "variable" && item.expression.variable === "*"
+      );
+      
       for (const row of context.rows) {
         const outputRow = new Map<string, unknown>();
         
+        if (hasWildcard) {
+          // Copy all variables from input row
+          for (const [key, value] of row) {
+            outputRow.set(key, value);
+          }
+        }
+        
         for (const item of clause.items) {
+          // Skip wildcard - already handled
+          if (item.expression.type === "variable" && item.expression.variable === "*") {
+            continue;
+          }
+          
           const alias = item.alias || this.getExpressionName(item.expression);
           const value = this.evaluateExpressionInRow(item.expression, row, params);
           outputRow.set(alias, value);
@@ -2422,7 +2759,34 @@ export class Executor {
         newRows.push(outputRow);
       }
       
-      newContext.rows = newRows;
+      // Apply DISTINCT if requested
+      if (clause.distinct) {
+        const seen = new Set<string>();
+        const distinctRows: Array<Map<string, unknown>> = [];
+        
+        for (const row of newRows) {
+          // Create a key from row values
+          const keyObj: Record<string, unknown> = {};
+          for (const [k, v] of row) {
+            // For node/edge objects, use _nf_id as the key part
+            if (typeof v === "object" && v !== null && "_nf_id" in (v as object)) {
+              keyObj[k] = (v as Record<string, unknown>)._nf_id;
+            } else {
+              keyObj[k] = v;
+            }
+          }
+          const key = JSON.stringify(keyObj);
+          
+          if (!seen.has(key)) {
+            seen.add(key);
+            distinctRows.push(row);
+          }
+        }
+        
+        newContext.rows = distinctRows;
+      } else {
+        newContext.rows = newRows;
+      }
     }
     
     return newContext;

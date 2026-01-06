@@ -7465,6 +7465,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
 
       case "binary":
+      case "unary":
       case "literal": {
         // For complex expressions (binary, literal, etc.), translate them
         // but substitute variables with column aliases when they are RETURN aliases
@@ -7529,6 +7530,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           sql: `(${left.sql} ${operator} ${right.sql})`,
           params: [...left.params, ...right.params],
         };
+      }
+
+      case "unary": {
+        if (expr.operator !== "NOT") {
+          throw new Error(`Cannot order by unary operator: ${expr.operator}`);
+        }
+
+        this.validateBooleanOperand(expr.operand!, "NOT");
+        const operand = this.translateOrderByComplexExpression(expr.operand!, returnAliases);
+        return { sql: `NOT (${operand.sql})`, params: operand.params };
       }
       
       case "literal": {

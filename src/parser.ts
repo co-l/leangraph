@@ -1258,7 +1258,7 @@ export class Parser {
         if (orderBy.length > 0) {
           this.expect("COMMA");
         }
-        const expression = this.parseExpression();
+        const expression = this.parseReturnExpression();
         let direction: "ASC" | "DESC" = "ASC"; // Default to ASC
         if (this.checkKeyword("ASC") || this.checkKeyword("ASCENDING")) {
           this.advance();
@@ -1337,7 +1337,7 @@ export class Parser {
           this.expect("COMMA");
         }
 
-        const expression = this.parseExpression();
+        const expression = this.parseReturnExpression();
         let alias: string | undefined;
 
         if (this.checkKeyword("AS")) {
@@ -1360,7 +1360,7 @@ export class Parser {
         if (orderBy.length > 0) {
           this.expect("COMMA");
         }
-        const expression = this.parseExpression();
+        const expression = this.parseReturnExpression();
         let direction: "ASC" | "DESC" = "ASC"; // Default to ASC
         if (this.checkKeyword("ASC") || this.checkKeyword("ASCENDING")) {
           this.advance();

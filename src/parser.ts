@@ -338,7 +338,9 @@ const KEYWORDS = new Set([
   "ORDER",
   "BY",
   "ASC",
+  "ASCENDING",
   "DESC",
+  "DESCENDING",
   "COUNT",
   "ON",
   "TRUE",
@@ -1214,9 +1216,9 @@ export class Parser {
         }
         const expression = this.parseExpression();
         let direction: "ASC" | "DESC" = "ASC"; // Default to ASC
-        if (this.checkKeyword("ASC")) {
+        if (this.checkKeyword("ASC") || this.checkKeyword("ASCENDING")) {
           this.advance();
-        } else if (this.checkKeyword("DESC")) {
+        } else if (this.checkKeyword("DESC") || this.checkKeyword("DESCENDING")) {
           this.advance();
           direction = "DESC";
         }
@@ -1316,9 +1318,9 @@ export class Parser {
         }
         const expression = this.parseExpression();
         let direction: "ASC" | "DESC" = "ASC"; // Default to ASC
-        if (this.checkKeyword("ASC")) {
+        if (this.checkKeyword("ASC") || this.checkKeyword("ASCENDING")) {
           this.advance();
-        } else if (this.checkKeyword("DESC")) {
+        } else if (this.checkKeyword("DESC") || this.checkKeyword("DESCENDING")) {
           this.advance();
           direction = "DESC";
         }

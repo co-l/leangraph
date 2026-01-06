@@ -325,6 +325,9 @@ export class Executor {
 
     // Semantic validation: SET expressions cannot reference undefined variables
     this.validateSetClauseValueVariables(query, params);
+
+    // Semantic validation: ORDER BY expressions cannot reference undefined or out-of-scope variables
+    this.validateOrderByVariables(query, params);
     
     // Check if we need phased execution for MATCH + MERGE combinations
     // These need special handling for proper Cartesian product semantics
@@ -426,6 +429,108 @@ export class Executor {
    */
   private validateSetClauseValueVariables(query: Query, params: Record<string, unknown>): void {
     this.validateSetClauseValueVariablesInQuery(query, params);
+  }
+
+  /**
+   * Validate that ORDER BY expressions do not reference undefined or out-of-scope variables.
+   *
+   * Examples (invalid):
+   *   MATCH (a), (b) WITH a ORDER BY b RETURN a
+   *   MATCH (a) RETURN a.name AS name ORDER BY missing
+   */
+  private validateOrderByVariables(query: Query, params: Record<string, unknown>): void {
+    this.validateOrderByVariablesInQuery(query, params);
+  }
+
+  private validateOrderByVariablesInQuery(query: Query, params: Record<string, unknown>): void {
+    let scope = new Set<string>();
+
+    for (const clause of query.clauses) {
+      if (clause.type === "UNION") {
+        this.validateOrderByVariablesInQuery(clause.left, params);
+        this.validateOrderByVariablesInQuery(clause.right, params);
+        return;
+      }
+
+      if (clause.type === "MATCH" || clause.type === "OPTIONAL_MATCH") {
+        for (const pattern of clause.patterns) this.collectPatternVariables(pattern, scope);
+        if (clause.pathExpressions) {
+          for (const pathExpr of clause.pathExpressions) {
+            scope.add(pathExpr.variable);
+            for (const pattern of pathExpr.patterns) this.collectPatternVariables(pattern, scope);
+          }
+        }
+        continue;
+      }
+
+      if (clause.type === "CREATE") {
+        for (const pattern of clause.patterns) this.collectPatternVariables(pattern, scope);
+        continue;
+      }
+
+      if (clause.type === "MERGE") {
+        for (const pattern of clause.patterns) this.collectPatternVariables(pattern, scope);
+        if (clause.pathExpressions) {
+          for (const pathExpr of clause.pathExpressions) {
+            scope.add(pathExpr.variable);
+            for (const pattern of pathExpr.patterns) this.collectPatternVariables(pattern, scope);
+          }
+        }
+        continue;
+      }
+
+      if (clause.type === "UNWIND") {
+        scope.add(clause.alias);
+        continue;
+      }
+
+      if (clause.type === "CALL") {
+        for (const y of clause.yields || []) scope.add(y);
+        continue;
+      }
+
+      if (clause.type === "WITH") {
+        // Reset scope to WITH projections; `WITH *` preserves incoming scope.
+        const hasStar = clause.items.some(
+          (item) => item.expression.type === "variable" && item.expression.variable === "*" && !item.alias
+        );
+
+        const nextScope = hasStar ? new Set(scope) : new Set<string>();
+        for (const item of clause.items) {
+          if (item.alias) {
+            nextScope.add(item.alias);
+          } else if (item.expression.type === "variable" && item.expression.variable && item.expression.variable !== "*") {
+            nextScope.add(item.expression.variable);
+          }
+        }
+
+        // ORDER BY in WITH may reference both incoming variables and projected aliases
+        if (clause.orderBy) {
+          const orderScope = new Set(scope);
+          for (const v of nextScope) orderScope.add(v);
+          for (const orderItem of clause.orderBy) {
+            this.validateExpressionVariablesInScope(orderItem.expression, orderScope, params);
+          }
+        }
+
+        scope = nextScope;
+        continue;
+      }
+
+      if (clause.type === "RETURN") {
+        if (clause.orderBy) {
+          // ORDER BY in RETURN can reference RETURN aliases
+          const orderScope = new Set(scope);
+          for (const item of clause.items) {
+            if (item.alias) orderScope.add(item.alias);
+          }
+          for (const orderItem of clause.orderBy) {
+            this.validateExpressionVariablesInScope(orderItem.expression, orderScope, params);
+          }
+        }
+        continue;
+      }
+    }
   }
 
   private validateSetClauseValueVariablesInQuery(query: Query, params: Record<string, unknown>): void {

@@ -3669,6 +3669,15 @@ export class Translator {
     // Translate right query
     const rightTranslator = new Translator(this.ctx.paramValues);
     const rightResult = rightTranslator.translate(clause.right);
+
+    const leftColumns = leftResult.returnColumns ?? [];
+    const rightColumns = rightResult.returnColumns ?? [];
+    const sameColumns =
+      leftColumns.length === rightColumns.length &&
+      leftColumns.every((col, idx) => col === rightColumns[idx]);
+    if (!sameColumns) {
+      throw new Error("SyntaxError: DifferentColumnsInUnion");
+    }
     
     // Get the SQL from both sides (should be SELECT statements)
     const leftSql = leftResult.statements.map(s => s.sql).join("; ");
@@ -3685,7 +3694,7 @@ export class Translator {
     const sql = `${leftSql} ${unionKeyword} ${rightSql}`;
     
     // Return columns come from the left query
-    const returnColumns = leftResult.returnColumns || [];
+    const returnColumns = leftColumns;
     
     return {
       statements: [{ sql, params: allParams }],

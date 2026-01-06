@@ -1178,7 +1178,7 @@ describe("Translator", () => {
   describe("UNION", () => {
     it("generates UNION for two queries", () => {
       const result = translateCypher(
-        "MATCH (n:Person) RETURN n.name UNION MATCH (c:Company) RETURN c.name"
+        "MATCH (n:Person) RETURN n.name AS name UNION MATCH (c:Company) RETURN c.name AS name"
       );
 
       expect(result.statements).toHaveLength(1);
@@ -1188,7 +1188,7 @@ describe("Translator", () => {
 
     it("generates UNION ALL", () => {
       const result = translateCypher(
-        "MATCH (n:Person) RETURN n.name UNION ALL MATCH (c:Company) RETURN c.name"
+        "MATCH (n:Person) RETURN n.name AS name UNION ALL MATCH (c:Company) RETURN c.name AS name"
       );
 
       expect(result.statements).toHaveLength(1);
@@ -1197,7 +1197,7 @@ describe("Translator", () => {
 
     it("generates UNION with multiple queries", () => {
       const result = translateCypher(
-        "MATCH (n:Person) RETURN n.name UNION MATCH (c:Company) RETURN c.name UNION MATCH (p:Product) RETURN p.name"
+        "MATCH (n:Person) RETURN n.name AS name UNION MATCH (c:Company) RETURN c.name AS name UNION MATCH (p:Product) RETURN p.name AS name"
       );
 
       expect(result.statements).toHaveLength(1);
@@ -1216,7 +1216,7 @@ describe("Translator", () => {
 
     it("generates UNION with WHERE clauses", () => {
       const result = translateCypher(
-        "MATCH (n:Person) WHERE n.age > 18 RETURN n.name UNION MATCH (c:Company) WHERE c.size > 10 RETURN c.name"
+        "MATCH (n:Person) WHERE n.age > 18 RETURN n.name AS name UNION MATCH (c:Company) WHERE c.size > 10 RETURN c.name AS name"
       );
 
       expect(result.statements).toHaveLength(1);

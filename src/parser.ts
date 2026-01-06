@@ -1398,8 +1398,8 @@ export class Parser {
 
     // Array literal
     if (token.type === "LBRACKET") {
-      const values = this.parseArray();
-      return { type: "literal", value: values };
+      // Use full list literal parsing so elements can be expressions (e.g. [date({year: 1910, ...}), ...])
+      return this.parseListLiteralExpression();
     }
 
     // Parameter

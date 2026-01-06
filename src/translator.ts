@@ -5230,8 +5230,40 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         // DATE: get current date or parse date string
         if (expr.functionName === "DATE") {
           if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+
+            // date({year: 1984, month: 10, day: 11})
+            if (arg.type === "object") {
+              const props = arg.properties ?? [];
+              const byKey = new Map<string, Expression>();
+              for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+
+              const yearExpr = byKey.get("year");
+              const monthExpr = byKey.get("month");
+              const dayExpr = byKey.get("day");
+              if (!yearExpr || !monthExpr || !dayExpr) {
+                throw new Error("date(map) requires year, month, and day");
+              }
+
+              const yearResult = this.translateExpression(yearExpr);
+              const monthResult = this.translateExpression(monthExpr);
+              const dayResult = this.translateExpression(dayExpr);
+              tables.push(...yearResult.tables, ...monthResult.tables, ...dayResult.tables);
+              params.push(...yearResult.params, ...monthResult.params, ...dayResult.params);
+
+              const yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
+              const monthSql = `CAST(${monthResult.sql} AS INTEGER)`;
+              const daySql = `CAST(${dayResult.sql} AS INTEGER)`;
+
+              return {
+                sql: `DATE(printf('%04d-%02d-%02d', ${yearSql}, ${monthSql}, ${daySql}))`,
+                tables,
+                params,
+              };
+            }
+
             // date('2024-01-15') - parse date string
-            const argResult = this.translateFunctionArg(expr.args[0]);
+            const argResult = this.translateFunctionArg(arg);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
             return { sql: `DATE(${argResult.sql})`, tables, params };

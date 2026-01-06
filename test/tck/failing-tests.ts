@@ -603,7 +603,7 @@ export const FAILING_TESTS = new Set<string>([
   // "clauses/with-orderBy > WithOrderBy3 - Order by multiple expressions|8:9",
   // "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|1",
   // "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|10",
-  "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|11",
+  // "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|11",
   // "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|12",
   // "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|13",
   // "clauses/with-orderBy > WithOrderBy4 - Order by in combination with projection and aliasing|14",

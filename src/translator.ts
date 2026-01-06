@@ -7630,12 +7630,37 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             return { sql: `${varInfo.alias}.id`, params: [] };
           }
         }
-        // Check if this function expression matches a return column alias
+
         const exprName = this.getExpressionName(expr);
+
+        // If this function expression is projected in-scope (WITH/RETURN), prefer ordering
+        // by the projected alias to avoid re-evaluating and to match Cypher semantics.
+        const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+        if (withAliases) {
+          for (const [aliasName, aliasedExpr] of withAliases.entries()) {
+            if (this.getExpressionName(aliasedExpr) === exprName) {
+              return { sql: this.quoteAlias(aliasName), params: [] };
+            }
+          }
+        }
+
+        const returnAliasExpressions = (this.ctx as any).returnAliasExpressions as Map<string, Expression> | undefined;
+        if (returnAliasExpressions) {
+          for (const [aliasName, aliasedExpr] of returnAliasExpressions.entries()) {
+            if (this.getExpressionName(aliasedExpr) === exprName) {
+              return { sql: this.quoteAlias(aliasName), params: [] };
+            }
+          }
+        }
+
+        // Check if this function expression matches a return column alias name directly
         if (returnAliases.includes(exprName)) {
           return { sql: this.quoteAlias(exprName), params: [] };
         }
-        throw new Error(`Cannot order by function: ${expr.functionName}`);
+
+        // Fall back to general expression translation (supports functions/aggregates)
+        const translated = this.translateOrderByComplexExpression(expr, returnAliases);
+        return { sql: translated.sql, params: translated.params };
       }
 
       case "binary":
@@ -8624,8 +8649,18 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     switch (expr.type) {
       case "function": {
         const aggregateFunctions = ["COUNT", "SUM", "AVG", "MIN", "MAX", "COLLECT", "PERCENTILEDISC", "PERCENTILECONT"];
-        if (aggregateFunctions.includes(expr.functionName?.toUpperCase() || "")) {
-          return true; // Aggregate function - pure
+        // ORDER BY may reference a projected aggregate expression (even within a larger expression)
+        // by repeating it verbatim.
+        if (returnedExpressions && this.expressionMatchesAny(expr, returnedExpressions)) {
+          return true;
+        }
+        const isAggregate = aggregateFunctions.includes(expr.functionName?.toUpperCase() || "");
+        if (isAggregate) {
+          if (expr.star) return true;
+          if (!expr.args || expr.args.length === 0) return true;
+          // Treat aggregates as pure only if their arguments reference only projected columns
+          // (or expressions already returned), not raw graph variables.
+          return expr.args.every(arg => this.isPureAggregateExpression(arg, availableColumns, returnedExpressions));
         }
         // Non-aggregate function - only pure if all args are pure aggregates or literals
         return expr.args?.every(arg => this.isPureAggregateExpression(arg, availableColumns, returnedExpressions)) || false;

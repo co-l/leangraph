@@ -732,6 +732,16 @@ export class Parser {
       // Parse the right side of the UNION
       const rightQuery = this.parseQuery();
 
+      // Cypher disallows mixing `UNION` and `UNION ALL` within the same query.
+      // Since our grammar nests UNIONs on the right, we only need to compare the
+      // current UNION modifier with the next UNION (if present).
+      if (rightQuery.clauses.length === 1 && rightQuery.clauses[0]?.type === "UNION") {
+        const rightUnion = rightQuery.clauses[0] as UnionClause;
+        if (rightUnion.all !== all) {
+          throw new SyntaxError("InvalidClauseComposition");
+        }
+      }
+
       // Create a UNION clause that wraps both queries
       const unionClause: UnionClause = {
         type: "UNION",

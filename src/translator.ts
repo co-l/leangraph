@@ -2449,6 +2449,7 @@ export class Translator {
   private translateWith(clause: WithClause): SqlStatement[] {
     // WITH clause stores its info in context for subsequent clauses
     // It creates a new "scope" by updating variable mappings
+    const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
 
     // Track row ordering flowing through the query to support ordered COLLECT()
     // semantics (ORDER BY before an aggregation determines collect order).
@@ -2570,7 +2571,6 @@ export class Translator {
       // If item is a variable with an alias, also check if the source was a WITH alias
       if (item.expression.type === "variable" && alias) {
         const sourceVar = item.expression.variable!;
-        const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
         if (oldWithAliases && oldWithAliases.has(sourceVar)) {
           // The source is a WITH alias - copy it to new WITH aliases with new alias name
           newWithAliases.set(alias, oldWithAliases.get(sourceVar)!);
@@ -2580,7 +2580,6 @@ export class Translator {
       // If item is a variable without alias, check if it was a WITH alias from previous WITH
       if (item.expression.type === "variable" && !alias) {
         const varName = item.expression.variable!;
-        const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
         if (oldWithAliases && oldWithAliases.has(varName)) {
           // Preserve the WITH alias in the new scope
           newWithAliases.set(varName, oldWithAliases.get(varName)!);
@@ -2590,7 +2589,6 @@ export class Translator {
     
     // Before replacing withAliases, preserve any old WITH aliases that are referenced
     // in the current WITH's expressions (even if not explicitly passed through)
-    const oldWithAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
     if (oldWithAliases) {
       // Find all variables referenced in current WITH items
       const referencedVars = new Set<string>();
@@ -2627,6 +2625,8 @@ export class Translator {
     
     // Replace withAliases with the new map for this WITH scope
     (this.ctx as any).withAliases = newWithAliases;
+    const withAliasesStack = (((this.ctx as any).withAliasesStack as Map<string, Expression>[] | undefined) ??= []);
+    withAliasesStack.push(newWithAliases);
     
     // Increment edge scope when WITH doesn't pass through any edge variables
     // This means subsequent MATCH patterns are in a new scope and shouldn't
@@ -2648,16 +2648,10 @@ export class Translator {
     // Check if any existing node/edge variable is referenced in any WITH expression
     let variablesReferencedInExpressions = false;
     for (const item of clause.items) {
-      if (item.expression.type !== "variable" || item.expression.variable === "*") {
-        // Check if this expression references any existing node/edge variables
-        const referencedVars = this.findVariablesInExpression(item.expression);
-        for (const varName of referencedVars) {
-          const varInfo = this.ctx.variables.get(varName);
-          if (varInfo && (varInfo.type === "node" || varInfo.type === "edge" || varInfo.type === "varLengthEdge")) {
-            variablesReferencedInExpressions = true;
-            break;
-          }
-        }
+      if (item.expression.type === "variable" && item.expression.variable === "*") continue;
+      if (this.expressionReferencesGraphVariables(item.expression, oldWithAliases)) {
+        variablesReferencedInExpressions = true;
+        break;
       }
       if (variablesReferencedInExpressions) break;
     }
@@ -3991,6 +3985,23 @@ export class Translator {
     }
   }
 
+  private lookupWithAliasExpression(aliasName: string, skipScopes: number): Expression | undefined {
+    const withAliasesStack = (this.ctx as any).withAliasesStack as Map<string, Expression>[] | undefined;
+    if (withAliasesStack && withAliasesStack.length > 0) {
+      for (let i = withAliasesStack.length - 1 - skipScopes; i >= 0; i--) {
+        const scope = withAliasesStack[i];
+        if (scope && scope.has(aliasName)) {
+          return scope.get(aliasName)!;
+        }
+      }
+    }
+    const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+    if (withAliases && skipScopes === 0 && withAliases.has(aliasName)) {
+      return withAliases.get(aliasName)!;
+    }
+    return undefined;
+  }
+
   private translateExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
     const tables: string[] = [];
     const params: unknown[] = [];
@@ -4000,9 +4011,42 @@ export class Translator {
         // First check if this is a WITH alias
         const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
         if (withAliases && withAliases.has(expr.variable!)) {
-          // This variable is actually an alias from WITH - translate the underlying expression
-          const originalExpr = withAliases.get(expr.variable!)!;
-          return this.translateExpression(originalExpr);
+          const aliasName = expr.variable!;
+          const selfRefDepths =
+            (((this.ctx as any)._withAliasSelfRefDepths as Map<string, number> | undefined) ??= new Map<
+              string,
+              number
+            >());
+          const currentDepth = selfRefDepths.get(aliasName);
+
+          // This variable is actually an alias from WITH - translate the underlying expression.
+          // If the alias references itself (shadowing), resolve to the previous definition.
+          if (currentDepth === undefined) {
+            selfRefDepths.set(aliasName, 0);
+            try {
+              const originalExpr = this.lookupWithAliasExpression(aliasName, 0);
+              if (!originalExpr) {
+                throw new Error(`Unknown variable: ${aliasName}`);
+              }
+              return this.translateExpression(originalExpr);
+            } finally {
+              selfRefDepths.delete(aliasName);
+              if (selfRefDepths.size === 0) {
+                (this.ctx as any)._withAliasSelfRefDepths = undefined;
+              }
+            }
+          }
+
+          const nextDepth = currentDepth + 1;
+          const previousExpr = this.lookupWithAliasExpression(aliasName, nextDepth);
+          if (previousExpr) {
+            selfRefDepths.set(aliasName, nextDepth);
+            try {
+              return this.translateExpression(previousExpr);
+            } finally {
+              selfRefDepths.set(aliasName, currentDepth);
+            }
+          }
         }
         
         // Check if this is a CALL yield variable
@@ -4270,28 +4314,34 @@ export class Translator {
         // First check if this is a WITH alias (e.g., accessing properties of an object/map)
         const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
         if (withAliases && withAliases.has(expr.variable!)) {
-          const originalExpr = withAliases.get(expr.variable!)!;
+          const aliasName = expr.variable!;
+          const selfRefDepths = (this.ctx as any)._withAliasSelfRefDepths as Map<string, number> | undefined;
+          const currentDepth = selfRefDepths?.get(aliasName);
+          const skipScopes = currentDepth === undefined ? 0 : currentDepth + 1;
+          const originalExpr = this.lookupWithAliasExpression(aliasName, skipScopes);
+          if (originalExpr) {
           
-          // Check if this is a non-map type that should fail with type error
-          // Non-map types: numbers, strings, booleans, lists (all as literals)
-          const isNonMapType = originalExpr.type === "literal" && 
-                               originalExpr.value !== null &&
-                               (typeof originalExpr.value !== "object" || Array.isArray(originalExpr.value));
+            // Check if this is a non-map type that should fail with type error
+            // Non-map types: numbers, strings, booleans, lists (all as literals)
+            const isNonMapType = originalExpr.type === "literal" && 
+                                 originalExpr.value !== null &&
+                                 (typeof originalExpr.value !== "object" || Array.isArray(originalExpr.value));
           
-          // Only use the WITH alias if:
-          // 1. It's NOT a property expression with the same variable (to avoid infinite recursion)
-          // 2. It's NOT a non-map type (numbers, strings, booleans, lists should error)
-          if (!isNonMapType && (originalExpr.type !== "property" || originalExpr.variable !== expr.variable)) {
-            // This variable is a WITH alias - translate the underlying expression and access the property
-            const objectResult = this.translateExpression(originalExpr);
-            tables.push(...objectResult.tables);
-            params.push(...objectResult.params);
-            // Access property from the result using json_extract
-            return {
-              sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
-              tables,
-              params,
-            };
+            // Only use the WITH alias if:
+            // 1. It's NOT a property expression with the same variable (to avoid infinite recursion)
+            // 2. It's NOT a non-map type (numbers, strings, booleans, lists should error)
+            if (!isNonMapType && (originalExpr.type !== "property" || originalExpr.variable !== expr.variable)) {
+              // This variable is a WITH alias - translate the underlying expression and access the property
+              const objectResult = this.translateExpression(originalExpr);
+              tables.push(...objectResult.tables);
+              params.push(...objectResult.params);
+              // Access property from the result using json_extract
+              return {
+                sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
+                tables,
+                params,
+              };
+            }
           }
         }
         
@@ -7937,6 +7987,31 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
   private quoteAlias(alias: string): string {
     // SQLite uses double quotes for identifiers
     return `"${alias}"`;
+  }
+
+  private expressionReferencesGraphVariables(
+    expr: Expression,
+    withAliases: Map<string, Expression> | undefined,
+    visitingAliases: Set<string> = new Set<string>()
+  ): boolean {
+    for (const varName of this.findVariablesInExpression(expr)) {
+      const varInfo = this.ctx.variables.get(varName);
+      if (varInfo && (varInfo.type === "node" || varInfo.type === "edge" || varInfo.type === "varLengthEdge" || varInfo.type === "path")) {
+        return true;
+      }
+      if (withAliases && withAliases.has(varName)) {
+        if (visitingAliases.has(varName)) continue;
+        visitingAliases.add(varName);
+        try {
+          if (this.expressionReferencesGraphVariables(withAliases.get(varName)!, withAliases, visitingAliases)) {
+            return true;
+          }
+        } finally {
+          visitingAliases.delete(varName);
+        }
+      }
+    }
+    return false;
   }
 
   private findVariablesInExpression(expr: Expression): string[] {

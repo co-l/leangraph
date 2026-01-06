@@ -176,6 +176,11 @@ export class Translator {
 
   private translateCreate(clause: CreateClause): SqlStatement[] {
     const statements: SqlStatement[] = [];
+    
+    // Track properties of nodes created in this CREATE clause for property references
+    // e.g., CREATE (a:A {id: 1}), (b:B {value: a.id}) - b.value should resolve to 1
+    const createdNodeProperties = new Map<string, Record<string, unknown>>();
+    (this.ctx as any).createdNodeProperties = createdNodeProperties;
 
     for (const pattern of clause.patterns) {
       if (this.isRelationshipPattern(pattern)) {
@@ -189,6 +194,9 @@ export class Translator {
         statements.push(this.translateCreateNode(nodePattern));
       }
     }
+    
+    // Clear the tracking after CREATE is done
+    (this.ctx as any).createdNodeProperties = undefined;
 
     return statements;
   }
@@ -204,6 +212,11 @@ export class Translator {
 
     if (node.variable) {
       this.ctx.variables.set(node.variable, { type: "node", alias: id });
+      // Store the resolved properties so later nodes in the same CREATE can reference them
+      const createdNodeProperties = (this.ctx as any).createdNodeProperties as Map<string, Record<string, unknown>> | undefined;
+      if (createdNodeProperties) {
+        createdNodeProperties.set(node.variable, JSON.parse(properties.json));
+      }
     }
 
     return {
@@ -8280,6 +8293,17 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // Undefined variable - throw error
             throw new Error(`Variable \`${varName}\` not defined`);
           }
+        }
+      } else if ((value as any)?.type === "property") {
+        // Handle property references like a.id - check if 'a' was created in this CREATE clause
+        const propRef = value as { type: "property"; variable: string; property: string };
+        const createdNodeProperties = (this.ctx as any).createdNodeProperties as Map<string, Record<string, unknown>> | undefined;
+        if (createdNodeProperties && createdNodeProperties.has(propRef.variable)) {
+          const nodeProps = createdNodeProperties.get(propRef.variable)!;
+          resolved[key] = nodeProps[propRef.property] ?? null;
+        } else {
+          // Property reference to unknown variable - keep as-is (executor may resolve it)
+          resolved[key] = value;
         }
       } else {
         // Evaluate deterministic property-value expressions (e.g., date({year: 1980, ...}))

@@ -5503,8 +5503,91 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         // DATETIME: get current datetime or parse datetime string
         if (expr.functionName === "DATETIME") {
           if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+
+            // datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12, timezone: '+00:15'})
+            if (arg.type === "object") {
+              const props = arg.properties ?? [];
+              const byKey = new Map<string, Expression>();
+              for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+
+              const yearExpr = byKey.get("year");
+              const monthExpr = byKey.get("month");
+              const dayExpr = byKey.get("day");
+              const hourExpr = byKey.get("hour");
+              const minuteExpr = byKey.get("minute");
+              const secondExpr = byKey.get("second");
+              const nanosecondExpr = byKey.get("nanosecond");
+              const timezoneExpr = byKey.get("timezone");
+
+              if (!yearExpr || !monthExpr || !dayExpr || !hourExpr || !minuteExpr || !timezoneExpr) {
+                throw new Error("datetime(map) requires year, month, day, hour, minute, and timezone");
+              }
+
+              const yearResult = this.translateExpression(yearExpr);
+              const monthResult = this.translateExpression(monthExpr);
+              const dayResult = this.translateExpression(dayExpr);
+              const hourResult = this.translateExpression(hourExpr);
+              const minuteResult = this.translateExpression(minuteExpr);
+              const tzResult = this.translateExpression(timezoneExpr);
+              tables.push(
+                ...yearResult.tables,
+                ...monthResult.tables,
+                ...dayResult.tables,
+                ...hourResult.tables,
+                ...minuteResult.tables,
+                ...tzResult.tables
+              );
+              params.push(
+                ...yearResult.params,
+                ...monthResult.params,
+                ...dayResult.params,
+                ...hourResult.params,
+                ...minuteResult.params,
+                ...tzResult.params
+              );
+
+              const yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
+              const monthSql = `CAST(${monthResult.sql} AS INTEGER)`;
+              const daySql = `CAST(${dayResult.sql} AS INTEGER)`;
+              const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
+              const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
+
+              if (!secondExpr) {
+                return {
+                  sql: `(printf('%04d-%02d-%02dT%02d:%02d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}) || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const secondResult = this.translateExpression(secondExpr);
+              tables.push(...secondResult.tables);
+              params.push(...secondResult.params);
+              const secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
+
+              if (!nanosecondExpr) {
+                return {
+                  sql: `(printf('%04d-%02d-%02dT%02d:%02d:%02d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}, ${secondSql}) || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const nanosecondResult = this.translateExpression(nanosecondExpr);
+              tables.push(...nanosecondResult.tables);
+              params.push(...nanosecondResult.params);
+              const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
+
+              return {
+                sql: `(printf('%04d-%02d-%02dT%02d:%02d:%02d.%09d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql}) || ${tzResult.sql})`,
+                tables,
+                params,
+              };
+            }
+
             // datetime('2024-01-15T12:30:00') - parse datetime string
-            const argResult = this.translateFunctionArg(expr.args[0]);
+            const argResult = this.translateFunctionArg(arg);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
             return { sql: `DATETIME(${argResult.sql})`, tables, params };
@@ -7090,6 +7173,35 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           return `CASE WHEN ${isTimeWithOffset} THEN ${utcNanosKey} ELSE ${v} END`;
         };
 
+        const buildDateTimeWithOffsetOrderBy = (valueSql: string): string => {
+          const v = valueSql;
+          const tzPos = `(length(${v}) - 5)`;
+          const tzSign = `substr(${v}, ${tzPos}, 1)`;
+          const tzHour = `CAST(substr(${v}, ${tzPos} + 1, 2) AS INTEGER)`;
+          const tzMinute = `CAST(substr(${v}, ${tzPos} + 4, 2) AS INTEGER)`;
+          const offsetMinutes = `(((${tzHour} * 60) + ${tzMinute}) * (CASE WHEN ${tzSign} = '-' THEN -1 ELSE 1 END))`;
+          const utcModifier = `printf('%+d minutes', (0 - ${offsetMinutes}))`;
+
+          const isDateTimeWithOffset =
+            `(typeof(${v}) = 'text' AND length(${v}) >= 22 AND ` +
+            `substr(${v}, 5, 1) = '-' AND substr(${v}, 8, 1) = '-' AND substr(${v}, 11, 1) = 'T' AND ` +
+            `(${tzSign} = '+' OR ${tzSign} = '-') AND substr(${v}, ${tzPos} + 3, 1) = ':')`;
+
+          const localBase = `substr(${v}, 1, 10) || ' ' || substr(${v}, 12, 8)`;
+          const utcBase = `datetime(${localBase}, ${utcModifier})`;
+          const utcIso = `replace(${utcBase}, ' ', 'T')`;
+
+          const dotPos = `instr(${v}, '.')`;
+          const hasFraction = `(${dotPos} > 0 AND ${dotPos} < ${tzPos})`;
+          const fracRaw = `substr(${v}, ${dotPos} + 1, (${tzPos} - ${dotPos} - 1))`;
+          const frac9 = `substr(${fracRaw}, 1, 9)`;
+          const fracPadded = `(${frac9} || substr('000000000', 1, (9 - length(${frac9}))))`;
+          const nanosPart = `(CASE WHEN ${hasFraction} THEN ${fracPadded} ELSE '000000000' END)`;
+
+          const utcKey = `(${utcIso} || '.' || ${nanosPart})`;
+          return `CASE WHEN ${isDateTimeWithOffset} THEN ${utcKey} ELSE ${buildTimeWithOffsetOrderBy(v)} END`;
+        };
+
         // Check if this is an UNWIND variable
         const unwindClauses = (this.ctx as any).unwindClauses as Array<{
           alias: string;
@@ -7101,7 +7213,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         if (unwindClauses) {
           const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
           if (unwindClause) {
-            return { sql: buildTimeWithOffsetOrderBy(`${unwindClause.alias}.value`), params: [] };
+            return { sql: buildDateTimeWithOffsetOrderBy(`${unwindClause.alias}.value`), params: [] };
           }
         }
 

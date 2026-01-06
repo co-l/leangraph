@@ -5343,6 +5343,75 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           return { sql: `TIME('now')`, tables, params };
         }
 
+        // TIME: create time with timezone from a map
+        if (expr.functionName === "TIME") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+
+            // time({hour: 10, minute: 35, timezone: '-08:00', ...})
+            if (arg.type === "object") {
+              const props = arg.properties ?? [];
+              const byKey = new Map<string, Expression>();
+              for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+
+              const hourExpr = byKey.get("hour");
+              const minuteExpr = byKey.get("minute");
+              const secondExpr = byKey.get("second");
+              const nanosecondExpr = byKey.get("nanosecond");
+              const timezoneExpr = byKey.get("timezone");
+
+              if (!hourExpr || !minuteExpr || !timezoneExpr) {
+                throw new Error("time(map) requires hour, minute, and timezone");
+              }
+
+              const hourResult = this.translateExpression(hourExpr);
+              const minuteResult = this.translateExpression(minuteExpr);
+              const tzResult = this.translateExpression(timezoneExpr);
+              tables.push(...hourResult.tables, ...minuteResult.tables, ...tzResult.tables);
+              params.push(...hourResult.params, ...minuteResult.params, ...tzResult.params);
+
+              const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
+              const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
+
+              if (!secondExpr) {
+                return {
+                  sql: `(printf('%02d:%02d', ${hourSql}, ${minuteSql}) || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const secondResult = this.translateExpression(secondExpr);
+              tables.push(...secondResult.tables);
+              params.push(...secondResult.params);
+              const secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
+
+              if (!nanosecondExpr) {
+                return {
+                  sql: `(printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql}) || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
+
+              const nanosecondResult = this.translateExpression(nanosecondExpr);
+              tables.push(...nanosecondResult.tables);
+              params.push(...nanosecondResult.params);
+              const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
+
+              return {
+                sql: `(printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql}) || ${tzResult.sql})`,
+                tables,
+                params,
+              };
+            }
+
+            throw new Error("time() currently supports only map arguments");
+          }
+          // time() - current time with timezone isn't supported (needs timezone context)
+          throw new Error("time() requires an argument");
+        }
+
         // DATETIME: get current datetime or parse datetime string
         if (expr.functionName === "DATETIME") {
           if (expr.args && expr.args.length > 0) {
@@ -6906,12 +6975,33 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
       }
 
       case "variable": {
-        // First check if this is a return column alias (e.g., ORDER BY total)
-        // SQL allows ORDER BY to reference SELECT column aliases directly
-        if (returnAliases.includes(expr.variable!)) {
-          return { sql: expr.variable!, params: [] };
-        }
-        
+        const buildTimeWithOffsetOrderBy = (valueSql: string): string => {
+          const v = valueSql;
+          const tzPos = `(CASE WHEN instr(${v}, '+') > 0 THEN instr(${v}, '+') WHEN instr(${v}, '-') > 0 THEN instr(${v}, '-') ELSE 0 END)`;
+          const isTimeWithOffset = `(typeof(${v}) = 'text' AND ${tzPos} > 0 AND substr(${v}, 3, 1) = ':' AND substr(${v}, ${tzPos} + 3, 1) = ':')`;
+
+          const hour = `CAST(substr(${v}, 1, 2) AS INTEGER)`;
+          const minute = `CAST(substr(${v}, 4, 2) AS INTEGER)`;
+          const hasSeconds = `(substr(${v}, 6, 1) = ':')`;
+          const second = `(CASE WHEN ${hasSeconds} THEN CAST(substr(${v}, 7, 2) AS INTEGER) ELSE 0 END)`;
+          const hasFraction = `(${hasSeconds} AND substr(${v}, 9, 1) = '.')`;
+          const fracRaw = `substr(${v}, 10, (${tzPos} - 10))`;
+          const frac9 = `substr(${fracRaw}, 1, 9)`;
+          const fracPadded = `(${frac9} || substr('000000000', 1, (9 - length(${frac9}))))`;
+          const nanos = `(CASE WHEN ${hasFraction} THEN CAST(${fracPadded} AS INTEGER) ELSE 0 END)`;
+
+          const tzSign = `substr(${v}, ${tzPos}, 1)`;
+          const tzHour = `CAST(substr(${v}, ${tzPos} + 1, 2) AS INTEGER)`;
+          const tzMinute = `CAST(substr(${v}, ${tzPos} + 4, 2) AS INTEGER)`;
+          const offsetSeconds = `(((${tzHour} * 3600) + (${tzMinute} * 60)) * (CASE WHEN ${tzSign} = '-' THEN -1 ELSE 1 END))`;
+          const localSeconds = `((${hour} * 3600) + (${minute} * 60) + ${second})`;
+          const utcSeconds = `(${localSeconds} - ${offsetSeconds})`;
+          const utcSecondsNorm = `(((${utcSeconds}) % 86400) + 86400) % 86400`;
+          const utcNanosKey = `((${utcSecondsNorm} * 1000000000) + ${nanos})`;
+
+          return `CASE WHEN ${isTimeWithOffset} THEN ${utcNanosKey} ELSE ${v} END`;
+        };
+
         // Check if this is an UNWIND variable
         const unwindClauses = (this.ctx as any).unwindClauses as Array<{
           alias: string;
@@ -6923,8 +7013,14 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         if (unwindClauses) {
           const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
           if (unwindClause) {
-            return { sql: `${unwindClause.alias}.value`, params: [] };
+            return { sql: buildTimeWithOffsetOrderBy(`${unwindClause.alias}.value`), params: [] };
           }
+        }
+
+        // First check if this is a return column alias (e.g., ORDER BY total)
+        // SQL allows ORDER BY to reference SELECT column aliases directly
+        if (returnAliases.includes(expr.variable!)) {
+          return { sql: expr.variable!, params: [] };
         }
         
         const varInfo = this.ctx.variables.get(expr.variable!);

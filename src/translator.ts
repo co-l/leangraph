@@ -2254,10 +2254,18 @@ export class Translator {
     // We no longer add these to the main WHERE clause as that would filter out rows entirely
     
     // Add WHERE conditions from WITH clause
+    // If the condition references an aggregate alias, it should go in HAVING instead of WHERE
+    let havingCondition: { sql: string; params: unknown[] } | undefined;
     if (withWhere) {
-      const { sql: whereSql, params: conditionParams } = this.translateWhere(withWhere);
-      whereParts.push(whereSql);
-      whereParams.push(...conditionParams);
+      const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+      if (this.whereConditionReferencesAggregateAlias(withWhere, withAliases)) {
+        // This condition references aggregates - save for HAVING clause
+        havingCondition = this.translateWhere(withWhere);
+      } else {
+        const { sql: whereSql, params: conditionParams } = this.translateWhere(withWhere);
+        whereParts.push(whereSql);
+        whereParams.push(...conditionParams);
+      }
     }
 
     // Check if we need DISTINCT for OPTIONAL MATCH with label predicate on target node
@@ -2403,6 +2411,12 @@ export class Translator {
     
     if (groupByParts.length > 0) {
       sql += ` GROUP BY ${groupByParts.join(", ")}`;
+    }
+
+    // Add HAVING clause for conditions that reference aggregate aliases
+    if (havingCondition) {
+      sql += ` HAVING ${havingCondition.sql}`;
+      whereParams.push(...havingCondition.params);
     }
 
     // Determine effective LIMIT/SKIP (combine WITH and RETURN values)
@@ -8255,6 +8269,58 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const rightHasAggregate = expr.right ? this.isAggregateExpression(expr.right) : false;
       return leftHasAggregate || rightHasAggregate;
     }
+    return false;
+  }
+
+  /**
+   * Check if a WHERE condition references any alias that resolves to an aggregate expression.
+   * This is used to determine if the condition should go in HAVING instead of WHERE.
+   */
+  private whereConditionReferencesAggregateAlias(cond: WhereCondition, withAliases: Map<string, Expression> | undefined): boolean {
+    if (!withAliases) return false;
+    
+    // Helper to check if an expression references an aggregate alias
+    const exprReferencesAggregate = (expr: Expression | undefined): boolean => {
+      if (!expr) return false;
+      
+      // Check if it's a variable that resolves to an aggregate
+      if (expr.type === "variable" && expr.variable) {
+        const aliasExpr = withAliases.get(expr.variable);
+        if (aliasExpr && this.isAggregateExpression(aliasExpr)) {
+          return true;
+        }
+      }
+      
+      // Check binary expressions
+      if (expr.type === "binary") {
+        return exprReferencesAggregate(expr.left) || exprReferencesAggregate(expr.right);
+      }
+      
+      // Check function arguments
+      if (expr.type === "function" && expr.args) {
+        return expr.args.some(arg => exprReferencesAggregate(arg));
+      }
+      
+      return false;
+    };
+    
+    // Check the condition based on its type
+    if (cond.type === "comparison" || cond.type === "contains" || cond.type === "startsWith" || cond.type === "endsWith" || cond.type === "in") {
+      return exprReferencesAggregate(cond.left) || exprReferencesAggregate(cond.right) || exprReferencesAggregate(cond.list);
+    }
+    
+    if (cond.type === "isNull" || cond.type === "isNotNull") {
+      return exprReferencesAggregate(cond.left);
+    }
+    
+    if (cond.type === "and" || cond.type === "or") {
+      return cond.conditions?.some(c => this.whereConditionReferencesAggregateAlias(c, withAliases)) ?? false;
+    }
+    
+    if (cond.type === "not") {
+      return cond.condition ? this.whereConditionReferencesAggregateAlias(cond.condition, withAliases) : false;
+    }
+    
     return false;
   }
 

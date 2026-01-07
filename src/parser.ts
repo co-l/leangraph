@@ -2377,6 +2377,22 @@ export class Parser {
   private parseIsNullExpression(): Expression {
     let left = this.parseAdditiveExpression();
 
+    // Check for label predicate: variable:Label or variable:Label1:Label2
+    // This handles bare form `a:B` in RETURN expressions (without parentheses)
+    if (this.check("COLON") && left.type === "variable") {
+      const variable = (left as { type: "variable"; variable: string }).variable;
+      const labelsList: string[] = [];
+      while (this.check("COLON")) {
+        this.advance(); // consume :
+        labelsList.push(this.expectLabelOrType());
+      }
+      if (labelsList.length === 1) {
+        return { type: "labelPredicate", variable, label: labelsList[0] };
+      } else {
+        return { type: "labelPredicate", variable, labels: labelsList };
+      }
+    }
+
     if (this.checkKeyword("IS")) {
       this.advance();
       if (this.checkKeyword("NOT")) {

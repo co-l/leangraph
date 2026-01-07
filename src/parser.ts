@@ -2477,39 +2477,144 @@ export class Parser {
         // Convert to propertyAccess expression for chained access
         expr = { type: "propertyAccess", object: expr, property };
       } else {
-        // LBRACKET
+        // LBRACKET - parse index or slice
         this.advance(); // consume [
         
         // Check for slice syntax [start..end]
         if (this.check("DOT")) {
-          // [..end] - from start
+          // [..end] - from start (implicit start = 0)
           this.advance(); // consume first .
           this.expect("DOT"); // consume second .
-          const endExpr = this.parseExpression();
+          const endExpr = this.parseSliceBoundExpression();
           this.expect("RBRACKET");
-          expr = { type: "function", functionName: "SLICE", args: [expr, { type: "literal", value: null }, endExpr] };
+          // Use SLICE_FROM_START to indicate implicit start
+          expr = { type: "function", functionName: "SLICE_FROM_START", args: [expr, endExpr] };
         } else {
-          const indexExpr = this.parseExpression();
+          // Parse start expression using slice-aware parsing
+          const indexExpr = this.parseSliceBoundExpression();
           
           if (this.check("DOT")) {
-            // Check for slice: [start..end]
+            // Check for slice: [start..end] or [start..]
             this.advance(); // consume first .
-            if (this.check("DOT")) {
-              this.advance(); // consume second .
-              if (this.check("RBRACKET")) {
-                // [start..] - to end
-                this.expect("RBRACKET");
-                expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, { type: "literal", value: null }] };
-              } else {
-                const endExpr = this.parseExpression();
-                this.expect("RBRACKET");
-                expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, endExpr] };
-              }
+            this.expect("DOT"); // consume second .
+            if (this.check("RBRACKET")) {
+              // [start..] - to end (implicit end = list length)
+              this.expect("RBRACKET");
+              // Use SLICE_TO_END to indicate implicit end
+              expr = { type: "function", functionName: "SLICE_TO_END", args: [expr, indexExpr] };
             } else {
-              throw new Error("Expected '..' for slice syntax");
+              const endExpr = this.parseSliceBoundExpression();
+              this.expect("RBRACKET");
+              // Both bounds are explicit
+              expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, endExpr] };
             }
           } else {
             // Simple index: [index]
+            this.expect("RBRACKET");
+            expr = { type: "function", functionName: "INDEX", args: [expr, indexExpr] };
+          }
+        }
+      }
+    }
+
+    return expr;
+  }
+
+  /**
+   * Parse an expression that can be used as a slice bound (start or end).
+   * This is similar to parseExpression but stops at ".." to allow slice syntax.
+   * It uses a modified postfix parser that detects ".." and stops before consuming it.
+   */
+  private parseSliceBoundExpression(): Expression {
+    return this.parseSliceBoundAdditiveExpression();
+  }
+
+  private parseSliceBoundAdditiveExpression(): Expression {
+    let left = this.parseSliceBoundMultiplicativeExpression();
+
+    while (this.check("PLUS") || this.check("DASH")) {
+      const operatorToken = this.advance();
+      const operator = operatorToken.type === "PLUS" ? "+" : "-";
+      const right = this.parseSliceBoundMultiplicativeExpression();
+      left = { type: "binary", operator: operator as "+" | "-", left, right };
+    }
+
+    return left;
+  }
+
+  private parseSliceBoundMultiplicativeExpression(): Expression {
+    let left = this.parseSliceBoundExponentialExpression();
+
+    while (this.check("STAR") || this.check("SLASH") || this.check("PERCENT")) {
+      const operatorToken = this.advance();
+      let operator: "*" | "/" | "%";
+      if (operatorToken.type === "STAR") operator = "*";
+      else if (operatorToken.type === "SLASH") operator = "/";
+      else operator = "%";
+      const right = this.parseSliceBoundExponentialExpression();
+      left = { type: "binary", operator, left, right };
+    }
+
+    return left;
+  }
+
+  private parseSliceBoundExponentialExpression(): Expression {
+    let left = this.parseSliceBoundPostfixExpression();
+
+    while (this.check("CARET")) {
+      this.advance();
+      const right = this.parseSliceBoundPostfixExpression();
+      left = { type: "binary", operator: "^", left, right };
+    }
+
+    return left;
+  }
+
+  /**
+   * Parse postfix expression for slice bounds. This version detects ".."
+   * and stops before consuming it, allowing the slice syntax to be parsed correctly.
+   */
+  private parseSliceBoundPostfixExpression(): Expression {
+    let expr = this.parsePrimaryExpression();
+
+    // Handle postfix operations, but stop at ".." for slice syntax
+    while (this.check("LBRACKET") || this.check("DOT")) {
+      if (this.check("DOT")) {
+        // Check if this is ".." (slice syntax) - if so, stop here
+        const nextToken = this.tokens[this.pos + 1];
+        if (nextToken && nextToken.type === "DOT") {
+          // This is ".." - stop parsing, let the caller handle slice
+          break;
+        }
+        // Single dot - property access
+        this.advance(); // consume .
+        const property = this.expectIdentifierOrKeyword();
+        expr = { type: "propertyAccess", object: expr, property };
+      } else {
+        // LBRACKET - nested index access
+        this.advance(); // consume [
+        if (this.check("DOT")) {
+          // [..end] - from start (implicit start = 0)
+          this.advance();
+          this.expect("DOT");
+          const endExpr = this.parseSliceBoundExpression();
+          this.expect("RBRACKET");
+          expr = { type: "function", functionName: "SLICE_FROM_START", args: [expr, endExpr] };
+        } else {
+          const indexExpr = this.parseSliceBoundExpression();
+          if (this.check("DOT")) {
+            this.advance();
+            this.expect("DOT");
+            if (this.check("RBRACKET")) {
+              // [start..] - to end (implicit end = list length)
+              this.expect("RBRACKET");
+              expr = { type: "function", functionName: "SLICE_TO_END", args: [expr, indexExpr] };
+            } else {
+              const endExpr = this.parseSliceBoundExpression();
+              this.expect("RBRACKET");
+              expr = { type: "function", functionName: "SLICE", args: [expr, indexExpr, endExpr] };
+            }
+          } else {
             this.expect("RBRACKET");
             expr = { type: "function", functionName: "INDEX", args: [expr, indexExpr] };
           }

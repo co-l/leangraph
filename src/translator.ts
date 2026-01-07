@@ -6506,26 +6506,99 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           throw new Error("INDEX requires list and index arguments");
         }
 
-        // SLICE: list slice expr[start..end]
+        // SLICE_FROM_START: list[..end] - start from index 0, but end is explicit and may be null
+        if (expr.functionName === "SLICE_FROM_START") {
+          if (expr.args && expr.args.length >= 2) {
+            const listResult = this.translateExpression(expr.args[0]);
+            const endResult = this.translateExpression(expr.args[1]);
+            tables.push(...listResult.tables, ...endResult.tables);
+            
+            // End is explicit, so if it's null the result should be null
+            // SQL uses endResult twice (IS NULL check and CAST)
+            params.push(...endResult.params, ...listResult.params, ...endResult.params);
+            
+            return { 
+              sql: `CASE WHEN ${endResult.sql} IS NULL THEN NULL ` +
+                   `ELSE (SELECT json_group_array(j.value) FROM json_each(${listResult.sql}) j ` +
+                   `WHERE j.key >= 0 AND j.key < CAST(${endResult.sql} AS INTEGER)) END`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("SLICE_FROM_START requires list and end arguments");
+        }
+
+        // SLICE_TO_END: list[start..] - slice to end of list, but start is explicit and may be null
+        if (expr.functionName === "SLICE_TO_END") {
+          if (expr.args && expr.args.length >= 2) {
+            const listResult = this.translateExpression(expr.args[0]);
+            const startResult = this.translateExpression(expr.args[1]);
+            tables.push(...listResult.tables, ...startResult.tables);
+            
+            // Start is explicit, so if it's null the result should be null
+            // SQL uses startResult twice and listResult twice
+            params.push(...startResult.params, ...listResult.params, ...startResult.params, ...listResult.params);
+            
+            return { 
+              sql: `CASE WHEN ${startResult.sql} IS NULL THEN NULL ` +
+                   `ELSE (SELECT json_group_array(j.value) FROM json_each(${listResult.sql}) j ` +
+                   `WHERE j.key >= CAST(${startResult.sql} AS INTEGER) AND j.key < json_array_length(${listResult.sql})) END`, 
+              tables, 
+              params 
+            };
+          }
+          throw new Error("SLICE_TO_END requires list and start arguments");
+        }
+
+        // SLICE: list[start..end] - both bounds are explicit (can be null)
+        // Supports negative indices: -1 means last element, -n means n from end
         if (expr.functionName === "SLICE") {
           if (expr.args && expr.args.length >= 3) {
             const listResult = this.translateExpression(expr.args[0]);
             const startResult = this.translateExpression(expr.args[1]);
             const endResult = this.translateExpression(expr.args[2]);
             tables.push(...listResult.tables, ...startResult.tables, ...endResult.tables);
-            params.push(...listResult.params, ...startResult.params, ...endResult.params);
             
-            // For slice, we use a subquery to generate the slice
-            // Cypher slice is [start..end] where end is exclusive
-            // null start means 0, null end means array length
-            const startSql = startResult.sql === "?" && expr.args[1].value === null ? "0" : `CAST(${startResult.sql} AS INTEGER)`;
-            const endSql = endResult.sql === "?" && expr.args[2].value === null 
-              ? `json_array_length(${listResult.sql})` 
-              : `CAST(${endResult.sql} AS INTEGER)`;
+            // In Cypher, if either explicit bound is null, result is null
+            // Negative indices need to be converted: -i becomes (length - i)
             
-            // Use subquery with json_each to build sliced array
+            // For negative index handling: CASE WHEN idx < 0 THEN len + idx ELSE idx END
+            const normalizeIndex = (idxSql: string, lenSql: string) => 
+              `CASE WHEN ${idxSql} < 0 THEN ${lenSql} + ${idxSql} ELSE ${idxSql} END`;
+            
+            const startNorm = normalizeIndex(`CAST(${startResult.sql} AS INTEGER)`, `json_array_length(${listResult.sql})`);
+            const endNorm = normalizeIndex(`CAST(${endResult.sql} AS INTEGER)`, `json_array_length(${listResult.sql})`);
+            
+            // SQL template reference order (counting each ${} placeholder):
+            // 1. startResult.sql (IS NULL check)
+            // 2. endResult.sql (IS NULL check)
+            // 3. listResult.sql (json_each)
+            // 4. startResult.sql (< 0 check in start norm)
+            // 5. listResult.sql (json_array_length in start norm)
+            // 6. startResult.sql (+ in start norm)
+            // 7. startResult.sql (ELSE in start norm)
+            // 8. endResult.sql (< 0 check in end norm)
+            // 9. listResult.sql (json_array_length in end norm)
+            // 10. endResult.sql (+ in end norm)
+            // 11. endResult.sql (ELSE in end norm)
+            params.push(
+              ...startResult.params,  // 1: IS NULL
+              ...endResult.params,    // 2: IS NULL
+              ...listResult.params,   // 3: json_each
+              ...startResult.params,  // 4: < 0
+              ...listResult.params,   // 5: len for start
+              ...startResult.params,  // 6: + idx
+              ...startResult.params,  // 7: ELSE idx
+              ...endResult.params,    // 8: < 0
+              ...listResult.params,   // 9: len for end
+              ...endResult.params,    // 10: + idx
+              ...endResult.params     // 11: ELSE idx
+            );
+            
             return { 
-              sql: `(SELECT json_group_array(j.value) FROM json_each(${listResult.sql}) j WHERE j.key >= ${startSql} AND j.key < ${endSql})`, 
+              sql: `CASE WHEN ${startResult.sql} IS NULL OR ${endResult.sql} IS NULL THEN NULL ` +
+                   `ELSE (SELECT json_group_array(j.value) FROM json_each(${listResult.sql}) j ` +
+                   `WHERE j.key >= (${startNorm}) AND j.key < (${endNorm})) END`, 
               tables, 
               params 
             };

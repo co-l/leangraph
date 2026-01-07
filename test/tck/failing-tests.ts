@@ -629,7 +629,7 @@ export const FAILING_TESTS = new Set<string>([
   // "clauses/with > With1 - Forward single variable|3",
   // "clauses/with > With2 - Forward single expression|1",
   // "clauses/with > With2 - Forward single expression|2",
-  "clauses/with > With3 - Forward multiple expressions|1",
+  // "clauses/with > With3 - Forward multiple expressions|1",
   // "clauses/with > With4 - Variable aliasing|4", // Fixed: duplicate column name detection
   "clauses/with > With4 - Variable aliasing|5",
   "clauses/with > With4 - Variable aliasing|6",

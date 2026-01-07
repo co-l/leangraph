@@ -7639,7 +7639,17 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
   private translateOrderByExpression(expr: Expression, returnAliases: string[] = []): { sql: string; params?: unknown[] } {
     switch (expr.type) {
       case "property": {
-        const varInfo = this.ctx.variables.get(expr.variable!);
+        // Check if the variable is a RETURN alias that points to another variable
+        const returnAliasExpressions = (this.ctx as any).returnAliasExpressions as Map<string, Expression> | undefined;
+        let targetVariable = expr.variable!;
+        if (returnAliasExpressions && returnAliasExpressions.has(targetVariable)) {
+          const aliasedExpr = returnAliasExpressions.get(targetVariable)!;
+          if (aliasedExpr.type === "variable" && aliasedExpr.variable) {
+            targetVariable = aliasedExpr.variable;
+          }
+        }
+        
+        const varInfo = this.ctx.variables.get(targetVariable);
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);
         }

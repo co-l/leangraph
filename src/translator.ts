@@ -1558,8 +1558,21 @@ export class Translator {
             joinParams.push(...sourceOnParams);
           } else if (isOptional && relPattern.sourceIsNew) {
             // Optional pattern with new source, target not bound, edge is also new
-            // This shouldn't happen often - optional patterns usually reference existing nodes
-            joinParts.push(`${joinType} nodes ${relPattern.sourceAlias} ON 1=1`);
+            // Check if this is a standalone OPTIONAL MATCH at the start of the query
+            // (no prior FROM, first relationship pattern). In this case, we should
+            // put the edge in FROM and join nodes from it, not scan all nodes.
+            // Only do this for DIRECTED patterns - undirected needs special handling
+            // that requires the source node to be present for proper direction logic.
+            const isDirected = relPattern.edge.direction === "left" || relPattern.edge.direction === "right";
+            if (i === 0 && fromParts.length === 0 && relPattern.targetIsNew && isDirected) {
+              // Standalone OPTIONAL MATCH like: OPTIONAL MATCH ()-[r]->()
+              // Put edge in FROM, we'll join nodes from the edge later
+              // Mark this pattern for edge-first handling
+              (relPattern as any).edgeFirst = true;
+              // Don't add source node here - it will be joined from the edge
+            } else {
+              joinParts.push(`${joinType} nodes ${relPattern.sourceAlias} ON 1=1`);
+            }
           } else if (i === 0) {
             // First pattern is optional but source is new - add to FROM
             fromParts.push(`nodes ${relPattern.sourceAlias}`);
@@ -1650,36 +1663,40 @@ export class Translator {
         
         // Add edge join - need to determine direction based on whether source/target already exist
         // Use sourceWasAlreadyAdded (recorded before adding source) for accurate check
+        // For edge-first patterns, we don't add source-based ON conditions since the edge
+        // goes in FROM and we join nodes from it, not the other way around.
         const sourceExpression = (relPattern as any).sourceExpression as string | undefined;
-        if (isUndirected) {
-          // For undirected patterns, the source node connects based on direction:
-          // dir=1: source is at edge.source_id
-          // dir=2: source is at edge.target_id
-          if (dirAlias) {
-            const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
-            edgeOnConditions.push(`(${dirAlias} = 1 AND ${relPattern.edgeAlias}.source_id = ${sourceRef} OR ${dirAlias} = 2 AND ${relPattern.edgeAlias}.target_id = ${sourceRef})`);
-          } else {
-            // Optional undirected - use the old OR-based approach
-            const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
-            edgeOnConditions.push(`(${relPattern.edgeAlias}.source_id = ${sourceRef} OR ${relPattern.edgeAlias}.target_id = ${sourceRef})`);
-            // For self-loops (source_id = target_id), match only once
-            // Only apply when source and target are the same node (to avoid referencing target before it's joined)
-            if (relPattern.sourceAlias === relPattern.targetAlias) {
-              edgeOnConditions.push(`NOT (${relPattern.edgeAlias}.source_id = ${relPattern.edgeAlias}.target_id AND ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id)`);
+        if (!(relPattern as any).edgeFirst) {
+          if (isUndirected) {
+            // For undirected patterns, the source node connects based on direction:
+            // dir=1: source is at edge.source_id
+            // dir=2: source is at edge.target_id
+            if (dirAlias) {
+              const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
+              edgeOnConditions.push(`(${dirAlias} = 1 AND ${relPattern.edgeAlias}.source_id = ${sourceRef} OR ${dirAlias} = 2 AND ${relPattern.edgeAlias}.target_id = ${sourceRef})`);
+            } else {
+              // Optional undirected - use the old OR-based approach
+              const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
+              edgeOnConditions.push(`(${relPattern.edgeAlias}.source_id = ${sourceRef} OR ${relPattern.edgeAlias}.target_id = ${sourceRef})`);
+              // For self-loops (source_id = target_id), match only once
+              // Only apply when source and target are the same node (to avoid referencing target before it's joined)
+              if (relPattern.sourceAlias === relPattern.targetAlias) {
+                edgeOnConditions.push(`NOT (${relPattern.edgeAlias}.source_id = ${relPattern.edgeAlias}.target_id AND ${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id)`);
+              }
             }
+          } else if (isOptional && addedNodeAliases.has(relPattern.targetAlias) && !sourceWasAlreadyAdded) {
+            // OPTIONAL MATCH special case: target was already added (bound from previous MATCH) 
+            // but source was not. Join edge on target side: edge.target_id = bound_target.id
+            // This allows us to find all source nodes that connect to the bound target.
+            edgeOnConditions.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
+          } else if (relPattern.edge.direction === "left") {
+            // Left-directed: (a)<-[:R]-(b) means edge goes from b to a, so source is target_id
+            const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
+            edgeOnConditions.push(`${relPattern.edgeAlias}.target_id = ${sourceRef}`);
+          } else {
+            const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
+            edgeOnConditions.push(`${relPattern.edgeAlias}.source_id = ${sourceRef}`);
           }
-        } else if (isOptional && addedNodeAliases.has(relPattern.targetAlias) && !sourceWasAlreadyAdded) {
-          // OPTIONAL MATCH special case: target was already added (bound from previous MATCH) 
-          // but source was not. Join edge on target side: edge.target_id = bound_target.id
-          // This allows us to find all source nodes that connect to the bound target.
-          edgeOnConditions.push(`${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id`);
-        } else if (relPattern.edge.direction === "left") {
-          // Left-directed: (a)<-[:R]-(b) means edge goes from b to a, so source is target_id
-          const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
-          edgeOnConditions.push(`${relPattern.edgeAlias}.target_id = ${sourceRef}`);
-        } else {
-          const sourceRef = sourceExpression || `${relPattern.sourceAlias}.id`;
-          edgeOnConditions.push(`${relPattern.edgeAlias}.source_id = ${sourceRef}`);
         }
 
         // For optional patterns, add type filter to ON clause instead of WHERE
@@ -1807,8 +1824,23 @@ export class Translator {
 
         // Only add edge join if this edge alias hasn't been added yet
         if (!addedEdgeAliases.has(relPattern.edgeAlias)) {
-          joinParts.push(`${joinType} edges ${relPattern.edgeAlias} ON ${edgeOnConditions.join(" AND ")}`);
-          joinParams.push(...edgeOnParams);
+          // Check for edge-first pattern (standalone OPTIONAL MATCH at start)
+          if ((relPattern as any).edgeFirst) {
+            // Use dummy FROM with LEFT JOIN to edge
+            // This ensures we get a row even if no edges exist (OPTIONAL MATCH semantics)
+            fromParts.push(`(SELECT 1) AS __dummy__`);
+            // Build ON clause for edge - use 1=1 since we want all edges
+            const edgeOnParts = ["1=1"];
+            // Add type/property filters to ON clause
+            if (edgeOnConditions.length > 0) {
+              edgeOnParts.push(...edgeOnConditions);
+            }
+            joinParts.push(`LEFT JOIN edges ${relPattern.edgeAlias} ON ${edgeOnParts.join(" AND ")}`);
+            joinParams.push(...edgeOnParams);
+          } else {
+            joinParts.push(`${joinType} edges ${relPattern.edgeAlias} ON ${edgeOnConditions.join(" AND ")}`);
+            joinParams.push(...edgeOnParams);
+          }
           addedEdgeAliases.add(relPattern.edgeAlias);
         } else {
           // Edge already joined (bound from earlier in query)
@@ -1855,6 +1887,33 @@ export class Translator {
           joinParams.push(...sourceOnParams);
           addedNodeAliases.add(relPattern.sourceAlias);
         }
+        
+        // Handle edge-first pattern: join source node from the edge
+        // For edge-first, the edge is in FROM and we need to LEFT JOIN nodes from it
+        if ((relPattern as any).edgeFirst && !addedNodeAliases.has(relPattern.sourceAlias)) {
+          const sourceOnConditions: string[] = [];
+          if (relPattern.edge.direction === "left") {
+            // Left-directed: source is at target_id side of edge
+            sourceOnConditions.push(`${relPattern.sourceAlias}.id = ${relPattern.edgeAlias}.target_id`);
+          } else {
+            // Right-directed: source is at source_id side
+            sourceOnConditions.push(`${relPattern.sourceAlias}.id = ${relPattern.edgeAlias}.source_id`);
+          }
+          
+          // Add label filter if source has one
+          const sourcePattern = (this.ctx as any)[`pattern_${relPattern.sourceAlias}`];
+          const sourceOnParams: unknown[] = [];
+          if (sourcePattern?.label) {
+            const labelMatch = this.generateLabelMatchCondition(relPattern.sourceAlias, sourcePattern.label);
+            sourceOnConditions.push(labelMatch.sql);
+            sourceOnParams.push(...labelMatch.params);
+            filteredNodeAliases.add(relPattern.sourceAlias);
+          }
+          
+          joinParts.push(`LEFT JOIN nodes ${relPattern.sourceAlias} ON ${sourceOnConditions.join(" AND ")}`);
+          joinParams.push(...sourceOnParams);
+          addedNodeAliases.add(relPattern.sourceAlias);
+        }
 
         // Build ON conditions for the target node join
         let targetOnConditions: string[] = [];
@@ -1872,6 +1931,7 @@ export class Translator {
               targetOnConditions.push(`(${dirAlias} = 1 AND ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id OR ${dirAlias} = 2 AND ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id)`);
             } else {
               // Optional undirected - use the old OR-based approach
+              // Note: edge-first is not used for undirected patterns
               targetOnConditions.push(`((${relPattern.edgeAlias}.source_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.target_id = ${relPattern.targetAlias}.id) OR (${relPattern.edgeAlias}.target_id = ${relPattern.sourceAlias}.id AND ${relPattern.edgeAlias}.source_id = ${relPattern.targetAlias}.id))`);
             }
           } else if (relPattern.edge.direction === "left") {

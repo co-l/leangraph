@@ -797,7 +797,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/graph > Graph5 - Node and edge label expressions|4:5",
   // "expressions/graph > Graph5 - Node and edge label expressions|5",
   // "expressions/graph > Graph6 - Static property access|4",
-  "expressions/graph > Graph6 - Static property access|6",
+  // "expressions/graph > Graph6 - Static property access|6",
   // "expressions/graph > Graph6 - Static property access|8",
   // "expressions/graph > Graph6 - Static property access|9:1",
   // "expressions/graph > Graph6 - Static property access|9:2",

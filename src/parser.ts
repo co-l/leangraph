@@ -116,7 +116,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -147,6 +147,9 @@ export interface Expression {
   mapExpr?: Expression;
   // List predicate fields: ALL/ANY/NONE/SINGLE(var IN list WHERE cond)
   predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
+  // Pattern comprehension fields: [(pattern) WHERE filterCondition | mapExpr]
+  patterns?: (NodePattern | RelationshipPattern)[];
+  // filterCondition is shared with list comprehension
   // Label predicate fields: (n:Label) - returns true/false
   label?: string;
   labels?: string[];
@@ -2887,6 +2890,12 @@ export class Parser {
   private parseListLiteralExpression(): Expression {
     this.expect("LBRACKET");
     
+    // Check for pattern comprehension: [(pattern) WHERE cond | expr]
+    // Pattern comprehensions start with a node pattern (parenthesis)
+    if (this.check("LPAREN")) {
+      return this.parsePatternComprehension();
+    }
+    
     // Check for list comprehension: [x IN list WHERE cond | expr]
     // We need to look ahead to see if this is a list comprehension
     if (this.check("IDENTIFIER")) {
@@ -2957,6 +2966,39 @@ export class Parser {
       type: "listComprehension",
       variable,
       listExpr,
+      filterCondition,
+      mapExpr,
+    };
+  }
+
+  /**
+   * Parse a pattern comprehension after [ has been consumed and we see (.
+   * Syntax: [(pattern) WHERE filterCondition | mapExpr]
+   * WHERE and | mapExpr are optional.
+   */
+  private parsePatternComprehension(): Expression {
+    // Parse the pattern (reuse existing pattern parsing)
+    const patterns = this.parsePatternChain();
+    
+    // Check for optional WHERE filter
+    let filterCondition: WhereCondition | undefined;
+    if (this.checkKeyword("WHERE")) {
+      this.advance();
+      filterCondition = this.parseOrCondition();
+    }
+    
+    // Check for optional map projection (| expr)
+    let mapExpr: Expression | undefined;
+    if (this.check("PIPE")) {
+      this.advance();
+      mapExpr = this.parseExpression();
+    }
+    
+    this.expect("RBRACKET");
+    
+    return {
+      type: "patternComprehension",
+      patterns,
       filterCondition,
       mapExpr,
     };

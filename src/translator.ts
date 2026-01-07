@@ -6659,6 +6659,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return this.translateListComprehension(expr);
       }
 
+      case "patternComprehension": {
+        return this.translatePatternComprehension(expr);
+      }
+
       case "listPredicate": {
         return this.translateListPredicate(expr);
       }
@@ -7807,6 +7811,296 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     params.push(...mapParams, ...listResult.params, ...filterParams);
     
     return { sql, tables, params };
+  }
+
+  /**
+   * Translate a pattern comprehension expression.
+   * Syntax: [(pattern) WHERE filterCondition | mapExpr]
+   * 
+   * Pattern comprehensions match a pattern starting from bound variables and
+   * return a list of results from the mapExpr (or pattern elements if no mapExpr).
+   * 
+   * Example: [(a)-[:T|OTHER]->() | 1] returns a list of 1s for each matching edge
+   */
+  private translatePatternComprehension(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    const patterns = expr.patterns!;
+    const filterCondition = expr.filterCondition;
+    const mapExpr = expr.mapExpr;
+    
+    // Pattern comprehension structure: patterns from parsePatternChain
+    // The first element is always a NodePattern, then potentially a RelationshipPattern
+    // A RelationshipPattern contains source, edge, and target
+    
+    // Check if patterns[0] is a RelationshipPattern (has 'edge' property)
+    const firstPattern = patterns[0];
+    const isRelPattern = (p: unknown): p is import("./parser").RelationshipPattern => {
+      return typeof p === "object" && p !== null && "edge" in p;
+    };
+    
+    let startVar: string | undefined;
+    let relPattern: import("./parser").RelationshipPattern | undefined;
+    let startNodePattern: import("./parser").NodePattern;
+    let targetNodePattern: import("./parser").NodePattern | undefined;
+    
+    if (isRelPattern(firstPattern)) {
+      // First pattern is a RelationshipPattern
+      relPattern = firstPattern;
+      startNodePattern = relPattern.source;
+      targetNodePattern = relPattern.target;
+      startVar = startNodePattern.variable;
+    } else {
+      // First pattern is a NodePattern, look for RelationshipPattern in rest
+      startNodePattern = firstPattern as import("./parser").NodePattern;
+      startVar = startNodePattern.variable;
+      
+      for (let i = 1; i < patterns.length; i++) {
+        if (isRelPattern(patterns[i])) {
+          relPattern = patterns[i] as import("./parser").RelationshipPattern;
+          targetNodePattern = relPattern.target;
+          break;
+        }
+      }
+    }
+    
+    if (!startVar) {
+      throw new Error("Pattern comprehension must start with a bound variable");
+    }
+    
+    // Get the bound variable info from outer context
+    const boundVarInfo = this.ctx.variables.get(startVar);
+    if (!boundVarInfo) {
+      throw new Error(`Unknown variable in pattern comprehension: ${startVar}`);
+    }
+    
+    if (!relPattern) {
+      throw new Error("Pattern comprehension must include a relationship pattern");
+    }
+    
+    // Build the correlated subquery
+    const edgeAlias = `__pc_e_${this.ctx.aliasCounter++}`;
+    const targetAlias = `__pc_t_${this.ctx.aliasCounter++}`;
+    
+    const edge = relPattern.edge;
+    
+    // Build edge type filter (collect params separately)
+    const edgeTypes = edge.types || (edge.type ? [edge.type] : []);
+    let edgeTypeFilter = "";
+    const edgeTypeParams: unknown[] = [];
+    if (edgeTypes.length > 0) {
+      const typeConditions = edgeTypes.map((t: string) => `${edgeAlias}.type = ?`);
+      edgeTypeFilter = ` AND (${typeConditions.join(" OR ")})`;
+      edgeTypeParams.push(...edgeTypes);
+    }
+    
+    // Build direction filter
+    let directionFilter = "";
+    const direction = edge.direction || "right";
+    if (direction === "right") {
+      directionFilter = `${edgeAlias}.source_id = ${boundVarInfo.alias}.id`;
+    } else if (direction === "left") {
+      directionFilter = `${edgeAlias}.target_id = ${boundVarInfo.alias}.id`;
+    } else {
+      // "none" means either direction
+      directionFilter = `(${edgeAlias}.source_id = ${boundVarInfo.alias}.id OR ${edgeAlias}.target_id = ${boundVarInfo.alias}.id)`;
+    }
+    
+    // Build target node filter if labels specified (collect params separately)
+    let targetFilter = "";
+    const targetFilterParams: unknown[] = [];
+    if (targetNodePattern && targetNodePattern.label) {
+      const labels = Array.isArray(targetNodePattern.label) 
+        ? targetNodePattern.label 
+        : [targetNodePattern.label];
+      const labelConditions = labels.map((l: string) => 
+        `EXISTS(SELECT 1 FROM json_each(${targetAlias}.label) WHERE value = ?)`
+      );
+      targetFilter = ` AND ${labelConditions.join(" AND ")}`;
+      targetFilterParams.push(...labels);
+    }
+    
+    // Determine what to select (collect params separately)
+    let selectExpr = "1"; // Default: just count matches
+    let mapExprParams: unknown[] = [];
+    if (mapExpr) {
+      // Translate the map expression
+      const mapResult = this.translatePatternComprehensionExpr(
+        mapExpr,
+        startVar,
+        boundVarInfo.alias,
+        edge.variable,
+        edgeAlias,
+        targetNodePattern?.variable,
+        targetAlias
+      );
+      selectExpr = mapResult.sql;
+      mapExprParams = mapResult.params;
+    }
+    
+    // Build WHERE clause for filter condition (collect params separately)
+    let whereClause = "";
+    let filterParams: unknown[] = [];
+    if (filterCondition) {
+      const filterResult = this.translatePatternComprehensionCondition(
+        filterCondition,
+        startVar,
+        boundVarInfo.alias,
+        edge.variable,
+        edgeAlias,
+        targetNodePattern?.variable,
+        targetAlias
+      );
+      whereClause = ` AND ${filterResult.sql}`;
+      filterParams = filterResult.params;
+    }
+    
+    // Build the correlated subquery
+    // Join edges table with optional target node filtering
+    let fromClause = `edges ${edgeAlias}`;
+    if (targetNodePattern) {
+      // Need to join with nodes for target filtering
+      let targetJoin: string;
+      if (direction === "right") {
+        targetJoin = `${edgeAlias}.target_id = ${targetAlias}.id`;
+      } else if (direction === "left") {
+        targetJoin = `${edgeAlias}.source_id = ${targetAlias}.id`;
+      } else {
+        // For undirected, target is the "other" node
+        targetJoin = `(CASE WHEN ${edgeAlias}.source_id = ${boundVarInfo.alias}.id THEN ${edgeAlias}.target_id ELSE ${edgeAlias}.source_id END) = ${targetAlias}.id`;
+      }
+      fromClause = `edges ${edgeAlias} JOIN nodes ${targetAlias} ON ${targetJoin}`;
+    }
+    
+    const sql = `(SELECT COALESCE(json_group_array(${selectExpr}), json('[]')) FROM ${fromClause} WHERE ${directionFilter}${edgeTypeFilter}${targetFilter}${whereClause})`;
+    
+    // Params must be in SQL order: selectExpr, then edgeType, then targetFilter, then whereClause
+    params.push(...mapExprParams, ...edgeTypeParams, ...targetFilterParams, ...filterParams);
+    
+    // Add outer table reference
+    tables.push(boundVarInfo.alias);
+    
+    return { sql, tables, params };
+  }
+
+  /**
+   * Translate an expression within a pattern comprehension.
+   */
+  private translatePatternComprehensionExpr(
+    expr: Expression,
+    startVar: string | undefined,
+    startAlias: string,
+    edgeVar: string | undefined,
+    edgeAlias: string,
+    targetVar: string | undefined,
+    targetAlias: string
+  ): { sql: string; params: unknown[] } {
+    const params: unknown[] = [];
+    
+    switch (expr.type) {
+      case "literal":
+        if (expr.value === null) {
+          return { sql: "NULL", params };
+        }
+        params.push(expr.value);
+        return { sql: "?", params };
+      
+      case "variable":
+        if (expr.variable === startVar) {
+          return { sql: `${startAlias}.properties`, params };
+        }
+        if (expr.variable === edgeVar) {
+          return { sql: `${edgeAlias}.properties`, params };
+        }
+        if (expr.variable === targetVar) {
+          return { sql: `${targetAlias}.properties`, params };
+        }
+        // Fall through to regular translation
+        const varResult = this.translateExpression(expr);
+        return { sql: varResult.sql, params: varResult.params };
+      
+      case "property":
+        if (expr.variable === startVar) {
+          return { sql: `json_extract(${startAlias}.properties, '$.${expr.property}')`, params };
+        }
+        if (expr.variable === edgeVar) {
+          return { sql: `json_extract(${edgeAlias}.properties, '$.${expr.property}')`, params };
+        }
+        if (expr.variable === targetVar) {
+          return { sql: `json_extract(${targetAlias}.properties, '$.${expr.property}')`, params };
+        }
+        // Fall through to regular translation
+        const propResult = this.translateExpression(expr);
+        return { sql: propResult.sql, params: propResult.params };
+      
+      case "binary": {
+        const left = this.translatePatternComprehensionExpr(
+          expr.left!, startVar, startAlias, edgeVar, edgeAlias, targetVar, targetAlias
+        );
+        const right = this.translatePatternComprehensionExpr(
+          expr.right!, startVar, startAlias, edgeVar, edgeAlias, targetVar, targetAlias
+        );
+        params.push(...left.params, ...right.params);
+        return { sql: `(${left.sql} ${expr.operator} ${right.sql})`, params };
+      }
+      
+      default:
+        // Fall back to regular expression translation
+        const result = this.translateExpression(expr);
+        return { sql: result.sql, params: result.params };
+    }
+  }
+
+  /**
+   * Translate a condition within a pattern comprehension.
+   */
+  private translatePatternComprehensionCondition(
+    condition: import("./parser").WhereCondition,
+    startVar: string | undefined,
+    startAlias: string,
+    edgeVar: string | undefined,
+    edgeAlias: string,
+    targetVar: string | undefined,
+    targetAlias: string
+  ): { sql: string; params: unknown[] } {
+    const params: unknown[] = [];
+    
+    switch (condition.type) {
+      case "comparison": {
+        const left = this.translatePatternComprehensionExpr(
+          condition.left!, startVar, startAlias, edgeVar, edgeAlias, targetVar, targetAlias
+        );
+        const right = this.translatePatternComprehensionExpr(
+          condition.right!, startVar, startAlias, edgeVar, edgeAlias, targetVar, targetAlias
+        );
+        params.push(...left.params, ...right.params);
+        return { sql: `${left.sql} ${condition.operator} ${right.sql}`, params };
+      }
+      
+      case "and": {
+        const conditions = condition.conditions!.map(c =>
+          this.translatePatternComprehensionCondition(
+            c, startVar, startAlias, edgeVar, edgeAlias, targetVar, targetAlias
+          )
+        );
+        params.push(...conditions.flatMap(c => c.params));
+        return { sql: `(${conditions.map(c => c.sql).join(" AND ")})`, params };
+      }
+      
+      case "or": {
+        const conditions = condition.conditions!.map(c =>
+          this.translatePatternComprehensionCondition(
+            c, startVar, startAlias, edgeVar, edgeAlias, targetVar, targetAlias
+          )
+        );
+        params.push(...conditions.flatMap(c => c.params));
+        return { sql: `(${conditions.map(c => c.sql).join(" OR ")})`, params };
+      }
+      
+      default:
+        throw new Error(`Unsupported condition type in pattern comprehension: ${condition.type}`);
+    }
   }
 
   /**

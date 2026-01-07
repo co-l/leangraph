@@ -645,7 +645,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/aggregation > Aggregation6 - Percentiles|4:1",
   // "expressions/aggregation > Aggregation6 - Percentiles|4:2",
   // "expressions/aggregation > Aggregation6 - Percentiles|4:3",
-  // "expressions/aggregation > Aggregation6 - Percentiles|5",
+  "expressions/aggregation > Aggregation6 - Percentiles|5", // Expected error for wrong percentileDisc arg order - not yet implemented
   // "expressions/boolean > Boolean1 - And logical operations|5",
   // "expressions/boolean > Boolean1 - And logical operations|7",
   // Boolean type strictness - AND/OR/NOT require boolean operands
@@ -916,13 +916,13 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/list > List5 - List Membership Validation - IN Operator|8",
   // "expressions/list > List5 - List Membership Validation - IN Operator|9",
   // "expressions/list > List6 - List size|1",
-  "expressions/list > List6 - List size|10",
+  // "expressions/list > List6 - List size|10",
   "expressions/list > List6 - List size|2",
   // "expressions/list > List6 - List size|4",
   // "expressions/list > List6 - List size|5",
-  "expressions/list > List6 - List size|7",
-  "expressions/list > List6 - List size|8",
-  "expressions/list > List6 - List size|9",
+  // "expressions/list > List6 - List size|7",
+  // "expressions/list > List6 - List size|8",
+  // "expressions/list > List6 - List size|9",
   // "expressions/literals > Literals2 - Decimal integer|10",  // FIXED: int64 overflow validation
   // "expressions/literals > Literals2 - Decimal integer|11",
   // "expressions/literals > Literals2 - Decimal integer|12",

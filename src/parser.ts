@@ -630,6 +630,11 @@ class Tokenizer {
       return this.readString(char, startPos, startLine, startColumn);
     }
 
+    // Backtick-delimited identifier (escaped identifier)
+    if (char === "`") {
+      return this.readBacktickIdentifier(startPos, startLine, startColumn);
+    }
+
     // Identifier or keyword
     if (this.isIdentifierStart(char)) {
       const value = this.readIdentifier();
@@ -828,6 +833,38 @@ class Tokenizer {
       this.column++;
     }
     return value;
+  }
+
+  private readBacktickIdentifier(startPos: number, startLine: number, startColumn: number): Token {
+    this.pos++; // consume opening backtick
+    this.column++;
+    let value = "";
+
+    while (this.pos < this.input.length) {
+      const char = this.input[this.pos];
+      if (char === "`") {
+        // Check for escaped backtick (double backtick)
+        if (this.input[this.pos + 1] === "`") {
+          value += "`";
+          this.pos += 2;
+          this.column += 2;
+          continue;
+        }
+        // End of identifier
+        this.pos++;
+        this.column++;
+        return { type: "IDENTIFIER", value, position: startPos, line: startLine, column: startColumn };
+      }
+      if (char === "\n") {
+        this.line++;
+        this.column = 0; // Will be incremented below
+      }
+      value += char;
+      this.pos++;
+      this.column++;
+    }
+
+    throw new Error(`Unterminated backtick identifier at position ${startPos}`);
   }
 
   private isDigit(char: string): boolean {

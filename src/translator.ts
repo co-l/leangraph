@@ -6743,6 +6743,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           return false;
         };
         
+        // Helper to check if array has top-level null (not nested)
+        const hasTopLevelNull = (arr: unknown[]): boolean => {
+          return arr.some(v => v === null);
+        };
+        
         // Check if LHS is a complex type (list or object)
         const leftExpr = expr.left!;
         const leftIsLiteralArray = leftExpr.type === "literal" && Array.isArray(leftExpr.value);
@@ -6763,34 +6768,51 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           const rhsHasComplexTypes = values.some(containsComplexTypes);
           // Check if RHS contains null (at any level)
           const rhsHasNull = values.some(containsNull);
+          // Check if RHS has top-level null (for null semantics)
+          const rhsHasTopLevelNull = hasTopLevelNull(values);
           
           // If either LHS or RHS contains complex types, use JSON comparison via json_each
-          // BUT: if either contains null, we need special handling for Cypher null semantics
+          // JSON comparison handles nested arrays correctly, but needs special null semantics
           if (leftIsComplex || rhsHasComplexTypes) {
-            // If LHS literal array contains null, or any matching RHS element would contain null,
-            // we need to use the old IN approach which handles null correctly via SQLite
-            if (leftHasNull || rhsHasNull) {
-              // Use the original approach: translate LHS and use IN with spread values
-              // This leverages SQLite's null handling where null IN (...) returns null
-              const leftResult = this.translateExpression(leftExpr);
-              tables.push(...leftResult.tables);
-              params.push(...leftResult.params);
-              const placeholders = values.map(() => "?").join(", ");
-              params.push(...values);
-              return {
-                sql: `(${leftResult.sql} IN (${placeholders}))`,
-                tables,
-                params,
-              };
-            }
-            
-            // No nulls - use JSON comparison which handles nested arrays correctly
-            // Serialize both LHS and RHS as JSON to avoid SQLite's json_array float conversion issue
+            // Serialize RHS as JSON
             const rhsJson = JSON.stringify(values);
             
             // For literal arrays, serialize directly to JSON to preserve integer types
             if (leftIsLiteralArray) {
               const lhsJson = JSON.stringify(leftExpr.value);
+              
+              // Cypher null semantics for list IN:
+              // 1. If LHS contains null and we find a match → NULL (match involves null comparison)
+              // 2. If LHS contains null and RHS has top-level null → NULL (unknown comparison)
+              // 3. If RHS has top-level null and no match → NULL (unknown comparison)
+              // 4. Otherwise use standard true/false from JSON comparison
+              if (leftHasNull) {
+                // If LHS contains null, any comparison involving null returns NULL
+                // Even a non-match with top-level null should return NULL
+                if (rhsHasTopLevelNull) {
+                  // Both LHS and RHS involve null - always NULL
+                  return { sql: `NULL`, tables, params };
+                }
+                // If LHS contains null, finding a JSON match means comparing null=null → return NULL
+                params.push(rhsJson, lhsJson);
+                return {
+                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)) THEN NULL ELSE 0 END`,
+                  tables,
+                  params,
+                };
+              }
+              
+              if (rhsHasTopLevelNull) {
+                // If RHS has top-level null and no match, return NULL
+                params.push(rhsJson, lhsJson);
+                return {
+                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)) THEN 1 ELSE NULL END`,
+                  tables,
+                  params,
+                };
+              }
+              
+              // No null semantics needed - simple JSON comparison
               params.push(rhsJson, lhsJson);
               return {
                 sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?))`,
@@ -6804,6 +6826,15 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             tables.push(...leftResult.tables);
             params.push(...leftResult.params);
             params.push(rhsJson);
+            
+            if (rhsHasTopLevelNull) {
+              return {
+                sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql})) THEN 1 ELSE NULL END`,
+                tables,
+                params,
+              };
+            }
+            
             return {
               sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql}))`,
               tables,
@@ -6833,25 +6864,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             
             // Check if RHS contains complex types
             const rhsHasComplexTypes = paramValue.some(containsComplexTypes);
-            const rhsHasNull = paramValue.some(containsNull);
             
             // If either LHS or RHS contains complex types, use JSON comparison
-            // BUT: if either contains null, use original approach for null semantics
+            // JSON comparison handles nested arrays correctly, including those with nulls
             if (leftIsComplex || rhsHasComplexTypes) {
-              if (leftHasNull || rhsHasNull) {
-                // Use original approach for null handling
-                const leftResult = this.translateExpression(leftExpr);
-                tables.push(...leftResult.tables);
-                params.push(...leftResult.params);
-                const placeholders = paramValue.map(() => "?").join(", ");
-                params.push(...paramValue);
-                return {
-                  sql: `(${leftResult.sql} IN (${placeholders}))`,
-                  tables,
-                  params,
-                };
-              }
-              
               const rhsJson = JSON.stringify(paramValue);
               
               // For literal arrays, serialize directly to JSON

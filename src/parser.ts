@@ -2312,20 +2312,7 @@ export class Parser {
 
   // Handle comparison operators
   private parseComparisonExpression(): Expression {
-    let left = this.parseAdditiveExpression();
-
-    // Check for IS NULL / IS NOT NULL
-    if (this.checkKeyword("IS")) {
-      this.advance();
-      if (this.checkKeyword("NOT")) {
-        this.advance();
-        this.expect("KEYWORD", "NULL");
-        return { type: "comparison", comparisonOperator: "IS NOT NULL", left };
-      } else {
-        this.expect("KEYWORD", "NULL");
-        return { type: "comparison", comparisonOperator: "IS NULL", left };
-      }
-    }
+    let left = this.parseIsNullExpression();
 
     // Check for comparison operators
     const opToken = this.peek();
@@ -2340,8 +2327,27 @@ export class Parser {
 
     if (comparisonOperator) {
       this.advance();
-      const right = this.parseAdditiveExpression();
+      const right = this.parseIsNullExpression();
       return { type: "comparison", comparisonOperator, left, right };
+    }
+
+    return left;
+  }
+
+  // Handle IS NULL / IS NOT NULL
+  private parseIsNullExpression(): Expression {
+    let left = this.parseAdditiveExpression();
+
+    if (this.checkKeyword("IS")) {
+      this.advance();
+      if (this.checkKeyword("NOT")) {
+        this.advance();
+        this.expect("KEYWORD", "NULL");
+        return { type: "comparison", comparisonOperator: "IS NOT NULL", left };
+      } else {
+        this.expect("KEYWORD", "NULL");
+        return { type: "comparison", comparisonOperator: "IS NULL", left };
+      }
     }
 
     return left;

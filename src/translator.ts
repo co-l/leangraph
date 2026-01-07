@@ -5665,8 +5665,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 tables.push(...translated.tables);
                 params.push(...translated.params);
                 // Use json_each to get keys from the JSON object
+                // Note: keys() returns ALL keys including those with null values
                 return {
-                  sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}) WHERE type != 'null')`,
+                  sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}))`,
                   tables,
                   params,
                 };
@@ -5678,8 +5679,8 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 throw new Error(`Unknown variable: ${arg.variable}`);
               }
               tables.push(varInfo.alias);
-              // Use json_each to get keys, filter out null values, then aggregate them
-              // json_each provides a 'type' column that indicates the JSON type
+              // Use json_each to get keys from the node/edge properties
+              // For nodes/edges, filter out null-valued properties since setting a property to null removes it
               return { 
                 sql: `(SELECT json_group_array(key) FROM json_each(${varInfo.alias}.properties) WHERE type != 'null')`, 
                 tables, 
@@ -5692,8 +5693,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               const translated = this.translateExpression(arg);
               tables.push(...translated.tables);
               params.push(...translated.params);
+              // Note: keys() returns ALL keys including those with null values
               return {
-                sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}) WHERE type != 'null')`,
+                sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}))`,
                 tables,
                 params,
               };
@@ -5704,8 +5706,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               const translated = this.translateExpression(arg);
               tables.push(...translated.tables);
               params.push(...translated.params);
+              // Note: keys() returns ALL keys including those with null values
               return {
-                sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}) WHERE type != 'null')`,
+                sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}))`,
                 tables,
                 params,
               };
@@ -7017,11 +7020,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // For other list expressions (function calls like keys(), variables, etc.)
         const listResult = this.translateExpression(listExpr);
         tables.push(...listResult.tables);
-        params.push(...listResult.params);
         
         // For literal arrays on LHS without null, serialize to JSON for proper comparison
+        // Note: In the SQL, listResult comes after the literal, so params order: listResult, literal
         if (leftIsLiteralArray && !leftHasNull) {
           const lhsJson = JSON.stringify(leftExpr.value);
+          params.push(...listResult.params);
           params.push(lhsJson);
           return {
             sql: `EXISTS(SELECT 1 FROM json_each(${listResult.sql}) WHERE json(value) = json(?))`,
@@ -7031,9 +7035,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
         
         // For complex LHS types (non-literal arrays/objects) without null, use json() comparison
+        // Note: In the SQL, listResult comes before leftResult, so params order: listResult, leftResult
         if (leftIsComplex && !leftHasNull) {
           const leftResult = this.translateExpression(leftExpr);
           tables.push(...leftResult.tables);
+          params.push(...listResult.params);
           params.push(...leftResult.params);
           return {
             sql: `EXISTS(SELECT 1 FROM json_each(${listResult.sql}) WHERE json(value) = json(${leftResult.sql}))`,
@@ -7043,9 +7049,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
         
         // For scalar LHS or LHS with null, use simple IN clause which handles int/float equality correctly
+        // Note: In the SQL, leftResult comes before listResult, so params order: leftResult, listResult
         const leftResult = this.translateExpression(leftExpr);
         tables.push(...leftResult.tables);
         params.push(...leftResult.params);
+        params.push(...listResult.params);
         return {
           sql: `(${leftResult.sql} IN (SELECT value FROM json_each(${listResult.sql})))`,
           tables,

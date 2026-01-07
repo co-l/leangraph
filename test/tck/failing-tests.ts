@@ -776,7 +776,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/comparison > Comparison3 - Full-Bound Range|9",
   // "expressions/conditional > Conditional2 - Case Expression|1:11",
   // "expressions/existentialSubqueries > ExistentialSubquery2 - Full existential subquery|3",
-  "expressions/graph > Graph3 - Node labels|7",
+  // "expressions/graph > Graph3 - Node labels|7",
   // "expressions/graph > Graph3 - Node labels|8",
   // "expressions/graph > Graph3 - Node labels|9",
   // "expressions/graph > Graph4 - Edge relationship type|2",

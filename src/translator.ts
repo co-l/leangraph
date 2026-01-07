@@ -5694,6 +5694,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (expr.functionName === "LABELS") {
           if (expr.args && expr.args.length > 0) {
             const arg = expr.args[0];
+            // Handle null literal - labels(null) returns null
+            if (arg.type === "literal" && arg.value === null) {
+              return { sql: "NULL", tables, params };
+            }
             if (arg.type === "variable") {
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
@@ -5704,8 +5708,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               }
               tables.push(varInfo.alias);
               // Return a JSON array containing the single label
+              // Use CASE to return NULL when node is NULL (OPTIONAL MATCH)
               return { 
-                sql: `json_array(${varInfo.alias}.label)`, 
+                sql: `CASE WHEN ${varInfo.alias}.id IS NULL THEN NULL ELSE json_array(${varInfo.alias}.label) END`, 
                 tables, 
                 params 
               };

@@ -1030,7 +1030,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/null > Null2 - IS NOT NULL validation|5:7",
   // "expressions/null > Null2 - IS NOT NULL validation|5:8",
   // "expressions/null > Null2 - IS NOT NULL validation|5:9",
-  "expressions/path > Path1 - Nodes of a path|1",
+  // "expressions/path > Path1 - Nodes of a path|1",
   "expressions/path > Path2 - Relationships of a path|1",
   "expressions/path > Path2 - Relationships of a path|2",
   "expressions/path > Path2 - Relationships of a path|3",

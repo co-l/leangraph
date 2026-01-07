@@ -485,6 +485,7 @@ export class Translator {
         // Reject literals (except null), LIST function, and other non-node-returning expressions
         const isAllowedExpression = 
           expr.type === "variable" ||  // Passthrough of a node variable
+          (expr.type === "literal" && expr.value === null) ||  // Null literal allowed (will return no rows)
           (expr.type === "function" && 
             expr.functionName !== "LIST" && 
             expr.functionName !== "FILTER" && 
@@ -5288,6 +5289,12 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         if (expr.functionName === "NODES") {
           if (expr.args && expr.args.length > 0) {
             const arg = expr.args[0];
+            
+            // Handle null literal - nodes(null) returns null
+            if (arg.type === "literal" && arg.value === null) {
+              return { sql: "NULL", tables, params };
+            }
+            
             if (arg.type === "variable") {
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
@@ -5298,17 +5305,58 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 const pathExpressions = (this.ctx as any).pathExpressions as Array<{
                   variable: string;
                   nodeAliases: string[];
+                  optional?: boolean;
+                  patterns: any[];
                 }> | undefined;
                 
                 if (pathExpressions) {
                   const pathInfo = pathExpressions.find(p => p.variable === arg.variable);
                   if (pathInfo) {
-                    tables.push(...pathInfo.nodeAliases);
+                    const withExpressionAliases = (this.ctx as any).withExpressionAliases as Set<string> | undefined;
+                    const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+                    
+                    // Check if the first pattern's source is from a WITH expression
+                    const firstPattern = pathInfo.patterns[0];
+                    const sourceVar = firstPattern?.source?.variable;
+                    
+                    // If source is from a WITH expression that's null, return NULL immediately
+                    if (sourceVar && withExpressionAliases?.has(sourceVar) && withAliases) {
+                      const withExpr = withAliases.get(sourceVar);
+                      if (withExpr?.type === "literal" && withExpr?.value === null) {
+                        return { sql: "NULL", tables, params };
+                      }
+                    }
+                    
+                    // Filter out node aliases that are from WITH expression aliases (they don't have tables)
+                    const validNodeAliases = pathInfo.nodeAliases.filter(alias => {
+                      const varName = Array.from(this.ctx.variables.entries())
+                        .find(([_, info]) => info.alias === alias)?.[0];
+                      return !varName || !withExpressionAliases?.has(varName);
+                    });
+                    
+                    tables.push(...validNodeAliases);
                     
                     // Neo4j 3.5 format: return array of node properties only
-                    const nodesJson = pathInfo.nodeAliases.map(alias => 
+                    // For nodes from WITH expressions, we can't get their properties
+                    // If the first node is from a WITH null expression, return NULL
+                    const nodesJson = validNodeAliases.map(alias => 
                       `json(${alias}.properties)`
                     ).join(', ');
+                    
+                    // For OPTIONAL MATCH paths, wrap in null check
+                    // If the first (non-WITH) node is NULL, the entire path is NULL
+                    if (pathInfo.optional && validNodeAliases.length > 0) {
+                      return { 
+                        sql: `CASE WHEN ${validNodeAliases[0]}.id IS NULL THEN NULL ELSE json_array(${nodesJson}) END`, 
+                        tables, 
+                        params 
+                      };
+                    }
+                    
+                    // If there are no valid node aliases (all from WITH), return NULL for optional
+                    if (validNodeAliases.length === 0 && pathInfo.optional) {
+                      return { sql: "NULL", tables, params };
+                    }
                     
                     return { sql: `json_array(${nodesJson})`, tables, params };
                   }

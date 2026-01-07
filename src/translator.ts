@@ -4860,6 +4860,20 @@ export class Translator {
               throw new Error(`SyntaxError: Can't use non-deterministic (random) functions inside of aggregate functions.`);
             }
             
+            // Validate the percentile argument is in the valid range [0, 1]
+            let percentileNumericValue: number | undefined;
+            if (percentileArg.type === "literal" && typeof percentileArg.value === "number") {
+              percentileNumericValue = percentileArg.value;
+            } else if (percentileArg.type === "parameter" && percentileArg.name) {
+              const paramVal = this.ctx.paramValues[percentileArg.name];
+              if (typeof paramVal === "number") {
+                percentileNumericValue = paramVal;
+              }
+            }
+            if (percentileNumericValue !== undefined && (percentileNumericValue < 0 || percentileNumericValue > 1)) {
+              throw new Error(`ArgumentError: Number out of range: ${percentileNumericValue}`);
+            }
+            
             // Get the value expression (property access)
             let valueExpr: string;
             if (valueArg.type === "property") {

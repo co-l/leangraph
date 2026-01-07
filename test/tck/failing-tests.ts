@@ -999,7 +999,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/map > Map2 - Dynamic Value Access|6", // Fixed: parameter support in TCK
   // "expressions/map > Map2 - Dynamic Value Access|7", // Fixed: parameter support in TCK
   // "expressions/map > Map2 - Dynamic Value Access|8", // Fixed: parameter support in TCK
-  "expressions/map > Map3 - Keys function|3",
+  // "expressions/map > Map3 - Keys function|3",
   "expressions/map > Map3 - Keys function|5",
   // "expressions/mathematical > Mathematical3 - Subtraction|1",
   "expressions/null > Null1 - IS NULL validation|1",

@@ -5641,11 +5641,38 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("last requires an argument");
         }
 
-        // KEYS: get property keys of a node (only returns keys with non-null values)
+        // KEYS: get property keys of a node/map (only returns keys with non-null values)
         if (expr.functionName === "KEYS") {
           if (expr.args && expr.args.length > 0) {
             const arg = expr.args[0];
+            
+            // Handle null literal - keys(null) returns null
+            if (arg.type === "literal" && arg.value === null) {
+              return { sql: "NULL", tables, params };
+            }
+            
             if (arg.type === "variable") {
+              // First check if it's a WITH alias
+              const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+              if (withAliases && withAliases.has(arg.variable!)) {
+                const originalExpr = withAliases.get(arg.variable!)!;
+                // If the WITH alias is null, return null
+                if (originalExpr.type === "literal" && originalExpr.value === null) {
+                  return { sql: "NULL", tables, params };
+                }
+                // For maps/objects from WITH, translate and get keys
+                const translated = this.translateExpression(originalExpr);
+                tables.push(...translated.tables);
+                params.push(...translated.params);
+                // Use json_each to get keys from the JSON object
+                return {
+                  sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}) WHERE type != 'null')`,
+                  tables,
+                  params,
+                };
+              }
+              
+              // Check ctx.variables for node/edge variables
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
                 throw new Error(`Unknown variable: ${arg.variable}`);
@@ -5657,6 +5684,30 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 sql: `(SELECT json_group_array(key) FROM json_each(${varInfo.alias}.properties) WHERE type != 'null')`, 
                 tables, 
                 params 
+              };
+            }
+            
+            // Handle map literals
+            if (arg.type === "object") {
+              const translated = this.translateExpression(arg);
+              tables.push(...translated.tables);
+              params.push(...translated.params);
+              return {
+                sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}) WHERE type != 'null')`,
+                tables,
+                params,
+              };
+            }
+            
+            // Handle parameters (e.g., keys($param))
+            if (arg.type === "parameter") {
+              const translated = this.translateExpression(arg);
+              tables.push(...translated.tables);
+              params.push(...translated.params);
+              return {
+                sql: `(SELECT json_group_array(key) FROM json_each(${translated.sql}) WHERE type != 'null')`,
+                tables,
+                params,
               };
             }
           }

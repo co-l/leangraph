@@ -2823,6 +2823,11 @@ export class Translator {
       (this.ctx as any).edgeScope = currentEdgeScope + 1;
     }
     
+    // Always clear lastAnonymousTargetAlias after WITH.
+    // Anonymous node chaining (()-[r]->()-[s]->()) should not continue across WITH boundaries.
+    // Even if an edge is passed through, subsequent MATCH patterns should use fresh nodes.
+    (this.ctx as any).lastAnonymousTargetAlias = undefined;
+    
     // When WITH doesn't pass through ANY node or edge variables AND no existing
     // variables are referenced in WITH expressions, we need to:
     // 1. Convert current patterns into a "row source" for cartesian product

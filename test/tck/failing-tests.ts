@@ -752,7 +752,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/comparison > Comparison1 - Equality|17",
   // "expressions/comparison > Comparison1 - Equality|2",
   // "expressions/comparison > Comparison1 - Equality|3",
-  "expressions/comparison > Comparison1 - Equality|5",
+  // "expressions/comparison > Comparison1 - Equality|5",
   "expressions/comparison > Comparison1 - Equality|6:2",
   "expressions/comparison > Comparison1 - Equality|6:5",
   "expressions/comparison > Comparison1 - Equality|7:12",

@@ -154,6 +154,30 @@ export function valuesMatch(expected: unknown, actual: unknown): boolean {
       return actual.every(el => typeof el === "object" && el !== null);
     }
     
+    // Check if this is a list of paths like "[<(a)-[:T]->(b)>]"
+    // Path patterns are enclosed in <...>
+    if (pattern.startsWith("[<") && Array.isArray(actual)) {
+      // This is a list of paths
+      // Each path can be:
+      // 1. An object with nodes and edges arrays
+      // 2. An alternating array [node, edge, node, ...]
+      return actual.every(p => {
+        if (typeof p !== "object" || p === null) return false;
+        // Check for {nodes: [...], edges: [...]} format
+        const pathObj = p as Record<string, unknown>;
+        if (Array.isArray(pathObj.nodes) && Array.isArray(pathObj.edges)) {
+          return true;
+        }
+        // Check for alternating array format
+        if (Array.isArray(p)) {
+          // A path should have odd length (n nodes, n-1 edges alternating)
+          if (p.length === 0 || p.length % 2 !== 1) return false;
+          return p.every(el => typeof el === "object" && el !== null);
+        }
+        return false;
+      });
+    }
+    
     // Could be a single relationship or an array of relationships
     if (Array.isArray(actual)) {
       // It's a list of relationships - verify each has type

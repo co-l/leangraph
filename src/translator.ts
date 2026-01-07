@@ -8098,19 +8098,28 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     // Determine what to select (collect params separately)
     let selectExpr = "1"; // Default: just count matches
     let mapExprParams: unknown[] = [];
+    const pathVariable = expr.pathVariable;
+    
     if (mapExpr) {
-      // Translate the map expression
-      const mapResult = this.translatePatternComprehensionExpr(
-        mapExpr,
-        startVar,
-        boundVarInfo.alias,
-        edge.variable,
-        edgeAlias,
-        targetNodePattern?.variable,
-        targetAlias
-      );
-      selectExpr = mapResult.sql;
-      mapExprParams = mapResult.params;
+      // Check if mapExpr is a reference to the path variable (e.g., [p = (a)-->(b) | p])
+      if (pathVariable && mapExpr.type === "variable" && mapExpr.variable === pathVariable) {
+        // Return the path as alternating [startNode, edge, targetNode] array
+        // This is the Neo4j 3.5 path format
+        selectExpr = `json_array(${boundVarInfo.alias}.properties, ${edgeAlias}.properties, ${targetAlias}.properties)`;
+      } else {
+        // Translate the map expression normally
+        const mapResult = this.translatePatternComprehensionExpr(
+          mapExpr,
+          startVar,
+          boundVarInfo.alias,
+          edge.variable,
+          edgeAlias,
+          targetNodePattern?.variable,
+          targetAlias
+        );
+        selectExpr = mapResult.sql;
+        mapExprParams = mapResult.params;
+      }
     }
     
     // Build WHERE clause for filter condition (collect params separately)

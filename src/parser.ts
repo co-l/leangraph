@@ -148,7 +148,9 @@ export interface Expression {
   // List predicate fields: ALL/ANY/NONE/SINGLE(var IN list WHERE cond)
   predicateType?: "ALL" | "ANY" | "NONE" | "SINGLE";
   // Pattern comprehension fields: [(pattern) WHERE filterCondition | mapExpr]
+  // Or with named path: [p = (pattern) | p]
   patterns?: (NodePattern | RelationshipPattern)[];
+  pathVariable?: string; // Named path variable in pattern comprehension
   // filterCondition is shared with list comprehension
   // Label predicate fields: (n:Label) - returns true/false
   label?: string;
@@ -3031,7 +3033,8 @@ export class Parser {
     }
     
     // Check for list comprehension: [x IN list WHERE cond | expr]
-    // We need to look ahead to see if this is a list comprehension
+    // Or named path in pattern comprehension: [p = (pattern) | p]
+    // We need to look ahead to see which case this is
     if (this.check("IDENTIFIER")) {
       const savedPos = this.pos;
       const identifier = this.advance().value;
@@ -3040,8 +3043,12 @@ export class Parser {
         // This is a list comprehension
         this.advance(); // consume "IN"
         return this.parseListComprehension(identifier);
+      } else if (this.check("EQUALS")) {
+        // This is a named path in pattern comprehension: [p = (pattern) | p]
+        this.advance(); // consume "="
+        return this.parsePatternComprehension(identifier);
       } else {
-        // Not a list comprehension, backtrack
+        // Not a list comprehension or named path, backtrack
         this.pos = savedPos;
       }
     }
@@ -3108,9 +3115,10 @@ export class Parser {
   /**
    * Parse a pattern comprehension after [ has been consumed and we see (.
    * Syntax: [(pattern) WHERE filterCondition | mapExpr]
+   * Or with named path: [p = (pattern) WHERE filterCondition | p]
    * WHERE and | mapExpr are optional.
    */
-  private parsePatternComprehension(): Expression {
+  private parsePatternComprehension(pathVariable?: string): Expression {
     // Parse the pattern (reuse existing pattern parsing)
     const patterns = this.parsePatternChain();
     
@@ -3135,6 +3143,7 @@ export class Parser {
       patterns,
       filterCondition,
       mapExpr,
+      pathVariable, // Named path variable (e.g., p in [p = (a)-->(b) | p])
     };
   }
 

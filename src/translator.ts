@@ -6812,6 +6812,38 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 };
               }
               
+              // If RHS contains nested nulls (e.g., [[null, 2]]) we need element-wise comparison
+              // to determine if the result should be null (potential match with null) or false (definite mismatch)
+              if (rhsHasNull) {
+                // Generate SQL that:
+                // 1. First checks for exact JSON match → return true
+                // 2. Then checks if any RHS element could potentially match (same length, no definite mismatches, has null) → return null
+                // 3. Otherwise → return false
+                const lhsLen = (leftExpr.value as unknown[]).length;
+                params.push(lhsJson, rhsJson);
+                return {
+                  sql: `(SELECT CASE 
+                    WHEN EXISTS(SELECT 1 FROM json_each(rhs_param.v) WHERE json(value) = json(lhs_param.v)) THEN 1
+                    WHEN EXISTS(
+                      SELECT 1 FROM (
+                        SELECT rhs.rowid,
+                          SUM(CASE WHEN json_extract(rhs.value, '$[' || idx.i || ']') IS NULL THEN 0
+                              WHEN json_quote(json_extract(lhs_param.v, '$[' || idx.i || ']')) = json_quote(json_extract(rhs.value, '$[' || idx.i || ']')) THEN 0
+                              ELSE 1 END) AS mismatches,
+                          SUM(CASE WHEN json_extract(rhs.value, '$[' || idx.i || ']') IS NULL THEN 1 ELSE 0 END) AS nulls
+                        FROM json_each(rhs_param.v) AS rhs,
+                             (WITH RECURSIVE c(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM c WHERE i < ${lhsLen - 1}) SELECT i FROM c) AS idx
+                        WHERE json_type(rhs.value) = 'array' AND json_array_length(rhs.value) = ${lhsLen}
+                        GROUP BY rhs.rowid
+                      ) WHERE mismatches = 0 AND nulls > 0
+                    ) THEN NULL
+                    ELSE 0
+                  END FROM (SELECT ? AS v) AS lhs_param, (SELECT ? AS v) AS rhs_param)`,
+                  tables,
+                  params,
+                };
+              }
+              
               // No null semantics needed - simple JSON comparison
               params.push(rhsJson, lhsJson);
               return {

@@ -328,6 +328,87 @@ function registerCypherFunctions(db: Database.Database): void {
 
     return deepCypherEquals(parsedA, parsedB);
   });
+  
+  // cypher_case_eq: Type-aware equality for CASE expressions
+  // Takes value+type pairs to preserve type information across SQLite's type coercion
+  // Returns: 1 if equal (same type and value), 0 if not equal
+  db.function("cypher_case_eq", { deterministic: true }, (val1: unknown, type1: string, val2: unknown, type2: string) => {
+    // NULL handling: if either is null, return null (unknown)
+    if (val1 === null || val2 === null) return null;
+    if (type1 === "null" || type2 === "null") return null;
+    
+    // Helper to get runtime type from a value
+    const getRuntimeType = (val: unknown): string => {
+      if (val === null) return "null";
+      const jsType = typeof val;
+      if (jsType === "boolean" || val === 0 || val === 1) {
+        // SQLite stores booleans as 0/1, so we can't distinguish at runtime
+        // We rely on the compile-time type info for this
+        return "unknown_number_or_boolean";
+      }
+      if (jsType === "number" || jsType === "bigint") return "number";
+      if (jsType === "string") {
+        // Check if it's a JSON array/object
+        const str = val as string;
+        if (str.startsWith("[")) return "list";
+        if (str.startsWith("{")) return "map";
+        return "string";
+      }
+      return "unknown";
+    };
+    
+    // Resolve "dynamic" types using runtime type detection
+    let resolvedType1 = type1;
+    let resolvedType2 = type2;
+    
+    if (type1 === "dynamic") {
+      resolvedType1 = getRuntimeType(val1);
+    }
+    if (type2 === "dynamic") {
+      resolvedType2 = getRuntimeType(val2);
+    }
+    
+    // Normalize numeric types: integer, float, and number are all comparable
+    const normalizeNumericType = (t: string): string => {
+      if (t === "integer" || t === "float" || t === "number") return "numeric";
+      return t;
+    };
+    
+    const normType1 = normalizeNumericType(resolvedType1);
+    const normType2 = normalizeNumericType(resolvedType2);
+    
+    // Different types are never equal in CASE expressions
+    // (except numeric types which are comparable)
+    if (normType1 !== normType2) return 0;
+    
+    // Same type - compare values
+    // For lists/maps, use deep comparison
+    if (normType1 === "list" || normType1 === "map") {
+      let parsed1: unknown, parsed2: unknown;
+      try {
+        parsed1 = typeof val1 === "string" ? JSON.parse(val1) : val1;
+      } catch {
+        parsed1 = val1;
+      }
+      try {
+        parsed2 = typeof val2 === "string" ? JSON.parse(val2) : val2;
+      } catch {
+        parsed2 = val2;
+      }
+      const result = deepCypherEquals(parsed1, parsed2);
+      return result === null ? null : result;
+    }
+    
+    // For numeric types, compare as numbers
+    if (normType1 === "numeric") {
+      const num1 = Number(val1);
+      const num2 = Number(val2);
+      return num1 === num2 ? 1 : 0;
+    }
+    
+    // For primitives (boolean, string), direct comparison
+    return val1 === val2 ? 1 : 0;
+  });
 }
 
 export class GraphDatabase {

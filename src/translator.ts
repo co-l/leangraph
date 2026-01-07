@@ -6514,10 +6514,45 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     
     let sql = "CASE";
     
+    // Check if this is a simple form CASE (has expression)
+    const isSimpleForm = expr.expression !== undefined;
+    
+    // For simple form, translate the case expression once
+    let caseExprSql: string | undefined;
+    let caseExprType: string | undefined;
+    if (isSimpleForm) {
+      const { sql: exprSql, tables: exprTables, params: exprParams } = this.translateExpression(expr.expression!);
+      caseExprSql = exprSql;
+      caseExprType = this.getCypherTypeForExpression(expr.expression!);
+      tables.push(...exprTables);
+      // We'll add these params for each WHEN clause comparison
+      // Store them separately
+      var caseExprParams = exprParams;
+    }
+    
     // Process each WHEN clause
     for (const when of expr.whens || []) {
-      // Translate the condition
-      const { sql: condSql, params: condParams } = this.translateWhere(when.condition);
+      let condSql: string;
+      let condParams: unknown[];
+      
+      if (isSimpleForm && when.condition.type === "comparison" && when.condition.operator === "=") {
+        // Simple form: use type-aware comparison
+        // The condition.right is the WHEN value
+        const whenValue = when.condition.right!;
+        const { sql: whenSql, tables: whenTables, params: whenParams } = this.translateExpression(whenValue);
+        const whenType = this.getCypherTypeForExpression(whenValue);
+        
+        tables.push(...whenTables);
+        // cypher_case_eq(caseExprSql, caseExprType, whenSql, whenType)
+        condSql = `cypher_case_eq(${caseExprSql}, ?, ${whenSql}, ?)`;
+        condParams = [...caseExprParams!, caseExprType, ...whenParams, whenType];
+      } else {
+        // Searched form: use regular WHERE translation
+        const result = this.translateWhere(when.condition);
+        condSql = result.sql;
+        condParams = result.params;
+      }
+      
       params.push(...condParams);
       
       // Translate the result expression
@@ -6539,6 +6574,59 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     sql += " END";
     
     return { sql, tables, params };
+  }
+  
+  /**
+   * Get the Cypher type string for an expression (for type-aware comparison in CASE)
+   */
+  private getCypherTypeForExpression(expr: Expression): string {
+    switch (expr.type) {
+      case "literal": {
+        const value = expr.value;
+        if (value === null) return "null";
+        if (typeof value === "boolean") return "boolean";
+        if (typeof value === "number") {
+          // Check if it was explicitly a float literal
+          if (expr.numberLiteralKind === "float") return "float";
+          return Number.isInteger(value) ? "integer" : "float";
+        }
+        if (typeof value === "string") return "string";
+        if (Array.isArray(value)) return "list";
+        if (typeof value === "object") return "map";
+        return "unknown";
+      }
+      case "parameter": {
+        const paramValue = this.ctx.paramValues[expr.name!];
+        if (paramValue === null || paramValue === undefined) return "null";
+        if (typeof paramValue === "boolean") return "boolean";
+        if (typeof paramValue === "number") {
+          return Number.isInteger(paramValue) ? "integer" : "float";
+        }
+        if (typeof paramValue === "string") return "string";
+        if (Array.isArray(paramValue)) return "list";
+        if (typeof paramValue === "object") return "map";
+        return "unknown";
+      }
+      case "variable":
+      case "property":
+        // For variables and properties, we don't know the type at translation time
+        // These will need runtime type checking - use "dynamic"
+        return "dynamic";
+      case "function":
+        // Functions have various return types - would need to analyze each function
+        return "dynamic";
+      case "binary":
+        // Binary operations typically return numbers
+        if (expr.operator === "+" || expr.operator === "-" || expr.operator === "*" || expr.operator === "/" || expr.operator === "%" || expr.operator === "^") {
+          return "number"; // Could be integer or float depending on operands
+        }
+        return "dynamic";
+      case "case":
+        // CASE expressions return dynamic type based on THEN values
+        return "dynamic";
+      default:
+        return "dynamic";
+    }
   }
 
   private translateBinaryExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {

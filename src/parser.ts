@@ -116,7 +116,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -155,6 +155,8 @@ export interface Expression {
   // Index access fields: array[index] (for list[0] or list[variable])
   array?: Expression;
   index?: Expression;
+  // IN expression fields: value IN list
+  list?: Expression;
 }
 
 export interface ReturnItem {
@@ -2403,6 +2405,16 @@ export class Parser {
         this.expect("KEYWORD", "NULL");
         return { type: "comparison", comparisonOperator: "IS NULL", left };
       }
+    }
+
+    // Handle IN operator: value IN list
+    // The list can be a function call like keys(n), array literal, parameter, or variable
+    if (this.checkKeyword("IN")) {
+      this.advance();
+      // Use parseAdditiveExpression to allow function calls, array literals, etc.
+      // but not operators that have lower precedence than IN
+      const list = this.parseAdditiveExpression();
+      return { type: "in", left, list };
     }
 
     return left;

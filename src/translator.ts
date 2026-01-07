@@ -5601,7 +5601,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("last requires an argument");
         }
 
-        // KEYS: get property keys of a node
+        // KEYS: get property keys of a node (only returns keys with non-null values)
         if (expr.functionName === "KEYS") {
           if (expr.args && expr.args.length > 0) {
             const arg = expr.args[0];
@@ -5611,9 +5611,10 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 throw new Error(`Unknown variable: ${arg.variable}`);
               }
               tables.push(varInfo.alias);
-              // Use json_each to get keys, then aggregate them
+              // Use json_each to get keys, filter out null values, then aggregate them
+              // json_each provides a 'type' column that indicates the JSON type
               return { 
-                sql: `(SELECT json_group_array(key) FROM json_each(${varInfo.alias}.properties))`, 
+                sql: `(SELECT json_group_array(key) FROM json_each(${varInfo.alias}.properties) WHERE type != 'null')`, 
                 tables, 
                 params 
               };
@@ -6600,6 +6601,73 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Access property from the result using json_extract
         return {
           sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
+          tables,
+          params,
+        };
+      }
+
+      case "in": {
+        // value IN list - check if value is in the list
+        const leftResult = this.translateExpression(expr.left!);
+        tables.push(...leftResult.tables);
+        params.push(...leftResult.params);
+        
+        const listExpr = expr.list!;
+        
+        // Check for non-list literals (type error)
+        if (listExpr.type === "literal" && !Array.isArray(listExpr.value)) {
+          const val = listExpr.value;
+          let typeName: string;
+          if (val === null) typeName = "Null";
+          else if (typeof val === "boolean") typeName = "Boolean";
+          else if (typeof val === "number") typeName = Number.isInteger(val) ? "Integer" : "Float";
+          else if (typeof val === "string") typeName = "String";
+          else typeName = "Map";
+          throw new Error(`Type mismatch: expected List but was ${typeName}`);
+        }
+        
+        // Object/map literals are also not valid as IN operands
+        if (listExpr.type === "object") {
+          throw new Error("Type mismatch: expected List but was Map");
+        }
+        
+        if (listExpr.type === "literal" && Array.isArray(listExpr.value)) {
+          const values = listExpr.value as unknown[];
+          if (values.length === 0) {
+            return { sql: "0", tables, params }; // false for empty list
+          }
+          const placeholders = values.map(() => "?").join(", ");
+          params.push(...values);
+          return {
+            sql: `(${leftResult.sql} IN (${placeholders}))`,
+            tables,
+            params,
+          };
+        }
+        
+        if (listExpr.type === "parameter") {
+          const paramValue = this.ctx.paramValues[listExpr.name!];
+          if (Array.isArray(paramValue)) {
+            if (paramValue.length === 0) {
+              return { sql: "0", tables, params }; // false for empty list
+            }
+            const placeholders = paramValue.map(() => "?").join(", ");
+            params.push(...paramValue);
+            return {
+              sql: `(${leftResult.sql} IN (${placeholders}))`,
+              tables,
+              params,
+            };
+          }
+          throw new Error(`Parameter ${listExpr.name} must be an array for IN clause`);
+        }
+        
+        // For other list expressions (function calls like keys(), variables, etc.)
+        const listResult = this.translateExpression(listExpr);
+        tables.push(...listResult.tables);
+        params.push(...listResult.params);
+        return {
+          sql: `(${leftResult.sql} IN (SELECT value FROM json_each(${listResult.sql})))`,
           tables,
           params,
         };

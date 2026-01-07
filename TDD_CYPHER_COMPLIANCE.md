@@ -110,3 +110,24 @@ console.log('extract null:', db.prepare(\"SELECT json_extract(json_array(NULL), 
 console.log('json_type null:', db.prepare(\"SELECT json_type(json_array(NULL), '\\\$[0]')\").get());
 "
 ```
+
+```bash
+cd /home/conrad/dev/nicefox-graphdb && GRAPHDB_PROJECT=test-debug tsx -e "
+const { Translator } = require('./src/translator.ts');
+const { parse } = require('./src/parser.ts');
+const query = \`
+  WITH {exists: 42, notMissing: null} AS map
+  RETURN 'exists' IN keys(map) AS a
+\`;
+const ast = parse(query);
+console.log('Calling translate...');
+const translator = new Translator({});
+try {
+  const result = translator.translate(ast.query);
+  console.log('Result:', result);
+} catch(e) {
+  console.log('Error:', e.message);
+  console.log('Stack:', e.stack);
+}
+"
+```

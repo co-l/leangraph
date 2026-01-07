@@ -7454,6 +7454,12 @@ export class Executor {
         // Build function expression like count(a) or count(*)
         const funcName = expr.functionName!.toLowerCase();
         if (expr.args && expr.args.length > 0) {
+          // Special case: INDEX function should be rendered as list[index] notation
+          if (funcName === "index" && expr.args.length === 2) {
+            const listName = this.getExpressionName(expr.args[0]);
+            const indexName = this.getExpressionName(expr.args[1]);
+            return `${listName}[${indexName}]`;
+          }
           const argNames = expr.args.map(arg => {
             if (arg.type === "variable") return arg.variable!;
             return "?";

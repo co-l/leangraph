@@ -5743,6 +5743,17 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 params 
               };
             }
+            // Handle non-variable expressions (e.g., list[0]) - use subquery to look up type
+            // The expression should evaluate to a relationship object with _nf_id
+            const argResult = this.translateExpression(arg);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            // Extract _nf_id from the relationship object and look up type in edges table
+            return {
+              sql: `(SELECT type FROM edges WHERE id = json_extract(${argResult.sql}, '$._nf_id'))`,
+              tables,
+              params
+            };
           }
           throw new Error("type requires a relationship variable argument");
         }
@@ -9244,6 +9255,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Build full function call representation: function(args)
         const funcName = expr.functionName!.toLowerCase();
         if (expr.args && expr.args.length > 0) {
+          // Special case: INDEX function should be rendered as list[index] notation
+          if (funcName === "index" && expr.args.length === 2) {
+            const listName = this.getExpressionName(expr.args[0]);
+            const indexName = this.getExpressionName(expr.args[1]);
+            return `${listName}[${indexName}]`;
+          }
           const argNames = expr.args.map(arg => this.getExpressionName(arg));
           const distinctPrefix = expr.distinct ? "distinct " : "";
           return `${funcName}(${distinctPrefix}${argNames.join(", ")})`;

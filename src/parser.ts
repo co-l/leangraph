@@ -2216,7 +2216,7 @@ export class Parser {
       return { type: "in", left, list: listExpr };
     }
 
-    // Comparison operators
+    // Comparison operators - handle chained comparisons like 1 < n.num < 3
     const opToken = this.peek();
     let operator: "=" | "<>" | "<" | ">" | "<=" | ">=" | undefined;
 
@@ -2229,8 +2229,29 @@ export class Parser {
 
     if (operator) {
       this.advance();
-      const right = this.parseExpression();
-      return { type: "comparison", left, right, operator };
+      const middle = this.parseExpression();
+      const firstComparison: WhereCondition = { type: "comparison", left, right: middle, operator };
+
+      // Check for chained comparison: 1 < n.num < 3 means (1 < n.num AND n.num < 3)
+      const nextOpToken = this.peek();
+      let secondOperator: "=" | "<>" | "<" | ">" | "<=" | ">=" | undefined;
+
+      if (nextOpToken.type === "EQUALS") secondOperator = "=";
+      else if (nextOpToken.type === "NOT_EQUALS") secondOperator = "<>";
+      else if (nextOpToken.type === "LT") secondOperator = "<";
+      else if (nextOpToken.type === "GT") secondOperator = ">";
+      else if (nextOpToken.type === "LTE") secondOperator = "<=";
+      else if (nextOpToken.type === "GTE") secondOperator = ">=";
+
+      if (secondOperator) {
+        this.advance();
+        const right = this.parseExpression();
+        const secondComparison: WhereCondition = { type: "comparison", left: middle, right, operator: secondOperator };
+        // Return the chained comparison as an AND condition
+        return { type: "and", conditions: [firstComparison, secondComparison] };
+      }
+
+      return firstComparison;
     }
 
     // No comparison operator - treat as standalone boolean expression

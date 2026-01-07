@@ -1274,6 +1274,35 @@ export class Translator {
     const withLimit = (this.ctx as any).withLimit as Expression | undefined;
     const withWhere = (this.ctx as any).withWhere as WhereCondition | undefined;
 
+    // Pre-compute whether we'll need a WITH subquery BEFORE building SELECT parts.
+    // This is needed so translateExpression can reference UNWIND variables correctly.
+    // When RETURN has only aggregates and WITH has LIMIT/SKIP/DISTINCT, we wrap
+    // the FROM in a subquery, and UNWIND variables need different column references.
+    const returnOnlyAggregatesPreCheck = clause.items.every(item => this.isAggregateExpression(item.expression));
+    const needsWithSubqueryPreCheck = returnOnlyAggregatesPreCheck && (withLimit !== undefined || withSkip !== undefined || withDistinct);
+    
+    // Build mapping of UNWIND variables to subquery column names if needed
+    const unwindClausesForPreCheck = (this.ctx as any).unwindClauses as Array<{
+      alias: string;
+      variable: string;
+      jsonExpr: string;
+      params: unknown[];
+    }> | undefined;
+    
+    if (needsWithSubqueryPreCheck && this.ctx.withClauses && this.ctx.withClauses.length > 0 && unwindClausesForPreCheck && unwindClausesForPreCheck.length > 0) {
+      const lastWithClause = this.ctx.withClauses[this.ctx.withClauses.length - 1];
+      for (const item of lastWithClause.items) {
+        if (item.expression.type === "variable") {
+          const varName = item.expression.variable!;
+          const unwindClause = unwindClausesForPreCheck.find(u => u.variable === varName);
+          if (unwindClause) {
+            // Mark this UNWIND variable as needing subquery column reference
+            (unwindClause as any).subqueryColumnName = item.alias || varName;
+          }
+        }
+      }
+    }
+
     // Track which tables we need
     const neededTables = new Set<string>();
 
@@ -2339,9 +2368,30 @@ export class Translator {
       const innerSelectDistinct = needsSubqueryDistinct ? "DISTINCT " : "";
       let innerSelect = "*";
       
-      // If WITH has DISTINCT with non-variable expressions (like maps), we need to
-      // explicitly select those expressions for proper deduplication
-      if (needsSubqueryDistinct && this.ctx.withClauses && this.ctx.withClauses.length > 0) {
+      // Track which UNWIND variables need to be exposed in the subquery
+      // When UNWIND variables pass through WITH with LIMIT, we need to explicitly
+      // select their .value column with the variable name as alias so the outer
+      // query can reference them correctly after the subquery wrapper
+      const unwindVarsInWith = new Map<string, string>(); // varName -> unwindAlias
+      
+      // Check if the WITH clause passes through UNWIND variables
+      if (this.ctx.withClauses && this.ctx.withClauses.length > 0 && unwindClauses && unwindClauses.length > 0) {
+        const lastWithClause = this.ctx.withClauses[this.ctx.withClauses.length - 1];
+        for (const item of lastWithClause.items) {
+          if (item.expression.type === "variable") {
+            const varName = item.expression.variable!;
+            const unwindClause = unwindClauses.find(u => u.variable === varName);
+            if (unwindClause) {
+              unwindVarsInWith.set(item.alias || varName, unwindClause.alias);
+            }
+          }
+        }
+      }
+      
+      // If we have UNWIND variables or DISTINCT with non-variable expressions, build explicit SELECT
+      const needsExplicitSelect = needsSubqueryDistinct || unwindVarsInWith.size > 0;
+      
+      if (needsExplicitSelect && this.ctx.withClauses && this.ctx.withClauses.length > 0) {
         const lastWithClause = this.ctx.withClauses[this.ctx.withClauses.length - 1];
         const withSelectParts: string[] = [];
         for (const item of lastWithClause.items) {
@@ -2352,15 +2402,24 @@ export class Translator {
             const alias = item.alias || this.getExpressionName(item.expression);
             withSelectParts.push(`${exprSql} AS "${alias}"`);
           } else {
-            // Simple variable passthrough
-            const varInfo = this.ctx.variables.get(item.expression.variable!);
-            if (varInfo) {
-              withSelectParts.push(`${varInfo.alias}.id AS "${item.alias || item.expression.variable}"`);
+            const varName = item.expression.variable!;
+            const unwindAlias = unwindVarsInWith.get(item.alias || varName);
+            if (unwindAlias) {
+              // UNWIND variable - select its .value with the variable name as alias
+              withSelectParts.push(`${unwindAlias}.value AS "${item.alias || varName}"`);
+            } else {
+              // Simple variable passthrough (node/edge)
+              const varInfo = this.ctx.variables.get(varName);
+              if (varInfo) {
+                withSelectParts.push(`${varInfo.alias}.id AS "${item.alias || varName}"`);
+              }
             }
           }
         }
         if (withSelectParts.length > 0) {
           innerSelect = withSelectParts.join(", ");
+          // Note: subqueryColumnName is already set in the pre-check phase
+          // (before building SELECT parts) so outer query aggregates reference correctly
         }
       }
       
@@ -4739,8 +4798,13 @@ export class Translator {
                     }
                   }
                   // For other aggregates (SUM, AVG), use standard aggregation
+                  // Check if this UNWIND variable was wrapped in a WITH subquery
+                  const subqueryColName = (unwindClause as any).subqueryColumnName;
+                  const valueRef = subqueryColName 
+                    ? `__with_subquery__."${subqueryColName}"`
+                    : `${unwindClause.alias}.value`;
                   return {
-                    sql: `${expr.functionName}(${distinctKeyword}${unwindClause.alias}.value)`,
+                    sql: `${expr.functionName}(${distinctKeyword}${valueRef})`,
                     tables,
                     params,
                   };

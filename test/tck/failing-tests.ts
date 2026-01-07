@@ -984,7 +984,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/map > Map1 - Static value access|5:3",
   // "expressions/map > Map1 - Static value access|5:4",
   // "expressions/map > Map1 - Static value access|5:5",
-  "expressions/map > Map1 - Static value access|5:6",
+  // "expressions/map > Map1 - Static value access|5:6",
   // "expressions/map > Map1 - Static value access|6:1",
   // "expressions/map > Map1 - Static value access|6:2",
   // "expressions/map > Map1 - Static value access|6:3",
@@ -995,7 +995,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/map > Map2 - Dynamic Value Access|5:2", // Fixed: map dynamic access with string key
   // "expressions/map > Map2 - Dynamic Value Access|5:3", // Fixed: map dynamic access with string key
   // "expressions/map > Map2 - Dynamic Value Access|5:6", // Fixed: map dynamic access with string key
-  "expressions/map > Map2 - Dynamic Value Access|5:7",
+  // "expressions/map > Map2 - Dynamic Value Access|5:7",
   // "expressions/map > Map2 - Dynamic Value Access|6", // Fixed: parameter support in TCK
   // "expressions/map > Map2 - Dynamic Value Access|7", // Fixed: parameter support in TCK
   // "expressions/map > Map2 - Dynamic Value Access|8", // Fixed: parameter support in TCK

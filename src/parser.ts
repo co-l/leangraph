@@ -3230,9 +3230,10 @@ export class Parser {
     if (token.type !== "IDENTIFIER" && token.type !== "KEYWORD") {
       throw new Error(`Expected identifier or keyword, got ${token.type} '${token.value}'`);
     }
-    // Keywords are stored uppercase, but property keys should be lowercase
-    const value = this.advance().value;
-    return token.type === "KEYWORD" ? value.toLowerCase() : value;
+    // Keywords preserve their original casing when used as identifiers (e.g., map keys)
+    // originalValue stores the original casing before uppercasing for keyword matching
+    this.advance();
+    return token.originalValue || token.value;
   }
 
   private expectLabelOrType(): string {

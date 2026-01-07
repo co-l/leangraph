@@ -719,6 +719,26 @@ class Tokenizer {
         this.pos++;
         this.column++;
       }
+      // Handle scientific notation for numbers starting with . (e.g., .5e10)
+      if (this.input[this.pos] === "e" || this.input[this.pos] === "E") {
+        const nextChar = this.input[this.pos + 1];
+        if (this.isDigit(nextChar) || 
+            ((nextChar === "+" || nextChar === "-") && this.isDigit(this.input[this.pos + 2]))) {
+          value += this.input[this.pos]; // 'e' or 'E'
+          this.pos++;
+          this.column++;
+          if (this.input[this.pos] === "+" || this.input[this.pos] === "-") {
+            value += this.input[this.pos];
+            this.pos++;
+            this.column++;
+          }
+          while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
+            value += this.input[this.pos];
+            this.pos++;
+            this.column++;
+          }
+        }
+      }
       return { type: "NUMBER", value, position: startPos, line: startLine, column: startColumn };
     }
 
@@ -764,6 +784,30 @@ class Tokenizer {
         value += this.input[this.pos];
         this.pos++;
         this.column++;
+      }
+    }
+
+    // Handle scientific notation (e.g., 1e9, 1E-9, 1.5e+10)
+    if (this.input[this.pos] === "e" || this.input[this.pos] === "E") {
+      const nextChar = this.input[this.pos + 1];
+      // Check if followed by digit, + digit, or - digit
+      if (this.isDigit(nextChar) || 
+          ((nextChar === "+" || nextChar === "-") && this.isDigit(this.input[this.pos + 2]))) {
+        value += this.input[this.pos]; // 'e' or 'E'
+        this.pos++;
+        this.column++;
+        // Handle optional sign
+        if (this.input[this.pos] === "+" || this.input[this.pos] === "-") {
+          value += this.input[this.pos];
+          this.pos++;
+          this.column++;
+        }
+        // Read exponent digits
+        while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
+          value += this.input[this.pos];
+          this.pos++;
+          this.column++;
+        }
       }
     }
 
@@ -821,8 +865,11 @@ export class Parser {
     const isHex = numStr.includes('0x') || numStr.includes('0X');
     const isNegativeHex = isHex && numStr.startsWith('-');
     
-    // Check if it's an integer (no decimal point and not hex, or is hex)
-    if (!numStr.includes('.') || isHex) {
+    // Check if it has scientific notation (e.g., 1e9, 1.5E-10)
+    const hasExponent = numStr.includes('e') || numStr.includes('E');
+    
+    // Check if it's an integer (no decimal point, no exponent, and not hex, or is hex)
+    if ((!numStr.includes('.') && !hasExponent) || isHex) {
       try {
         let bigVal: bigint;
         if (isHex) {
@@ -843,7 +890,12 @@ export class Parser {
         throw new SyntaxError(`integer is too large: ${numStr}`);
       }
     }
-    return parseFloat(numStr);
+    const floatVal = parseFloat(numStr);
+    // Check for overflow (Infinity) or underflow to 0 for very small exponents
+    if (!Number.isFinite(floatVal)) {
+      throw new SyntaxError(`floating point number is too large: ${numStr}`);
+    }
+    return floatVal;
   }
 
   parse(input: string): ParseResult {

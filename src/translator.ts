@@ -5371,6 +5371,12 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         if (expr.functionName === "RELATIONSHIPS") {
           if (expr.args && expr.args.length > 0) {
             const arg = expr.args[0];
+            
+            // Handle null literal - relationships(null) returns null
+            if (arg.type === "literal" && arg.value === null) {
+              return { sql: "NULL", tables, params };
+            }
+            
             if (arg.type === "variable") {
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
@@ -5383,11 +5389,28 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                   edgeAliases: string[];
                   isVariableLength?: boolean;
                   pathCteName?: string;
+                  optional?: boolean;
+                  patterns?: any[];
                 }> | undefined;
                 
                 if (pathExpressions) {
                   const pathInfo = pathExpressions.find(p => p.variable === arg.variable);
                   if (pathInfo) {
+                    const withExpressionAliases = (this.ctx as any).withExpressionAliases as Set<string> | undefined;
+                    const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+                    
+                    // Check if the first pattern's source is from a WITH expression that's null
+                    const firstPattern = pathInfo.patterns?.[0];
+                    const sourceVar = firstPattern?.source?.variable;
+                    
+                    // If source is from a WITH expression that's null, return NULL immediately
+                    if (sourceVar && withExpressionAliases?.has(sourceVar) && withAliases) {
+                      const withExpr = withAliases.get(sourceVar);
+                      if (withExpr?.type === "literal" && withExpr?.value === null) {
+                        return { sql: "NULL", tables, params };
+                      }
+                    }
+                    
                     // For variable-length paths, use the CTE's edge_ids column
                     if (pathInfo.isVariableLength && pathInfo.pathCteName) {
                       // edge_ids is a JSON array of edge objects with id, type, source_id, target_id, properties
@@ -5401,6 +5424,21 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                     const edgesJson = pathInfo.edgeAliases.map(alias =>
                       `json(${alias}.properties)`
                     ).join(', ');
+                    
+                    // For OPTIONAL MATCH paths, wrap in null check
+                    // If the first edge is NULL (no match found), return NULL
+                    if (pathInfo.optional && pathInfo.edgeAliases.length > 0) {
+                      return { 
+                        sql: `CASE WHEN ${pathInfo.edgeAliases[0]}.id IS NULL THEN NULL ELSE json_array(${edgesJson}) END`, 
+                        tables, 
+                        params 
+                      };
+                    }
+                    
+                    // If there are no edge aliases and path is optional, return NULL
+                    if (pathInfo.edgeAliases.length === 0 && pathInfo.optional) {
+                      return { sql: "NULL", tables, params };
+                    }
                     
                     return { sql: `json_array(${edgesJson})`, tables, params };
                   }

@@ -1033,7 +1033,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/path > Path1 - Nodes of a path|1",
   // "expressions/path > Path2 - Relationships of a path|1",
   // "expressions/path > Path2 - Relationships of a path|2",
-  "expressions/path > Path2 - Relationships of a path|3",
+  // "expressions/path > Path2 - Relationships of a path|3",
   // "expressions/path > Path3 - Length of a path|2",
   // "expressions/path > Path3 - Length of a path|3",
   "expressions/pattern > Pattern1 - Pattern predicate|1",

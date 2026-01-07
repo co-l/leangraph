@@ -8871,94 +8871,149 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
            throw new Error(`Pattern condition references unknown variable: ${sourceVar}`);
          }
          
-         // Get or create info for the target variable
-         let targetInfo = rel.target.variable ? this.ctx.variables.get(rel.target.variable) : null;
-         
-         if (!rel.target.variable) {
-           // Anonymous target node - create a new alias for it
-           const targetAlias = `n${this.ctx.aliasCounter++}`;
-           this.ctx.variables.set(`_anon_${targetAlias}`, {
-             type: "node",
-             alias: targetAlias,
-           });
-           targetInfo = this.ctx.variables.get(`_anon_${targetAlias}`)!;
-         }
-         
-         if (!targetInfo) {
-           throw new Error(`Pattern condition references unknown target variable: ${rel.target.variable}`);
-         }
-         
-         // Handle relationship hops (e.g., [:R*2..5] or [:R*])
-         if (rel.edge.minHops !== undefined || rel.edge.maxHops !== undefined) {
-           // For variable-length relationships, use a recursive CTE
-           const minHops = rel.edge.minHops ?? 1;
-           const maxHops = rel.edge.maxHops ?? 10;
-           
-           // Build edge type filter - use literals in CTE to avoid parameter issues
-           let edgeTypeFilterBase = "";
-           let edgeTypeFilterRecursive = "";
-           
-           if (rel.edge.type) {
-             // Use literal for CTE
-             const escapedType = rel.edge.type.replace(/'/g, "''");
-             edgeTypeFilterBase = ` AND type = '${escapedType}'`;
-             edgeTypeFilterRecursive = ` AND type = '${escapedType}'`;
-           } else if (rel.edge.types && rel.edge.types.length > 0) {
-             const quotedTypes = rel.edge.types.map(t => `'${t.replace(/'/g, "''")}'`).join(", ");
-             edgeTypeFilterBase = ` AND type IN (${quotedTypes})`;
-             edgeTypeFilterRecursive = ` AND type IN (${quotedTypes})`;
-           }
-           
-           // Build the reachability subquery
-           const reachSql = `EXISTS (
-             WITH RECURSIVE var_length_path(source_id, target_id, hops) AS (
-               SELECT source_id, target_id, 1
-               FROM edges
-               WHERE source_id = ${sourceInfo.alias}.id${edgeTypeFilterBase}
-               UNION ALL
-               SELECT vlp.source_id, e.target_id, vlp.hops + 1
-               FROM var_length_path vlp
-               JOIN edges e ON vlp.target_id = e.source_id${edgeTypeFilterRecursive}
-               WHERE vlp.hops < ${maxHops}
-             )
-             SELECT 1
-             FROM var_length_path
-             WHERE target_id = ${targetInfo.alias}.id AND hops >= ${minHops}
-           )`;
-           
-           conditions.push(reachSql);
-         } else {
-           // Single-hop relationship
-           const edgeAlias = `e${this.ctx.aliasCounter++}`;
-           
-           if (rel.edge.direction === "left") {
-             conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.target_id = ${sourceInfo.alias}.id AND ${edgeAlias}.source_id = ${targetInfo.alias}.id`);
-           } else {
-             conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id AND ${edgeAlias}.target_id = ${targetInfo.alias}.id`);
-           }
-           
-           // Filter by edge type if specified
-           if (rel.edge.type) {
-             conditions[conditions.length - 1] += ` AND ${edgeAlias}.type = ?`;
-             params.push(rel.edge.type);
-           } else if (rel.edge.types && rel.edge.types.length > 0) {
-             const placeholders = rel.edge.types.map(() => "?").join(", ");
-             conditions[conditions.length - 1] += ` AND ${edgeAlias}.type IN (${placeholders})`;
-             params.push(...rel.edge.types);
-           }
-           
-           conditions[conditions.length - 1] += ")";
-         }
-         
-         // Check target labels if specified
-         if (rel.target.label) {
-           const labels = Array.isArray(rel.target.label) ? rel.target.label : [rel.target.label];
-           // Use EXISTS with json_each to check if label is in the array
-           const labelConditions = labels.map(l => 
-             `EXISTS(SELECT 1 FROM json_each(${targetInfo.alias}.label) WHERE value = '${l.replace(/'/g, "''")}')`
-           );
-           conditions.push(`(${labelConditions.join(" OR ")})`);
-         }
+         // Get info for the target variable (if it exists)
+          const targetInfo = rel.target.variable ? this.ctx.variables.get(rel.target.variable) : null;
+          
+          // Determine if the target is truly anonymous (no variable, or variable not bound in outer query)
+          const targetIsAnonymous = !rel.target.variable || !targetInfo;
+          
+          // If target has a variable that isn't bound, throw an error only if the variable is expected to exist
+          if (rel.target.variable && !targetInfo) {
+            // Check if this is a forward reference that will be handled by the subquery
+            // For pattern predicates, forward references aren't allowed
+            throw new Error(`Pattern condition references unknown target variable: ${rel.target.variable}`);
+          }
+          
+          // Handle relationship hops (e.g., [:R*2..5] or [:R*])
+          if (rel.edge.minHops !== undefined || rel.edge.maxHops !== undefined) {
+            // For variable-length relationships, use a recursive CTE
+            const minHops = rel.edge.minHops ?? 1;
+            const maxHops = rel.edge.maxHops ?? 10;
+            
+            // Build edge type filter - use literals in CTE to avoid parameter issues
+            let edgeTypeFilterBase = "";
+            let edgeTypeFilterRecursive = "";
+            
+            if (rel.edge.type) {
+              // Use literal for CTE
+              const escapedType = rel.edge.type.replace(/'/g, "''");
+              edgeTypeFilterBase = ` AND type = '${escapedType}'`;
+              edgeTypeFilterRecursive = ` AND type = '${escapedType}'`;
+            } else if (rel.edge.types && rel.edge.types.length > 0) {
+              const quotedTypes = rel.edge.types.map(t => `'${t.replace(/'/g, "''")}'`).join(", ");
+              edgeTypeFilterBase = ` AND type IN (${quotedTypes})`;
+              edgeTypeFilterRecursive = ` AND type IN (${quotedTypes})`;
+            }
+            
+            if (targetIsAnonymous) {
+              // Anonymous target: just check if any path of required length exists from source
+              const reachSql = `EXISTS (
+                WITH RECURSIVE var_length_path(source_id, target_id, hops) AS (
+                  SELECT source_id, target_id, 1
+                  FROM edges
+                  WHERE source_id = ${sourceInfo.alias}.id${edgeTypeFilterBase}
+                  UNION ALL
+                  SELECT vlp.source_id, e.target_id, vlp.hops + 1
+                  FROM var_length_path vlp
+                  JOIN edges e ON vlp.target_id = e.source_id${edgeTypeFilterRecursive}
+                  WHERE vlp.hops < ${maxHops}
+                )
+                SELECT 1
+                FROM var_length_path
+                WHERE hops >= ${minHops}
+              )`;
+              conditions.push(reachSql);
+            } else {
+              // Build the reachability subquery
+              const reachSql = `EXISTS (
+                WITH RECURSIVE var_length_path(source_id, target_id, hops) AS (
+                  SELECT source_id, target_id, 1
+                  FROM edges
+                  WHERE source_id = ${sourceInfo.alias}.id${edgeTypeFilterBase}
+                  UNION ALL
+                  SELECT vlp.source_id, e.target_id, vlp.hops + 1
+                  FROM var_length_path vlp
+                  JOIN edges e ON vlp.target_id = e.source_id${edgeTypeFilterRecursive}
+                  WHERE vlp.hops < ${maxHops}
+                )
+                SELECT 1
+                FROM var_length_path
+                WHERE target_id = ${targetInfo!.alias}.id AND hops >= ${minHops}
+              )`;
+              
+              conditions.push(reachSql);
+            }
+          } else {
+            // Single-hop relationship
+            const edgeAlias = `e${this.ctx.aliasCounter++}`;
+            
+            if (targetIsAnonymous) {
+              // Anonymous target: just check if any outgoing/incoming edge exists
+              if (rel.edge.direction === "left") {
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.target_id = ${sourceInfo.alias}.id`);
+              } else if (rel.edge.direction === "none") {
+                // Undirected: check either direction
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id OR ${edgeAlias}.target_id = ${sourceInfo.alias}.id`);
+              } else {
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id`);
+              }
+            } else {
+              if (rel.edge.direction === "left") {
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.target_id = ${sourceInfo.alias}.id AND ${edgeAlias}.source_id = ${targetInfo!.alias}.id`);
+              } else if (rel.edge.direction === "none") {
+                // Undirected: check either direction
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE (${edgeAlias}.source_id = ${sourceInfo.alias}.id AND ${edgeAlias}.target_id = ${targetInfo!.alias}.id) OR (${edgeAlias}.source_id = ${targetInfo!.alias}.id AND ${edgeAlias}.target_id = ${sourceInfo.alias}.id)`);
+              } else {
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id AND ${edgeAlias}.target_id = ${targetInfo!.alias}.id`);
+              }
+            }
+            
+            // Filter by edge type if specified
+            if (rel.edge.type) {
+              conditions[conditions.length - 1] += ` AND ${edgeAlias}.type = ?`;
+              params.push(rel.edge.type);
+            } else if (rel.edge.types && rel.edge.types.length > 0) {
+              const placeholders = rel.edge.types.map(() => "?").join(", ");
+              conditions[conditions.length - 1] += ` AND ${edgeAlias}.type IN (${placeholders})`;
+              params.push(...rel.edge.types);
+            }
+            
+            // For anonymous targets with label constraints, add a join to nodes table
+            if (targetIsAnonymous && rel.target.label) {
+              const labels = Array.isArray(rel.target.label) ? rel.target.label : [rel.target.label];
+              const targetNodeAlias = `target_n${this.ctx.aliasCounter++}`;
+              // Remove trailing ) and add JOIN and label check
+              const existsClause = conditions[conditions.length - 1];
+              const withoutClosingParen = existsClause.slice(0, -1);
+              
+              // Build label check condition
+              const labelConditions = labels.map(l => 
+                `EXISTS(SELECT 1 FROM json_each(${targetNodeAlias}.label) WHERE value = '${l.replace(/'/g, "''")}')`
+              );
+              
+              // Determine which edge column to join on based on direction
+              let joinColumn: string;
+              if (rel.edge.direction === "left") {
+                joinColumn = `${edgeAlias}.source_id`;
+              } else {
+                joinColumn = `${edgeAlias}.target_id`;
+              }
+              
+              conditions[conditions.length - 1] = `${withoutClosingParen} AND EXISTS (SELECT 1 FROM nodes ${targetNodeAlias} WHERE ${targetNodeAlias}.id = ${joinColumn} AND (${labelConditions.join(" OR ")})))`;
+            } else {
+              conditions[conditions.length - 1] += ")";
+            }
+          }
+          
+          // Check target labels if specified (only for non-anonymous targets)
+          if (!targetIsAnonymous && rel.target.label) {
+            const labels = Array.isArray(rel.target.label) ? rel.target.label : [rel.target.label];
+            // Use EXISTS with json_each to check if label is in the array
+            const labelConditions = labels.map(l => 
+              `EXISTS(SELECT 1 FROM json_each(${targetInfo!.alias}.label) WHERE value = '${l.replace(/'/g, "''")}')`
+            );
+            conditions.push(`(${labelConditions.join(" OR ")})`);
+          }
        } else {
          // Node pattern only
          const node = pattern as NodePattern;

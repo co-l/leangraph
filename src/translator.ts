@@ -6783,6 +6783,27 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     return false;
   }
 
+  private isObjectExpression(expr: Expression): boolean {
+    // Check if expression is a map/object type
+    if (expr.type === "object") {
+      return true;
+    }
+    if (expr.type === "variable") {
+      // Check if this variable is a WITH alias that references an object
+      const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+      if (withAliases && withAliases.has(expr.variable!)) {
+        const originalExpr = withAliases.get(expr.variable!)!;
+        return this.isObjectExpression(originalExpr);
+      }
+    }
+    if (expr.type === "function") {
+      // Object-returning functions like properties()
+      const objectFunctions = ["PROPERTIES"];
+      return objectFunctions.includes((expr.functionName || "").toUpperCase());
+    }
+    return false;
+  }
+
   private isStringConcatenation(expr: Expression): boolean {
     // Check if expression is a string concatenation chain
     // (contains a string literal anywhere in a + chain)
@@ -6947,9 +6968,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       };
     }
 
-    // Structural equality for lists: use cypher_equals for null-aware deep comparison.
+    // Structural equality for lists and maps: use cypher_equals for null-aware deep comparison.
     // In Cypher, [null] = [1] returns null (unknown), not false.
-    if ((expr.comparisonOperator === "=" || expr.comparisonOperator === "<>") && this.isListExpression(expr.left!) && this.isListExpression(expr.right!)) {
+    // Same for maps: {k: null} = {k: null} returns null.
+    const needsCypherEquals = 
+      (this.isListExpression(expr.left!) && this.isListExpression(expr.right!)) ||
+      (this.isObjectExpression(expr.left!) && this.isObjectExpression(expr.right!));
+    
+    if ((expr.comparisonOperator === "=" || expr.comparisonOperator === "<>") && needsCypherEquals) {
       if (expr.comparisonOperator === "=") {
         return {
           sql: `cypher_equals(${leftSql}, ${rightSql})`,

@@ -98,3 +98,15 @@ cd /home/conrad/dev/nicefox-graphdb && GRAPHDB_PROJECT=test-debug tsx -e "
 })();
 "
 ```
+
+```bash
+cd /home/conrad/dev/nicefox-graphdb && GRAPHDB_PROJECT=test-debug tsx -e "
+const Database = require('better-sqlite3');
+const db = new Database(':memory:');
+// Test SQLite directly
+console.log('NULL = 1:', db.prepare('SELECT NULL = 1').get());
+console.log('json compare:', db.prepare(\"SELECT json(json_array(NULL)) = json(json_array(1))\").get());
+console.log('extract null:', db.prepare(\"SELECT json_extract(json_array(NULL), '\\\$[0]')\").get());
+console.log('json_type null:', db.prepare(\"SELECT json_type(json_array(NULL), '\\\$[0]')\").get());
+"
+```

@@ -8952,8 +8952,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               if (rel.edge.direction === "left") {
                 conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.target_id = ${sourceInfo.alias}.id`);
               } else if (rel.edge.direction === "none") {
-                // Undirected: check either direction
-                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id OR ${edgeAlias}.target_id = ${sourceInfo.alias}.id`);
+                // Undirected: check either direction (extra parens so type filter applies to both directions)
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE (${edgeAlias}.source_id = ${sourceInfo.alias}.id OR ${edgeAlias}.target_id = ${sourceInfo.alias}.id)`);
               } else {
                 conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id`);
               }
@@ -8961,8 +8961,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               if (rel.edge.direction === "left") {
                 conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.target_id = ${sourceInfo.alias}.id AND ${edgeAlias}.source_id = ${targetInfo!.alias}.id`);
               } else if (rel.edge.direction === "none") {
-                // Undirected: check either direction
-                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE (${edgeAlias}.source_id = ${sourceInfo.alias}.id AND ${edgeAlias}.target_id = ${targetInfo!.alias}.id) OR (${edgeAlias}.source_id = ${targetInfo!.alias}.id AND ${edgeAlias}.target_id = ${sourceInfo.alias}.id)`);
+                // Undirected: check either direction (extra parens so type filter applies to both directions)
+                conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ((${edgeAlias}.source_id = ${sourceInfo.alias}.id AND ${edgeAlias}.target_id = ${targetInfo!.alias}.id) OR (${edgeAlias}.source_id = ${targetInfo!.alias}.id AND ${edgeAlias}.target_id = ${sourceInfo.alias}.id))`);
               } else {
                 conditions.push(`EXISTS (SELECT 1 FROM edges ${edgeAlias} WHERE ${edgeAlias}.source_id = ${sourceInfo.alias}.id AND ${edgeAlias}.target_id = ${targetInfo!.alias}.id`);
               }

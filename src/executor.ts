@@ -7496,6 +7496,7 @@ export class Executor {
           }
           const argNames = expr.args.map(arg => {
             if (arg.type === "variable") return arg.variable!;
+            if (arg.type === "property") return `${arg.variable}.${arg.property}`;
             return "?";
           });
           return `${funcName}(${argNames.join(", ")})`;
@@ -8698,6 +8699,48 @@ export class Executor {
           // Handle count(*) or count(n) - for MATCH+SET+RETURN patterns
           // If we're in buildReturnResults, return the number of rows we processed
           resultRow[alias] = allResolvedIds.length;
+        } else if (item.expression.type === "function" && item.expression.functionName?.toUpperCase() === "SIZE") {
+          // Handle size(n.property) - get property from database and compute size
+          const args = item.expression.args;
+          if (args && args.length > 0) {
+            const arg = args[0];
+            if (arg.type === "property" && arg.variable && arg.property) {
+              const nodeId = resolvedIds[arg.variable];
+              if (nodeId) {
+                // Try nodes first
+                const nodeResult = this.db.execute(
+                  `SELECT json_extract(properties, '$.${arg.property}') as value FROM nodes WHERE id = ?`,
+                  [nodeId]
+                );
+                if (nodeResult.rows.length > 0) {
+                  const value = this.deepParseJson(nodeResult.rows[0].value);
+                  if (Array.isArray(value)) {
+                    resultRow[alias] = value.length;
+                  } else if (typeof value === "string") {
+                    resultRow[alias] = value.length;
+                  } else {
+                    resultRow[alias] = 0;
+                  }
+                } else {
+                  // Try edges
+                  const edgeResult = this.db.execute(
+                    `SELECT json_extract(properties, '$.${arg.property}') as value FROM edges WHERE id = ?`,
+                    [nodeId]
+                  );
+                  if (edgeResult.rows.length > 0) {
+                    const value = this.deepParseJson(edgeResult.rows[0].value);
+                    if (Array.isArray(value)) {
+                      resultRow[alias] = value.length;
+                    } else if (typeof value === "string") {
+                      resultRow[alias] = value.length;
+                    } else {
+                      resultRow[alias] = 0;
+                    }
+                  }
+                }
+              }
+            }
+          }
         } else if (item.expression.type === "literal") {
           // Handle literal values like RETURN 42 AS num
           resultRow[alias] = item.expression.value;

@@ -917,7 +917,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/list > List5 - List Membership Validation - IN Operator|9",
   // "expressions/list > List6 - List size|1",
   // "expressions/list > List6 - List size|10",
-  "expressions/list > List6 - List size|2",
+  // "expressions/list > List6 - List size|2",
   // "expressions/list > List6 - List size|4",
   // "expressions/list > List6 - List size|5",
   // "expressions/list > List6 - List size|7",

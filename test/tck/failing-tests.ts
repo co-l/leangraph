@@ -840,7 +840,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/list > List11 - Create a list from a range|5:8",
   // "expressions/list > List11 - Create a list from a range|5:9",
   // "expressions/list > List12 - List Comprehension|3",
-  "expressions/list > List12 - List Comprehension|6",
+  // "expressions/list > List12 - List Comprehension|6",
   // "expressions/list > List12 - List Comprehension|7",
   "expressions/list > List1 - Dynamic Element Access|2",
   "expressions/list > List1 - Dynamic Element Access|5", // Pre-existing: toInteger(idx) variable resolution

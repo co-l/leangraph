@@ -2266,10 +2266,10 @@ export class Parser {
   private parseInListExpression(): Expression {
     const token = this.peek();
 
-    // Array literal [...]
+    // Array literal [...] - use parseListLiteralExpression which handles both
+    // simple literals and list comprehensions like [x IN list | expr]
     if (token.type === "LBRACKET") {
-      const values = this.parseArray();
-      return { type: "literal", value: values };
+      return this.parseListLiteralExpression();
     }
 
     // Parameter $param

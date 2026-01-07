@@ -5788,10 +5788,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 throw new Error("labels() requires a node variable");
               }
               tables.push(varInfo.alias);
-              // Return a JSON array containing the single label
+              // Labels are already stored as JSON arrays in the database
               // Use CASE to return NULL when node is NULL (OPTIONAL MATCH)
               return { 
-                sql: `CASE WHEN ${varInfo.alias}.id IS NULL THEN NULL ELSE json_array(${varInfo.alias}.label) END`, 
+                sql: `CASE WHEN ${varInfo.alias}.id IS NULL THEN NULL ELSE ${varInfo.alias}.label END`, 
                 tables, 
                 params 
               };
@@ -8287,6 +8287,26 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
     if (listExpr.type === "variable" || listExpr.type === "property") {
       // For variable/property references, use json_each subquery
+      const listResult = this.translateWhereExpression(listExpr);
+      params.push(...listResult.params);
+      return {
+        sql: `${left.sql} IN (SELECT value FROM json_each(${listResult.sql}))`,
+        params,
+      };
+    }
+
+    if (listExpr.type === "listComprehension") {
+      // List comprehension returns a JSON array, use json_each to check membership
+      const listResult = this.translateListComprehension(listExpr);
+      params.push(...listResult.params);
+      return {
+        sql: `${left.sql} IN (SELECT value FROM json_each(${listResult.sql}))`,
+        params,
+      };
+    }
+
+    if (listExpr.type === "function") {
+      // Function call that returns a list (e.g., labels(), keys(), LIST(...))
       const listResult = this.translateWhereExpression(listExpr);
       params.push(...listResult.params);
       return {

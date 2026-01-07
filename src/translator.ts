@@ -10149,6 +10149,27 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
         return `(${objectName}).${expr.property}`;
       }
+      case "comparison": {
+        // For comparison expressions like n.x IS NULL, n.x = 1, etc.
+        const leftName = this.getExpressionName(expr.left!);
+        const op = expr.comparisonOperator!;
+        if (op === "IS NULL" || op === "IS NOT NULL") {
+          return `${leftName} ${op}`;
+        }
+        const rightName = this.getExpressionName(expr.right!);
+        return `${leftName} ${op} ${rightName}`;
+      }
+      case "in": {
+        // For IN expressions like n.x IN [1, 2]
+        const leftName = this.getExpressionName(expr.left!);
+        const listName = this.getExpressionName(expr.list!);
+        return `${leftName} IN ${listName}`;
+      }
+      case "unary": {
+        // For unary expressions like NOT n.x
+        const operandName = this.getExpressionName(expr.operand!);
+        return `${expr.operator} ${operandName}`;
+      }
       default:
         return "expr";
     }

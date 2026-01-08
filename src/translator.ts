@@ -8385,6 +8385,111 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Duration functions: duration.between, duration.inMonths, duration.inDays, duration.inSeconds
         // ============================================================================
 
+        // DURATION: parse a duration string or return null if passed null
+        // duration('P1Y2M3DT4H5M6S') -> 'P1Y2M3DT4H5M6S'
+        // duration(null) -> null
+        if (expr.functionName === "DURATION") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            // If null literal, return null directly
+            if (arg.type === "literal" && arg.value === null) {
+              return { sql: "NULL", tables, params };
+            }
+            // If map object, construct duration from components
+            if (arg.type === "object") {
+              const props = arg.properties ?? [];
+              const byKey = new Map<string, Expression>();
+              for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+              
+              const years = byKey.get("years");
+              const months = byKey.get("months");
+              const weeks = byKey.get("weeks");
+              const days = byKey.get("days");
+              const hours = byKey.get("hours");
+              const minutes = byKey.get("minutes");
+              const seconds = byKey.get("seconds");
+              const nanoseconds = byKey.get("nanoseconds");
+              
+              // Build ISO 8601 duration string
+              // Format: P[nY][nM][nW][nD][T[nH][nM][nS]]
+              const parts: string[] = [];
+              const timeParts: string[] = [];
+              
+              if (years) {
+                const r = this.translateExpression(years);
+                tables.push(...r.tables); params.push(...r.params);
+                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'Y' ELSE '' END`);
+              }
+              if (months) {
+                const r = this.translateExpression(months);
+                tables.push(...r.tables); params.push(...r.params);
+                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'M' ELSE '' END`);
+              }
+              if (weeks) {
+                const r = this.translateExpression(weeks);
+                tables.push(...r.tables); params.push(...r.params);
+                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'W' ELSE '' END`);
+              }
+              if (days) {
+                const r = this.translateExpression(days);
+                tables.push(...r.tables); params.push(...r.params);
+                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'D' ELSE '' END`);
+              }
+              if (hours) {
+                const r = this.translateExpression(hours);
+                tables.push(...r.tables); params.push(...r.params);
+                timeParts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'H' ELSE '' END`);
+              }
+              if (minutes) {
+                const r = this.translateExpression(minutes);
+                tables.push(...r.tables); params.push(...r.params);
+                timeParts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'M' ELSE '' END`);
+              }
+              if (seconds || nanoseconds) {
+                let secPart: string;
+                if (seconds && nanoseconds) {
+                  const sr = this.translateExpression(seconds);
+                  const nr = this.translateExpression(nanoseconds);
+                  tables.push(...sr.tables, ...nr.tables);
+                  params.push(...sr.params, ...nr.params);
+                  secPart = `CASE WHEN ${sr.sql} != 0 OR ${nr.sql} != 0 THEN ${sr.sql} || '.' || printf('%09d', ${nr.sql}) || 'S' ELSE '' END`;
+                } else if (seconds) {
+                  const sr = this.translateExpression(seconds);
+                  tables.push(...sr.tables); params.push(...sr.params);
+                  secPart = `CASE WHEN ${sr.sql} != 0 THEN ${sr.sql} || 'S' ELSE '' END`;
+                } else {
+                  const nr = this.translateExpression(nanoseconds!);
+                  tables.push(...nr.tables); params.push(...nr.params);
+                  secPart = `CASE WHEN ${nr.sql} != 0 THEN '0.' || printf('%09d', ${nr.sql}) || 'S' ELSE '' END`;
+                }
+                timeParts.push(secPart);
+              }
+              
+              // Build the result
+              const datePartSql = parts.length > 0 ? parts.join(" || ") : "''";
+              const timePartSql = timeParts.length > 0 
+                ? `CASE WHEN (${timeParts.join(" || ")}) != '' THEN 'T' || (${timeParts.join(" || ")}) ELSE '' END`
+                : "''";
+              
+              return {
+                sql: `('P' || (${datePartSql}) || (${timePartSql}))`,
+                tables,
+                params
+              };
+            }
+            // Variable or expression - evaluate and propagate null
+            const argResult = this.translateExpression(arg);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params, ...argResult.params);
+            return {
+              sql: `CASE WHEN ${argResult.sql} IS NULL THEN NULL ELSE ${argResult.sql} END`,
+              tables,
+              params
+            };
+          }
+          throw new Error("duration() requires an argument");
+        }
+
         // duration.between: compute duration between two temporal values
         if (expr.functionName === "DURATION.BETWEEN") {
           if (expr.args && expr.args.length === 2) {

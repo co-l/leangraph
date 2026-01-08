@@ -7959,6 +7959,90 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const millisecondExpr = byKey.get("millisecond");
               const microsecondExpr = byKey.get("microsecond");
 
+              // Datetime from date source with explicit time: datetime({date: other, hour: H, minute: M, ...})
+              if (dateExpr && !timeExpr && hourExpr && !yearExpr) {
+                const dateResult = this.translateExpression(dateExpr);
+                tables.push(...dateResult.tables);
+                params.push(...dateResult.params);
+                
+                const hourResult = this.translateExpression(hourExpr);
+                const minuteResult = minuteExpr 
+                  ? this.translateExpression(minuteExpr)
+                  : { sql: "0", tables: [] as string[], params: [] as unknown[] };
+                tables.push(...hourResult.tables, ...minuteResult.tables);
+                params.push(...hourResult.params, ...minuteResult.params);
+                
+                const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
+                const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
+                
+                // Default timezone to 'Z' if not provided
+                const tzResult = timezoneExpr 
+                  ? this.translateExpression(timezoneExpr)
+                  : { sql: "'Z'", tables: [] as string[], params: [] as unknown[] };
+                tables.push(...tzResult.tables);
+                params.push(...tzResult.params);
+                
+                // Check for date component overrides (month, day from date source)
+                const hasDateOverrides = monthExpr || dayExpr;
+                
+                let datePart: string;
+                if (hasDateOverrides) {
+                  const yearSqlD = `_d_year`;
+                  const monthSqlD = monthExpr
+                    ? (() => { const r = this.translateExpression(monthExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                    : `_d_month`;
+                  const daySqlD = dayExpr
+                    ? (() => { const r = this.translateExpression(dayExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                    : `_d_day`;
+                  datePart = `(SELECT ${yearSqlD} || '-' || ${monthSqlD} || '-' || ${daySqlD} FROM (SELECT substr(_d, 1, 4) AS _d_year, substr(_d, 6, 2) AS _d_month, substr(_d, 9, 2) AS _d_day FROM (SELECT ${dateResult.sql} AS _d)))`;
+                } else {
+                  datePart = `substr(${dateResult.sql}, 1, 10)`;
+                }
+                
+                // Build time part
+                let secondSql = "0";
+                if (secondExpr) {
+                  const secondResult = this.translateExpression(secondExpr);
+                  tables.push(...secondResult.tables);
+                  params.push(...secondResult.params);
+                  secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
+                }
+                
+                // Check for fractional seconds
+                let nanoSql = "0";
+                if (nanosecondExpr) {
+                  const nsResult = this.translateExpression(nanosecondExpr);
+                  tables.push(...nsResult.tables);
+                  params.push(...nsResult.params);
+                  nanoSql = `CAST(${nsResult.sql} AS INTEGER)`;
+                } else if (millisecondExpr) {
+                  const msResult = this.translateExpression(millisecondExpr);
+                  tables.push(...msResult.tables);
+                  params.push(...msResult.params);
+                  nanoSql = `(CAST(${msResult.sql} AS INTEGER) * 1000000)`;
+                } else if (microsecondExpr) {
+                  const usResult = this.translateExpression(microsecondExpr);
+                  tables.push(...usResult.tables);
+                  params.push(...usResult.params);
+                  nanoSql = `(CAST(${usResult.sql} AS INTEGER) * 1000)`;
+                }
+                
+                let timePart: string;
+                if (nanoSql === "0" && !secondExpr) {
+                  timePart = `printf('%02d:%02d', ${hourSql}, ${minuteSql})`;
+                } else if (nanoSql === "0") {
+                  timePart = `printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql})`;
+                } else {
+                  timePart = `printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanoSql})`;
+                }
+                
+                return {
+                  sql: `(${datePart} || 'T' || ${timePart} || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
+
               // Check date format type
               const hasCalendarDate = monthExpr && dayExpr;
               const hasWeekDate = weekExpr !== undefined;

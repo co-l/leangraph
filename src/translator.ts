@@ -6860,11 +6860,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const arg = expr.args[0];
 
             // time({hour: 10, minute: 35, timezone: '-08:00', ...})
+            // Also supports time({time: other, ...}) to project from another temporal
             if (arg.type === "object") {
               const props = arg.properties ?? [];
               const byKey = new Map<string, Expression>();
               for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
 
+              const timeExpr = byKey.get("time");
               const hourExpr = byKey.get("hour");
               const minuteExpr = byKey.get("minute");
               const secondExpr = byKey.get("second");
@@ -6872,6 +6874,101 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const microsecondExpr = byKey.get("microsecond");
               const nanosecondExpr = byKey.get("nanosecond");
               const timezoneExpr = byKey.get("timezone");
+
+              // Time projection: time({time: other, hour: H, minute: M, ...})
+              // Extract time from source temporal and apply overrides
+              if (timeExpr) {
+                const timeResult = this.translateExpression(timeExpr);
+                tables.push(...timeResult.tables);
+                params.push(...timeResult.params);
+                
+                const hasOverrides = hourExpr || minuteExpr || secondExpr || nanosecondExpr || millisecondExpr || microsecondExpr || timezoneExpr;
+                
+                if (!hasOverrides) {
+                  // Just extract time portion with timezone - find time after 'T' or use as is
+                  // For datetime with tz, extract time and keep the timezone
+                  return {
+                    sql: `(SELECT CASE 
+                      WHEN instr(_t, 'T') > 0 THEN 
+                        substr(_t, instr(_t, 'T') + 1)
+                      WHEN _t NOT GLOB '*Z' AND _t NOT GLOB '*[+-][0-9][0-9]:[0-9][0-9]' THEN _t || 'Z'
+                      ELSE _t 
+                    END FROM (SELECT ${timeResult.sql} AS _t))`,
+                    tables,
+                    params,
+                  };
+                }
+                
+                // With overrides, extract components from source and apply overrides
+                // Source time format: HH:MM or HH:MM:SS or HH:MM:SS.NNNNNNNNN, possibly with timezone at end
+                const needHour = !hourExpr;
+                const needMinute = !minuteExpr;
+                const needSecond = !secondExpr;
+                const needFrac = !nanosecondExpr && !millisecondExpr && !microsecondExpr;
+                const sourceComponentsNeeded = (needHour ? 1 : 0) + (needMinute ? 1 : 0) + (needSecond ? 1 : 0) + (needFrac ? 1 : 0);
+                
+                // Helper to compute fractional seconds SQL
+                const getFracSql = (srcRef: string) => {
+                  if (nanosecondExpr) {
+                    const r = this.translateExpression(nanosecondExpr);
+                    tables.push(...r.tables); params.push(...r.params);
+                    return `'.' || printf('%09d', CAST(${r.sql} AS INTEGER))`;
+                  } else if (millisecondExpr) {
+                    const r = this.translateExpression(millisecondExpr);
+                    tables.push(...r.tables); params.push(...r.params);
+                    return `'.' || printf('%09d', CAST(${r.sql} AS INTEGER) * 1000000)`;
+                  } else if (microsecondExpr) {
+                    const r = this.translateExpression(microsecondExpr);
+                    tables.push(...r.tables); params.push(...r.params);
+                    return `'.' || printf('%09d', CAST(${r.sql} AS INTEGER) * 1000)`;
+                  } else {
+                    // Extract fractional from source if present (up to dot before timezone)
+                    return `COALESCE(CASE WHEN instr(${srcRef}, '.') > 0 THEN substr(${srcRef}, instr(${srcRef}, '.'), CASE WHEN instr(substr(${srcRef}, instr(${srcRef}, '.')), 'Z') > 0 THEN instr(substr(${srcRef}, instr(${srcRef}, '.')), 'Z') - 1 WHEN instr(substr(${srcRef}, instr(${srcRef}, '.')), '+') > 0 THEN instr(substr(${srcRef}, instr(${srcRef}, '.')), '+') - 1 WHEN instr(substr(${srcRef}, instr(${srcRef}, '.')), '-') > 0 THEN instr(substr(${srcRef}, instr(${srcRef}, '.')), '-') - 1 ELSE length(${srcRef}) - instr(${srcRef}, '.') + 1 END) ELSE '' END, '')`;
+                  }
+                };
+                
+                // Get timezone from override or extract from source in subquery
+                let tzSql: string;
+                if (timezoneExpr) {
+                  const tzResult = this.translateExpression(timezoneExpr);
+                  tables.push(...tzResult.tables);
+                  params.push(...tzResult.params);
+                  tzSql = tzResult.sql;
+                } else {
+                  // Will extract timezone from _t_raw in subquery
+                  tzSql = `_t_tz`;
+                }
+                
+                // Build overridden components
+                const hourSql = hourExpr
+                  ? (() => { const r = this.translateExpression(hourExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                  : `_t_hour`;
+                const minuteSql = minuteExpr
+                  ? (() => { const r = this.translateExpression(minuteExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                  : `_t_minute`;
+                const secondSql = secondExpr
+                  ? (() => { const r = this.translateExpression(secondExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                  : `_t_second`;
+                const fracSql = getFracSql('_t_raw');
+                
+                // Use subquery to extract all components once
+                // Extract timezone: Z, +HH:MM, or -HH:MM from end of time string
+                return {
+                  sql: `(SELECT ${hourSql} || ':' || ${minuteSql} || ':' || ${secondSql} || ${fracSql} || ${tzSql} FROM (SELECT 
+                    substr(_t_raw, 1, 2) AS _t_hour, 
+                    substr(_t_raw, 4, 2) AS _t_minute, 
+                    COALESCE(substr(_t_raw, 7, 2), '00') AS _t_second,
+                    CASE 
+                      WHEN _t_raw GLOB '*Z' THEN 'Z'
+                      WHEN _t_raw GLOB '*[+-][0-9][0-9]:[0-9][0-9]' THEN substr(_t_raw, length(_t_raw) - 5)
+                      ELSE 'Z'
+                    END AS _t_tz,
+                    _t_raw 
+                  FROM (SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END AS _t_raw FROM (SELECT ${timeResult.sql} AS _t))))`,
+                  tables,
+                  params,
+                };
+              }
 
               if (!hourExpr || !minuteExpr) {
                 throw new Error("time(map) requires hour and minute");

@@ -5706,6 +5706,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         }
 
         // SUBSTRING: extract substring (Cypher uses 0-based indexing, SQLite uses 1-based)
+        // Wrap in json_quote() to preserve string type through JSON parsing in result processing
         if (expr.functionName === "SUBSTRING") {
           if (expr.args && expr.args.length >= 2) {
             const strResult = this.translateFunctionArg(expr.args[0]);
@@ -5718,9 +5719,9 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               tables.push(...lenResult.tables);
               params.push(...lenResult.params);
               // Cypher uses 0-based, SQLite uses 1-based indexing
-              return { sql: `SUBSTR(${strResult.sql}, ${startResult.sql} + 1, ${lenResult.sql})`, tables, params };
+              return { sql: `json_quote(SUBSTR(${strResult.sql}, ${startResult.sql} + 1, ${lenResult.sql}))`, tables, params };
             }
-            return { sql: `SUBSTR(${strResult.sql}, ${startResult.sql} + 1)`, tables, params };
+            return { sql: `json_quote(SUBSTR(${strResult.sql}, ${startResult.sql} + 1))`, tables, params };
           }
           throw new Error("substring requires at least 2 arguments");
         }

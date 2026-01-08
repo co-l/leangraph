@@ -52,6 +52,53 @@ function toSqliteParams(values: unknown[]): unknown[] {
   return values.map(toSqliteParam);
 }
 
+/**
+ * Check if a string is an IANA timezone name (contains '/')
+ */
+function isIANATimezone(tz: string): boolean {
+  // IANA timezones like 'Europe/Stockholm', 'America/New_York'
+  // Offsets are like '+01:00', '-08:00', 'Z'
+  return tz.includes('/') && !tz.startsWith('+') && !tz.startsWith('-');
+}
+
+/**
+ * Convert IANA timezone to UTC offset for a given date.
+ * Returns offset string like '+01:00' or '-05:00'.
+ * If conversion fails, returns the original timezone string.
+ */
+function getTimezoneOffset(timezone: string, year: number, month: number, day: number, hour: number, minute: number = 0): string {
+  if (!isIANATimezone(timezone)) {
+    return timezone;
+  }
+  
+  try {
+    // Create a UTC date for the given local time in the timezone
+    // We need to find what UTC offset the timezone has at this local time
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+    
+    // Use Intl to get the offset
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'longOffset'
+    });
+    
+    const parts = formatter.formatToParts(date);
+    const tzPart = parts.find(p => p.type === 'timeZoneName');
+    
+    if (tzPart && tzPart.value) {
+      // Extract offset from "GMT+01:00" or "GMT-05:00" or "GMT"
+      const match = tzPart.value.match(/GMT([+-]\d{2}:\d{2})?/);
+      if (match) {
+        return match[1] || '+00:00'; // 'GMT' alone means +00:00
+      }
+    }
+    
+    return timezone; // Fallback to original
+  } catch {
+    return timezone; // If timezone is invalid, return as-is
+  }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -7617,9 +7664,29 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 ? this.translateExpression(minuteExpr)
                 : { sql: "0", tables: [] as string[], params: [] as unknown[] };
               // Default timezone to 'Z' (UTC) if not provided
-              const tzResult = timezoneExpr 
+              let tzResult = timezoneExpr 
                 ? this.translateExpression(timezoneExpr)
                 : { sql: "'Z'", tables: [] as string[], params: [] as unknown[] };
+              
+              // Convert IANA timezone to offset if all date/time components are literals
+              if (timezoneExpr && timezoneExpr.type === "literal" && typeof timezoneExpr.value === "string") {
+                const tzValue = timezoneExpr.value;
+                if (isIANATimezone(tzValue)) {
+                  // Extract literal values for date/time computation
+                  const yearLit = yearExpr.type === "literal" ? Number(yearExpr.value) : NaN;
+                  const monthLit = monthExpr?.type === "literal" ? Number(monthExpr.value) : 1;
+                  const dayLit = dayExpr?.type === "literal" ? Number(dayExpr.value) : 1;
+                  const hourLit = hourExpr.type === "literal" ? Number(hourExpr.value) : 12;
+                  const minuteLit = minuteExpr?.type === "literal" ? Number(minuteExpr.value) : 0;
+                  
+                  if (!isNaN(yearLit)) {
+                    const offset = getTimezoneOffset(tzValue, yearLit, monthLit, dayLit, hourLit, minuteLit);
+                    // Replace the timezone param with the computed offset
+                    tzResult = { sql: "?", tables: [], params: [offset] };
+                  }
+                }
+              }
+              
               tables.push(
                 ...yearResult.tables,
                 ...hourResult.tables,

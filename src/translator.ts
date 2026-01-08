@@ -1327,9 +1327,9 @@ export class Translator {
       }
     }
 
-    // Check if RETURN uses multiple list predicates referencing different WITH aggregate aliases.
-    // SQLite doesn't allow multiple aggregate functions in correlated subqueries, so we need
-    // to materialize the aggregates in a CTE first.
+    // Check if RETURN uses list predicates referencing WITH aggregate aliases.
+    // SQLite doesn't allow aggregate functions in correlated subqueries (like json_each),
+    // so we need to materialize the aggregates in a CTE first.
     const withAliasesForCheck = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
     const aggregateAliasesInListPredicates = new Set<string>();
     for (const item of clause.items) {
@@ -1339,8 +1339,8 @@ export class Translator {
       }
     }
     
-    // If we have multiple aggregate aliases used in list predicates, we need a CTE
-    const needsAggregateCTE = aggregateAliasesInListPredicates.size > 1;
+    // If we have any aggregate aliases used in list predicates, we need a CTE
+    const needsAggregateCTE = aggregateAliasesInListPredicates.size > 0;
     if (needsAggregateCTE) {
       // Mark the context so translateExpression knows to use column references instead of re-translating
       (this.ctx as any).materializedAggregateAliases = aggregateAliasesInListPredicates;

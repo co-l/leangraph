@@ -7064,9 +7064,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Check if LHS is a complex type (list or object)
         const leftExpr = expr.left!;
         const leftIsLiteralArray = leftExpr.type === "literal" && Array.isArray(leftExpr.value);
-        const leftIsComplex = leftIsLiteralArray ||
+        // Comparison expressions return scalar boolean, not complex types
+        const leftIsComparison = leftExpr.type === "comparison";
+        const leftIsComplex = !leftIsComparison && (leftIsLiteralArray ||
                               leftExpr.type === "function" && (leftExpr.functionName === "LIST" || leftExpr.functionName === "INDEX") ||
-                              leftExpr.type === "object";
+                              leftExpr.type === "object");
         
         // Check if LHS literal array contains null
         const leftHasNull = leftIsLiteralArray && containsNull(leftExpr.value);
@@ -7166,13 +7168,28 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               };
             }
             
-            // For other complex LHS expressions, translate normally
+            // For other LHS expressions
             const leftResult = this.translateExpression(leftExpr);
             tables.push(...leftResult.tables);
-            params.push(...leftResult.params);
+            // IMPORTANT: params order must match SQL placeholder order
+            // SQL: json_each(?) ... ${leftResult.sql}
+            // So rhsJson comes first (for json_each), then leftResult.params (for leftResult.sql)
             params.push(rhsJson);
+            params.push(...leftResult.params);
+            
+            // When LHS is a scalar expression (like comparison result), don't use json() wrapper
+            // because SQLite UDF returns real type and json(0.0) != json(0) 
+            // Use direct value comparison which handles int/real equality correctly
+            const useDirectComparison = !leftIsComplex;
             
             if (rhsHasTopLevelNull) {
+              if (useDirectComparison) {
+                return {
+                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE value = ${leftResult.sql}) THEN 1 ELSE NULL END`,
+                  tables,
+                  params,
+                };
+              }
               return {
                 sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql})) THEN 1 ELSE NULL END`,
                 tables,
@@ -7180,6 +7197,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               };
             }
             
+            if (useDirectComparison) {
+              return {
+                sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE value = ${leftResult.sql})`,
+                tables,
+                params,
+              };
+            }
             return {
               sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql}))`,
               tables,

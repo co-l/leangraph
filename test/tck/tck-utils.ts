@@ -6,6 +6,21 @@
  */
 
 /**
+ * Process Cypher escape sequences in a string
+ */
+function unescapeCypherString(str: string): string {
+  return str
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\r/g, "\r")
+    .replace(/\\b/g, "\b")
+    .replace(/\\f/g, "\f")
+    .replace(/\\\\/g, "\\")
+    .replace(/\\'/g, "'")
+    .replace(/\\"/g, '"');
+}
+
+/**
  * Parse a Cypher-style property value string into a JavaScript value
  */
 function parsePatternValue(valueStr: string): unknown {
@@ -20,7 +35,7 @@ function parsePatternValue(valueStr: string): unknown {
   
   // String (single-quoted)
   if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1);
+    return unescapeCypherString(trimmed.slice(1, -1));
   }
   
   // Array

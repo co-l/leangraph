@@ -552,6 +552,21 @@ function substituteTemplate(template: string, substitutions: Map<string, string>
 }
 
 /**
+ * Process Cypher escape sequences in a string
+ */
+function unescapeCypherString(str: string): string {
+  return str
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\r/g, "\r")
+    .replace(/\\b/g, "\b")
+    .replace(/\\f/g, "\f")
+    .replace(/\\\\/g, "\\")
+    .replace(/\\'/g, "'")
+    .replace(/\\"/g, '"');
+}
+
+/**
  * Parse a cell value from the result table
  */
 function parseCellValue(cell: string): unknown {
@@ -564,7 +579,7 @@ function parseCellValue(cell: string): unknown {
   
   // String (quoted)
   if (cell.startsWith("'") && cell.endsWith("'")) {
-    return cell.slice(1, -1);
+    return unescapeCypherString(cell.slice(1, -1));
   }
   
   // Number

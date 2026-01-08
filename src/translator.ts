@@ -7338,6 +7338,31 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 };
               }
 
+              // Localdatetime from year/month/day + time source
+              // localdatetime({year: 1984, month: 10, day: 11, time: other})
+              if (yearExpr && monthExpr && dayExpr && timeExpr && !hourExpr) {
+                const yearResult = this.translateExpression(yearExpr);
+                const monthResult = this.translateExpression(monthExpr);
+                const dayResult = this.translateExpression(dayExpr);
+                const timeResult = this.translateExpression(timeExpr);
+                tables.push(...yearResult.tables, ...monthResult.tables, ...dayResult.tables, ...timeResult.tables);
+                params.push(...yearResult.params, ...monthResult.params, ...dayResult.params, ...timeResult.params);
+                
+                const yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
+                const monthSql = `CAST(${monthResult.sql} AS INTEGER)`;
+                const daySql = `CAST(${dayResult.sql} AS INTEGER)`;
+                
+                // Extract time portion from source (everything after 'T' or the whole string if no 'T')
+                // Time format: HH:MM:SS.NNNNNNNNN (no timezone for localtime sources)
+                const timePart = `(SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END FROM (SELECT ${timeResult.sql} AS _t))`;
+                
+                return {
+                  sql: `(printf('%04d-%02d-%02d', ${yearSql}, ${monthSql}, ${daySql}) || 'T' || ${timePart})`,
+                  tables,
+                  params,
+                };
+              }
+              
               // Must have year, hour, minute in all cases
               if (!yearExpr || !hourExpr || !minuteExpr) {
                 throw new Error("localdatetime(map) requires year, hour, and minute");

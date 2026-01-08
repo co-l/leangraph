@@ -6318,13 +6318,22 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 params.push(...weekResult.params);
                 const weekSql = `CAST(${weekResult.sql} AS INTEGER)`;
 
-                // Default dayOfWeek is 1 (Monday)
+                // Default dayOfWeek is 1 (Monday), or inherited from source date
                 let dayOfWeekSql = "1";
                 if (dayOfWeekExpr) {
                   const dowResult = this.translateExpression(dayOfWeekExpr);
                   tables.push(...dowResult.tables);
                   params.push(...dowResult.params);
                   dayOfWeekSql = `CAST(${dowResult.sql} AS INTEGER)`;
+                } else if (dateExpr) {
+                  // Inherit day of week from source date if no explicit dayOfWeek
+                  // ISO weekday: Monday=1, ..., Sunday=7
+                  // SQLite strftime('%w') returns 0=Sun, 1=Mon, ..., 6=Sat
+                  // Convert: (strftime('%w') + 6) % 7 + 1
+                  const dateResult2 = this.translateExpression(dateExpr);
+                  tables.push(...dateResult2.tables);
+                  params.push(...dateResult2.params);
+                  dayOfWeekSql = `(((CAST(strftime('%w', ${dateResult2.sql}) AS INTEGER) + 6) % 7) + 1)`;
                 }
 
                 // ISO week date formula:

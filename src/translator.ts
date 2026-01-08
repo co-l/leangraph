@@ -8788,11 +8788,18 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
   /**
    * Translate a list predicate expression: ALL/ANY/NONE/SINGLE(var IN list WHERE cond)
    * 
-   * Implementation uses a CTE to evaluate the list once and avoid parameter duplication issues:
-   * - ALL: true when count of elements NOT satisfying condition = 0 (empty list = true)
-   * - ANY: true when count of elements satisfying condition > 0 (empty list = false)  
-   * - NONE: true when count of elements satisfying condition = 0 (empty list = true)
-   * - SINGLE: true when count of elements satisfying condition = 1 (empty list = false)
+   * Three-valued logic for handling nulls:
+   * - If predicate evaluation produces NULL (unknown) for any element and no definitive answer, return NULL
+   * - ALL: false if any element fails; null if unknowns present and all definites pass; true otherwise
+   * - ANY: true if any element passes; null if unknowns present and no pass; false otherwise
+   * - NONE: false if any element passes; null if unknowns present and no pass; true otherwise
+   * - SINGLE: false if >1 element passes; null if unknowns present; true if exactly 1 passes; false otherwise
+   * 
+   * Unknowns are detected by: (total count) - (matches) - (non-matches) > 0
+   * This correctly handles cases like `WHERE false` where the predicate is static.
+   * 
+   * Note: Since the CASE expression uses the list/cond multiple times, we must duplicate
+   * the params for each occurrence.
    */
   private translateListPredicate(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
     const tables: string[] = [];
@@ -8806,42 +8813,74 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     // Translate the source list expression
     const listResult = this.translateExpression(listExpr);
     tables.push(...listResult.tables);
-    params.push(...listResult.params);
+    const listParams = listResult.params;
     
     // Get the list SQL - wrap for array if needed
     const listSql = this.wrapForListPredicate(listExpr, listResult.sql);
     
     // Translate the filter condition, substituting the list predicate variable with __lp__.value
     const condResult = this.translateListComprehensionCondition(filterCondition, variable, "__lp__");
-    params.push(...condResult.params);
+    const condParams = condResult.params;
+    
+    // Helper expressions for the CASE statements
+    // Note: each use of listSql and condResult.sql consumes their params in order
+    // Unknowns = total - matches - non_matches > 0
+    // This detects when predicate evaluation returns NULL (e.g., null = 2)
+    const totalCountSql = `(SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__)`;
+    const matchCountSql = `(SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql})`;
+    const nonMatchCountSql = `(SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__ WHERE NOT (${condResult.sql}))`;
+    const hasUnknownsSql = `(${totalCountSql} - ${matchCountSql} - ${nonMatchCountSql}) > 0`;
+    
+    const matchesSql = `EXISTS (SELECT 1 FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql})`;
+    const failsSql = `EXISTS (SELECT 1 FROM json_each(${listSql}) AS __lp__ WHERE NOT (${condResult.sql}))`;
     
     let sql: string;
     
     switch (predicateType) {
       case "ALL":
-        // ALL: true when no elements violate the condition
-        // For empty list, ALL is vacuously true
-        // Use a single subquery that counts elements not satisfying condition
-        // If list is empty, count is 0, which equals 0, so result is true
-        sql = `((SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__ WHERE NOT (${condResult.sql})) = 0)`;
+        // ALL: true when all elements satisfy condition
+        // - false if ANY element fails (definitive)
+        // - null if unknowns present and no failure detected (uncertain)
+        // - true otherwise
+        // Uses: failsSql (list + cond), hasUnknownsSql (list + list + cond + list + cond)
+        sql = `(CASE WHEN ${failsSql} THEN 0 WHEN ${hasUnknownsSql} THEN NULL ELSE 1 END)`;
+        params.push(...listParams, ...condParams);
+        params.push(...listParams, ...listParams, ...condParams, ...listParams, ...condParams);
         break;
         
       case "ANY":
-        // ANY: true when at least one element satisfies the condition
-        // For empty list, ANY is false
-        sql = `(EXISTS (SELECT 1 FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql}))`;
+        // ANY: true when at least one element satisfies condition
+        // - true if ANY element passes (definitive)
+        // - null if unknowns present and no pass detected (uncertain)
+        // - false otherwise
+        // Uses: matchesSql (list + cond), hasUnknownsSql (list + list + cond + list + cond)
+        sql = `(CASE WHEN ${matchesSql} THEN 1 WHEN ${hasUnknownsSql} THEN NULL ELSE 0 END)`;
+        params.push(...listParams, ...condParams);
+        params.push(...listParams, ...listParams, ...condParams, ...listParams, ...condParams);
         break;
         
       case "NONE":
-        // NONE: true when no elements satisfy the condition
-        // For empty list, NONE is true
-        sql = `(NOT EXISTS (SELECT 1 FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql}))`;
+        // NONE: true when no elements satisfy condition
+        // - false if ANY element passes (definitive)
+        // - null if unknowns present and no pass detected (uncertain)
+        // - true otherwise
+        // Uses: matchesSql (list + cond), hasUnknownsSql (list + list + cond + list + cond)
+        sql = `(CASE WHEN ${matchesSql} THEN 0 WHEN ${hasUnknownsSql} THEN NULL ELSE 1 END)`;
+        params.push(...listParams, ...condParams);
+        params.push(...listParams, ...listParams, ...condParams, ...listParams, ...condParams);
         break;
         
       case "SINGLE":
-        // SINGLE: true when exactly one element satisfies the condition
-        // For empty list, SINGLE is false
-        sql = `((SELECT COUNT(*) FROM json_each(${listSql}) AS __lp__ WHERE ${condResult.sql}) = 1)`;
+        // SINGLE: true when exactly one element satisfies condition
+        // - false if >1 element passes (definitive)
+        // - null if unknowns present (uncertain about count)
+        // - true if exactly 1 passes
+        // - false otherwise (0 passes)
+        // Uses: matchCountSql (list + cond), hasUnknownsSql (list + list + cond + list + cond), matchCountSql again (list + cond)
+        sql = `(CASE WHEN ${matchCountSql} > 1 THEN 0 WHEN ${hasUnknownsSql} THEN NULL WHEN ${matchCountSql} = 1 THEN 1 ELSE 0 END)`;
+        params.push(...listParams, ...condParams);
+        params.push(...listParams, ...listParams, ...condParams, ...listParams, ...condParams);
+        params.push(...listParams, ...condParams);
         break;
         
       default:

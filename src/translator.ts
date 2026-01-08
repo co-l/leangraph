@@ -8416,66 +8416,89 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const byKey = new Map<string, Expression>();
               for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
               
-              const years = byKey.get("years");
-              const months = byKey.get("months");
-              const weeks = byKey.get("weeks");
-              const days = byKey.get("days");
-              const hours = byKey.get("hours");
-              const minutes = byKey.get("minutes");
-              const seconds = byKey.get("seconds");
-              const nanoseconds = byKey.get("nanoseconds");
+              const yearsExpr = byKey.get("years");
+              const monthsExpr = byKey.get("months");
+              const weeksExpr = byKey.get("weeks");
+              const daysExpr = byKey.get("days");
+              const hoursExpr = byKey.get("hours");
+              const minutesExpr = byKey.get("minutes");
+              const secondsExpr = byKey.get("seconds");
+              const nanosecondsExpr = byKey.get("nanoseconds");
+              
+              // Translate all expressions
+              const yearsSql = yearsExpr ? this.translateExpression(yearsExpr) : null;
+              const monthsSql = monthsExpr ? this.translateExpression(monthsExpr) : null;
+              const weeksSql = weeksExpr ? this.translateExpression(weeksExpr) : null;
+              const daysSql = daysExpr ? this.translateExpression(daysExpr) : null;
+              const hoursSql = hoursExpr ? this.translateExpression(hoursExpr) : null;
+              const minutesSql = minutesExpr ? this.translateExpression(minutesExpr) : null;
+              const secondsSql = secondsExpr ? this.translateExpression(secondsExpr) : null;
+              const nanosecondsSql = nanosecondsExpr ? this.translateExpression(nanosecondsExpr) : null;
+              
+              // Collect tables and params
+              for (const r of [yearsSql, monthsSql, weeksSql, daysSql, hoursSql, minutesSql, secondsSql, nanosecondsSql]) {
+                if (r) {
+                  tables.push(...r.tables);
+                  params.push(...r.params);
+                }
+              }
+              
+              // Build normalized duration - carry over seconds→minutes→hours
+              // totalSeconds = inputSeconds + floor(inputNanos / 1000000000)
+              // remainingNanos = inputNanos % 1000000000
+              // extraMinutesFromSeconds = floor(totalSeconds / 60)
+              // finalSeconds = totalSeconds % 60
+              // totalMinutes = inputMinutes + extraMinutesFromSeconds
+              // extraHoursFromMinutes = floor(totalMinutes / 60)
+              // finalMinutes = totalMinutes % 60
+              // finalHours = inputHours + extraHoursFromMinutes
+              
+              const rawSecs = secondsSql?.sql ?? "0";
+              const rawNanos = nanosecondsSql?.sql ?? "0";
+              const rawMins = minutesSql?.sql ?? "0";
+              const rawHours = hoursSql?.sql ?? "0";
+              
+              // Compute carry-over values
+              const totalSecondsSql = `(${rawSecs} + (${rawNanos}) / 1000000000)`;
+              const remainingNanosSql = `((${rawNanos}) % 1000000000)`;
+              const extraMinutesFromSecsSql = `(${totalSecondsSql} / 60)`;
+              const finalSecondsSql = `(${totalSecondsSql} % 60)`;
+              const totalMinutesSql = `(${rawMins} + ${extraMinutesFromSecsSql})`;
+              const extraHoursFromMinsSql = `(${totalMinutesSql} / 60)`;
+              const finalMinutesSql = `(${totalMinutesSql} % 60)`;
+              const finalHoursSql = `(${rawHours} + ${extraHoursFromMinsSql})`;
               
               // Build ISO 8601 duration string
               // Format: P[nY][nM][nW][nD][T[nH][nM][nS]]
               const parts: string[] = [];
               const timeParts: string[] = [];
               
-              if (years) {
-                const r = this.translateExpression(years);
-                tables.push(...r.tables); params.push(...r.params);
-                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'Y' ELSE '' END`);
+              if (yearsExpr) {
+                parts.push(`CASE WHEN ${yearsSql!.sql} != 0 THEN ${yearsSql!.sql} || 'Y' ELSE '' END`);
               }
-              if (months) {
-                const r = this.translateExpression(months);
-                tables.push(...r.tables); params.push(...r.params);
-                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'M' ELSE '' END`);
+              if (monthsExpr) {
+                parts.push(`CASE WHEN ${monthsSql!.sql} != 0 THEN ${monthsSql!.sql} || 'M' ELSE '' END`);
               }
-              if (weeks) {
-                const r = this.translateExpression(weeks);
-                tables.push(...r.tables); params.push(...r.params);
-                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'W' ELSE '' END`);
+              if (weeksExpr) {
+                parts.push(`CASE WHEN ${weeksSql!.sql} != 0 THEN ${weeksSql!.sql} || 'W' ELSE '' END`);
               }
-              if (days) {
-                const r = this.translateExpression(days);
-                tables.push(...r.tables); params.push(...r.params);
-                parts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'D' ELSE '' END`);
+              if (daysExpr) {
+                parts.push(`CASE WHEN ${daysSql!.sql} != 0 THEN ${daysSql!.sql} || 'D' ELSE '' END`);
               }
-              if (hours) {
-                const r = this.translateExpression(hours);
-                tables.push(...r.tables); params.push(...r.params);
-                timeParts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'H' ELSE '' END`);
+              
+              // Use normalized values for time parts
+              if (hoursExpr || minutesExpr || secondsExpr) {
+                timeParts.push(`CASE WHEN ${finalHoursSql} != 0 THEN ${finalHoursSql} || 'H' ELSE '' END`);
               }
-              if (minutes) {
-                const r = this.translateExpression(minutes);
-                tables.push(...r.tables); params.push(...r.params);
-                timeParts.push(`CASE WHEN ${r.sql} != 0 THEN ${r.sql} || 'M' ELSE '' END`);
+              if (minutesExpr || secondsExpr) {
+                timeParts.push(`CASE WHEN ${finalMinutesSql} != 0 THEN ${finalMinutesSql} || 'M' ELSE '' END`);
               }
-              if (seconds || nanoseconds) {
+              if (secondsExpr || nanosecondsExpr) {
                 let secPart: string;
-                if (seconds && nanoseconds) {
-                  const sr = this.translateExpression(seconds);
-                  const nr = this.translateExpression(nanoseconds);
-                  tables.push(...sr.tables, ...nr.tables);
-                  params.push(...sr.params, ...nr.params);
-                  secPart = `CASE WHEN ${sr.sql} != 0 OR ${nr.sql} != 0 THEN ${sr.sql} || '.' || printf('%09d', ${nr.sql}) || 'S' ELSE '' END`;
-                } else if (seconds) {
-                  const sr = this.translateExpression(seconds);
-                  tables.push(...sr.tables); params.push(...sr.params);
-                  secPart = `CASE WHEN ${sr.sql} != 0 THEN ${sr.sql} || 'S' ELSE '' END`;
+                if (nanosecondsExpr) {
+                  secPart = `CASE WHEN ${finalSecondsSql} != 0 OR ${remainingNanosSql} != 0 THEN ${finalSecondsSql} || '.' || printf('%09d', ${remainingNanosSql}) || 'S' ELSE '' END`;
                 } else {
-                  const nr = this.translateExpression(nanoseconds!);
-                  tables.push(...nr.tables); params.push(...nr.params);
-                  secPart = `CASE WHEN ${nr.sql} != 0 THEN '0.' || printf('%09d', ${nr.sql}) || 'S' ELSE '' END`;
+                  secPart = `CASE WHEN ${finalSecondsSql} != 0 THEN ${finalSecondsSql} || 'S' ELSE '' END`;
                 }
                 timeParts.push(secPart);
               }

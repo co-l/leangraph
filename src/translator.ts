@@ -7007,10 +7007,40 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // or datetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14})
             // or datetime({year: 1984, ordinalDay: 100, hour: 12, minute: 30})
             // or datetime({year: 1984, quarter: 2, dayOfQuarter: 45, hour: 12, minute: 30})
+            // or datetime({date: otherDate, time: otherTime}) - compose from date and time values
             if (arg.type === "object") {
               const props = arg.properties ?? [];
               const byKey = new Map<string, Expression>();
               for (const prop of props) byKey.set(prop.key.toLowerCase(), prop.value);
+
+              // Check for date/time composition mode: datetime({date: ..., time: ...})
+              const dateExpr = byKey.get("date");
+              const timeExpr = byKey.get("time");
+              const timezoneExpr = byKey.get("timezone");
+              
+              if (dateExpr && timeExpr) {
+                // Compose datetime from date and time values
+                // Format: date part (YYYY-MM-DD) || 'T' || time part (HH:MM:SS...) || timezone
+                const dateResult = this.translateExpression(dateExpr);
+                const timeResult = this.translateExpression(timeExpr);
+                tables.push(...dateResult.tables, ...timeResult.tables);
+                params.push(...dateResult.params, ...timeResult.params);
+                
+                // Default timezone to 'Z' (UTC) if not provided
+                const tzResult = timezoneExpr 
+                  ? this.translateExpression(timezoneExpr)
+                  : { sql: "'Z'", tables: [] as string[], params: [] as unknown[] };
+                tables.push(...tzResult.tables);
+                params.push(...tzResult.params);
+                
+                // The date is already in YYYY-MM-DD format, time in HH:MM:SS format
+                // We just concatenate them with 'T' and append timezone
+                return {
+                  sql: `(substr(${dateResult.sql}, 1, 10) || 'T' || ${timeResult.sql} || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
 
               const yearExpr = byKey.get("year");
               const monthExpr = byKey.get("month");
@@ -7026,7 +7056,6 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const nanosecondExpr = byKey.get("nanosecond");
               const millisecondExpr = byKey.get("millisecond");
               const microsecondExpr = byKey.get("microsecond");
-              const timezoneExpr = byKey.get("timezone");
 
               // Check date format type
               const hasCalendarDate = monthExpr && dayExpr;

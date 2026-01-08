@@ -6559,25 +6559,35 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const hourExpr = byKey.get("hour");
               const minuteExpr = byKey.get("minute");
               const secondExpr = byKey.get("second");
+              const millisecondExpr = byKey.get("millisecond");
+              const microsecondExpr = byKey.get("microsecond");
               const nanosecondExpr = byKey.get("nanosecond");
               const timezoneExpr = byKey.get("timezone");
 
-              if (!hourExpr || !minuteExpr || !timezoneExpr) {
-                throw new Error("time(map) requires hour, minute, and timezone");
+              if (!hourExpr || !minuteExpr) {
+                throw new Error("time(map) requires hour and minute");
               }
 
               const hourResult = this.translateExpression(hourExpr);
               const minuteResult = this.translateExpression(minuteExpr);
-              const tzResult = this.translateExpression(timezoneExpr);
-              tables.push(...hourResult.tables, ...minuteResult.tables, ...tzResult.tables);
+              tables.push(...hourResult.tables, ...minuteResult.tables);
               params.push(...hourResult.params, ...minuteResult.params);
-              // Push timezone params 4 times since we use it 4 times in the CASE expression
-              params.push(...tzResult.params, ...tzResult.params, ...tzResult.params, ...tzResult.params);
 
               const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
               const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
-              // Normalize timezone: remove trailing ':00' seconds if present (e.g., '+02:05:00' -> '+02:05')
-              const tzNormalized = `(CASE WHEN ${tzResult.sql} LIKE '%:00' AND LENGTH(${tzResult.sql}) = 9 THEN SUBSTR(${tzResult.sql}, 1, 6) ELSE ${tzResult.sql} END)`;
+
+              // Timezone defaults to 'Z' (UTC) if not provided
+              let tzNormalized: string;
+              if (timezoneExpr) {
+                const tzResult = this.translateExpression(timezoneExpr);
+                tables.push(...tzResult.tables);
+                // Push timezone params 4 times since we use it 4 times in the CASE expression
+                params.push(...tzResult.params, ...tzResult.params, ...tzResult.params, ...tzResult.params);
+                // Normalize timezone: remove trailing ':00' seconds if present (e.g., '+02:05:00' -> '+02:05')
+                tzNormalized = `(CASE WHEN ${tzResult.sql} LIKE '%:00' AND LENGTH(${tzResult.sql}) = 9 THEN SUBSTR(${tzResult.sql}, 1, 6) ELSE ${tzResult.sql} END)`;
+              } else {
+                tzNormalized = `'Z'`;
+              }
 
               if (!secondExpr) {
                 return {
@@ -6592,7 +6602,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               params.push(...secondResult.params);
               const secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
 
-              if (!nanosecondExpr) {
+              // Check if any sub-second components are provided
+              const hasSubSecond = millisecondExpr || microsecondExpr || nanosecondExpr;
+
+              if (!hasSubSecond) {
                 return {
                   sql: `(printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql}) || ${tzNormalized})`,
                   tables,
@@ -6600,13 +6613,31 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 };
               }
 
-              const nanosecondResult = this.translateExpression(nanosecondExpr);
-              tables.push(...nanosecondResult.tables);
-              params.push(...nanosecondResult.params);
-              const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
+              // Combine millisecond, microsecond, nanosecond into total nanoseconds
+              // nanosecond = millisecond * 1000000 + microsecond * 1000 + nanosecond
+              const nsParts: string[] = [];
+              if (millisecondExpr) {
+                const msResult = this.translateExpression(millisecondExpr);
+                tables.push(...msResult.tables);
+                params.push(...msResult.params);
+                nsParts.push(`(CAST(${msResult.sql} AS INTEGER) * 1000000)`);
+              }
+              if (microsecondExpr) {
+                const usResult = this.translateExpression(microsecondExpr);
+                tables.push(...usResult.tables);
+                params.push(...usResult.params);
+                nsParts.push(`(CAST(${usResult.sql} AS INTEGER) * 1000)`);
+              }
+              if (nanosecondExpr) {
+                const nsResult = this.translateExpression(nanosecondExpr);
+                tables.push(...nsResult.tables);
+                params.push(...nsResult.params);
+                nsParts.push(`CAST(${nsResult.sql} AS INTEGER)`);
+              }
+              const totalNanosecondSql = nsParts.length > 0 ? `(${nsParts.join(" + ")})` : "0";
 
               return {
-                sql: `(printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql}) || ${tzNormalized})`,
+                sql: `(printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${totalNanosecondSql}) || ${tzNormalized})`,
                 tables,
                 params,
               };

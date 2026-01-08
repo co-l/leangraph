@@ -10216,21 +10216,72 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       // Strip JSON quotes from duration value if present
       // For DATE, only apply year/month/day modifiers (ignore time parts)
-      const modifiers = temporalType === "date"
-        ? `printf('%+d years', (${sign}) * ${yearsSql}),
+      if (temporalType === "date") {
+        const modifiers = `printf('%+d years', (${sign}) * ${yearsSql}),
            printf('%+d months', (${sign}) * ${monthsSql}),
-           printf('%+d days', (${sign}) * ${daysSql})`
-        : `printf('%+d years', (${sign}) * ${yearsSql}),
-           printf('%+d months', (${sign}) * ${monthsSql}),
-           printf('%+d days', (${sign}) * ${daysSql}),
-           printf('%+d hours', (${sign}) * ${hoursSql}),
-           printf('%+d minutes', (${sign}) * ${minutesSql}),
-           printf('%+.0f seconds', (${sign}) * ${secondsSql})`;
+           printf('%+d days', (${sign}) * ${daysSql})`;
+        
+        return {
+          sql: `(SELECT ${sqliteTemporalFn}(${baseSql}, ${modifiers})
+          FROM (SELECT CASE WHEN (${durSql}) LIKE '"P%' THEN substr(${durSql}, 2, length(${durSql}) - 2)
+                          ELSE ${durSql} END AS _durval))`,
+          tables,
+          params,
+        };
+      }
       
+      // For time/datetime, we need to handle nanoseconds separately
+      // Use a single WITH clause (CTE) to compute all intermediate values
+      
+      // Extract nanoseconds from duration (fractional part after decimal in seconds, padded to 9 digits)
+      const durationNanosSql = `COALESCE(CAST(
+        CASE WHEN instr(_d._durval, '.') > 0 AND instr(_d._durval, 'S') > instr(_d._durval, '.')
+             THEN substr(substr(_d._durval, instr(_d._durval, '.') + 1, instr(_d._durval, 'S') - instr(_d._durval, '.') - 1) || '000000000', 1, 9)
+             ELSE '0'
+        END AS INTEGER), 0)`;
+      
+      // Extract nanoseconds from the base time value (fractional part after decimal, padded to 9 digits)
+      const baseTimeNanosSql = `COALESCE(CAST(
+        CASE WHEN instr(_d._basetime, '.') > 0
+             THEN substr(substr(_d._basetime, instr(_d._basetime, '.') + 1) || '000000000', 1, 9)
+             ELSE '0'
+        END AS INTEGER), 0)`;
+      
+      // Calculate total nanoseconds after operation
+      const totalNanosSql = `(${baseTimeNanosSql} + (${sign}) * ${durationNanosSql})`;
+      
+      // Handle overflow/underflow: if nanos >= 1e9, add 1 second; if nanos < 0, subtract 1 second
+      const secondsAdjustSql = `CASE 
+        WHEN ${totalNanosSql} >= 1000000000 THEN 1
+        WHEN ${totalNanosSql} < 0 THEN -1
+        ELSE 0 END`;
+      
+      const finalNanosSql = `CASE 
+        WHEN ${totalNanosSql} >= 1000000000 THEN ${totalNanosSql} - 1000000000
+        WHEN ${totalNanosSql} < 0 THEN ${totalNanosSql} + 1000000000
+        ELSE ${totalNanosSql} END`;
+      
+      // Build the time modifiers (with seconds adjustment for nanosecond overflow/underflow)
+      const timeModifiers = `printf('%+d years', (${sign}) * ${yearsSql}),
+         printf('%+d months', (${sign}) * ${monthsSql}),
+         printf('%+d days', (${sign}) * ${daysSql}),
+         printf('%+d hours', (${sign}) * ${hoursSql}),
+         printf('%+d minutes', (${sign}) * ${minutesSql}),
+         printf('%+.0f seconds', (${sign}) * CAST(${secondsSql} AS INTEGER) + ${secondsAdjustSql})`;
+      
+      // For TIME and DATETIME, handle nanoseconds and format the output
       return {
-        sql: `(SELECT ${sqliteTemporalFn}(${baseSql}, ${modifiers})
-        FROM (SELECT CASE WHEN (${durSql}) LIKE '"P%' THEN substr(${durSql}, 2, length(${durSql}) - 2)
-                        ELSE ${durSql} END AS _durval))`,
+        sql: `(SELECT 
+          CASE WHEN ${finalNanosSql} = 0 
+               THEN ${sqliteTemporalFn}(_d._basetime, ${timeModifiers})
+               ELSE ${sqliteTemporalFn}(_d._basetime, ${timeModifiers}) || '.' || 
+                    substr('000000000' || CAST(${finalNanosSql} AS TEXT), -9)
+          END
+        FROM (
+          SELECT ${baseSql} AS _basetime,
+                 CASE WHEN (${durSql}) LIKE '"P%' THEN substr(${durSql}, 2, length(${durSql}) - 2)
+                      ELSE ${durSql} END AS _durval
+        ) AS _d)`,
         tables,
         params,
       };

@@ -6655,6 +6655,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const arg = expr.args[0];
 
             // localdatetime({year: 1984, month: 10, day: 11, hour: 12, minute: 30, second: 14, nanosecond: 12})
+            // or localdatetime({year: 1984, week: 10, dayOfWeek: 3, hour: 12, minute: 31, second: 14})
             if (arg.type === "object") {
               const props = arg.properties ?? [];
               const byKey = new Map<string, Expression>();
@@ -6663,6 +6664,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const yearExpr = byKey.get("year");
               const monthExpr = byKey.get("month");
               const dayExpr = byKey.get("day");
+              const weekExpr = byKey.get("week");
+              const dayOfWeekExpr = byKey.get("dayofweek");
               const hourExpr = byKey.get("hour");
               const minuteExpr = byKey.get("minute");
               const secondExpr = byKey.get("second");
@@ -6670,42 +6673,110 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const millisecondExpr = byKey.get("millisecond");
               const microsecondExpr = byKey.get("microsecond");
 
-              if (!yearExpr || !monthExpr || !dayExpr || !hourExpr || !minuteExpr) {
-                throw new Error("localdatetime(map) requires year, month, day, hour, and minute");
+              // Must have year, hour, minute in all cases
+              if (!yearExpr || !hourExpr || !minuteExpr) {
+                throw new Error("localdatetime(map) requires year, hour, and minute");
+              }
+
+              // Either month+day or week (with optional dayOfWeek)
+              const hasCalendarDate = monthExpr && dayExpr;
+              const hasWeekDate = weekExpr;
+
+              if (!hasCalendarDate && !hasWeekDate) {
+                throw new Error("localdatetime(map) requires month/day or week");
               }
 
               const yearResult = this.translateExpression(yearExpr);
-              const monthResult = this.translateExpression(monthExpr);
-              const dayResult = this.translateExpression(dayExpr);
               const hourResult = this.translateExpression(hourExpr);
               const minuteResult = this.translateExpression(minuteExpr);
               tables.push(
                 ...yearResult.tables,
-                ...monthResult.tables,
-                ...dayResult.tables,
                 ...hourResult.tables,
                 ...minuteResult.tables
               );
               params.push(
                 ...yearResult.params,
-                ...monthResult.params,
-                ...dayResult.params,
                 ...hourResult.params,
                 ...minuteResult.params
               );
 
               const yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
-              const monthSql = `CAST(${monthResult.sql} AS INTEGER)`;
-              const daySql = `CAST(${dayResult.sql} AS INTEGER)`;
               const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
               const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
 
-              if (!secondExpr) {
+              let dateSql: string;
+
+              if (hasWeekDate) {
+                // ISO week date: localdatetime({year: Y, week: W, dayOfWeek: D, ...})
+                // Same formula as date() function
+                const weekResult = this.translateExpression(weekExpr);
+                tables.push(...weekResult.tables);
+                params.push(...weekResult.params);
+                const weekSql = `CAST(${weekResult.sql} AS INTEGER)`;
+
+                // Default dayOfWeek is 1 (Monday)
+                let dayOfWeekSql = "1";
+                if (dayOfWeekExpr) {
+                  const dowResult = this.translateExpression(dayOfWeekExpr);
+                  tables.push(...dowResult.tables);
+                  params.push(...dowResult.params);
+                  dayOfWeekSql = `CAST(${dowResult.sql} AS INTEGER)`;
+                }
+
+                // Need yearSql twice in the formula, so duplicate params
+                params.push(...yearResult.params);
+
+                // ISO week date formula:
+                // Monday of week W in year Y = Jan 4 of Y - (weekday of Jan 4 as 0-6 Mon-Sun) + (W-1)*7
+                // Then add (dayOfWeek - 1) for other days
+                dateSql = `DATE(
+                  julianday(printf('%04d-01-04', ${yearSql}))
+                  - ((CAST(strftime('%w', printf('%04d-01-04', ${yearSql})) AS INTEGER) + 6) % 7)
+                  + (${weekSql} - 1) * 7
+                  + (${dayOfWeekSql} - 1)
+                )`;
+              } else {
+                // Calendar date: month/day
+                const monthResult = this.translateExpression(monthExpr!);
+                const dayResult = this.translateExpression(dayExpr!);
+                tables.push(...monthResult.tables, ...dayResult.tables);
+                params.push(...monthResult.params, ...dayResult.params);
+                const monthSql = `CAST(${monthResult.sql} AS INTEGER)`;
+                const daySql = `CAST(${dayResult.sql} AS INTEGER)`;
+                dateSql = `printf('%04d-%02d-%02d', ${yearSql}, ${monthSql}, ${daySql})`;
+              }
+
+              // Helper to build time part
+              const buildTimeResult = (
+                dateSql: string,
+                hourSql: string,
+                minuteSql: string,
+                secondSql: string | null,
+                totalNanoSql: string | null
+              ) => {
+                if (!secondSql) {
+                  return {
+                    sql: `(${dateSql} || 'T' || printf('%02d:%02d', ${hourSql}, ${minuteSql}))`,
+                    tables,
+                    params,
+                  };
+                }
+                if (!totalNanoSql) {
+                  return {
+                    sql: `(${dateSql} || 'T' || printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql}))`,
+                    tables,
+                    params,
+                  };
+                }
                 return {
-                  sql: `printf('%04d-%02d-%02dT%02d:%02d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql})`,
+                  sql: `(${dateSql} || 'T' || printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${totalNanoSql}))`,
                   tables,
                   params,
                 };
+              };
+
+              if (!secondExpr) {
+                return buildTimeResult(dateSql, hourSql, minuteSql, null, null);
               }
 
               const secondResult = this.translateExpression(secondExpr);
@@ -6717,11 +6788,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const hasSubSecond = nanosecondExpr || millisecondExpr || microsecondExpr;
 
               if (!hasSubSecond) {
-                return {
-                  sql: `printf('%04d-%02d-%02dT%02d:%02d:%02d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}, ${secondSql})`,
-                  tables,
-                  params,
-                };
+                return buildTimeResult(dateSql, hourSql, minuteSql, secondSql, null);
               }
 
               // Compute total nanoseconds from millisecond, microsecond, and nanosecond
@@ -6751,11 +6818,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
               const totalNanoSql = nanoComponents.length > 0 ? nanoComponents.join(" + ") : "0";
 
-              return {
-                sql: `printf('%04d-%02d-%02dT%02d:%02d:%02d.%09d', ${yearSql}, ${monthSql}, ${daySql}, ${hourSql}, ${minuteSql}, ${secondSql}, ${totalNanoSql})`,
-                tables,
-                params,
-              };
+              return buildTimeResult(dateSql, hourSql, minuteSql, secondSql, totalNanoSql);
             }
 
             throw new Error("localdatetime() currently supports only map arguments");

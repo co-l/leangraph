@@ -6284,6 +6284,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const dayOfWeekExpr = byKey.get("dayofweek");
               const dateExpr = byKey.get("date");
               const ordinalDayExpr = byKey.get("ordinalday");
+              const quarterExpr = byKey.get("quarter");
+              const dayOfQuarterExpr = byKey.get("dayofquarter");
 
               // ISO week date: date({year: Y, week: W}) or date({year: Y, week: W, dayOfWeek: D})
               // Or with base date: date({date: D, week: W})
@@ -6368,6 +6370,38 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 // Start from Jan 1 and add (ordinalDay - 1) days
                 return {
                   sql: `DATE(printf('%04d-01-01', ${yearSql}), '+' || (${ordinalDaySql} - 1) || ' days')`,
+                  tables,
+                  params,
+                };
+              }
+
+              // Quarter date: date({year: Y, quarter: Q, dayOfQuarter: D})
+              // Quarter 1 starts Jan 1, Q2 starts Apr 1, Q3 starts Jul 1, Q4 starts Oct 1
+              // dayOfQuarter defaults to 1
+              if (yearExpr && quarterExpr) {
+                const yearResult = this.translateExpression(yearExpr);
+                tables.push(...yearResult.tables);
+                params.push(...yearResult.params);
+                const yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
+
+                const quarterResult = this.translateExpression(quarterExpr);
+                tables.push(...quarterResult.tables);
+                params.push(...quarterResult.params);
+                const quarterSql = `CAST(${quarterResult.sql} AS INTEGER)`;
+
+                let dayOfQuarterSql = "1";
+                if (dayOfQuarterExpr) {
+                  const dayOfQuarterResult = this.translateExpression(dayOfQuarterExpr);
+                  tables.push(...dayOfQuarterResult.tables);
+                  params.push(...dayOfQuarterResult.params);
+                  dayOfQuarterSql = `CAST(${dayOfQuarterResult.sql} AS INTEGER)`;
+                }
+
+                // Quarter start months: Q1=1, Q2=4, Q3=7, Q4=10
+                // Formula: (quarter - 1) * 3 + 1
+                // Start from first day of quarter, then add (dayOfQuarter - 1) days
+                return {
+                  sql: `DATE(printf('%04d-%02d-01', ${yearSql}, (${quarterSql} - 1) * 3 + 1), '+' || (${dayOfQuarterSql} - 1) || ' days')`,
                   tables,
                   params,
                 };

@@ -7064,6 +7064,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                   // If source has no timezone (localtime), don't convert - just append new timezone
                   // If source has timezone (time/datetime), convert the time
                   // _has_tz: 1 if source has explicit timezone, 0 if not (localtime)
+                  // Helper to strip [timezone] suffix from datetime strings
+                  const stripTzName = (expr: string) => `CASE WHEN instr(${expr}, '[') > 0 THEN substr(${expr}, 1, instr(${expr}, '[') - 1) ELSE ${expr} END`;
                   return {
                     sql: `(SELECT 
                       CASE WHEN _has_tz = 1 THEN 
@@ -7091,12 +7093,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                       END AS _has_tz,
                       ${tzSql} AS _new_tz,
                       _t_raw 
-                    FROM (SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END AS _t_raw FROM (SELECT ${timeResult.sql} AS _t)))))`,
+                    FROM (SELECT ${stripTzName(`CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END`)} AS _t_raw FROM (SELECT ${timeResult.sql} AS _t)))))`,
                     tables,
                     params,
                   };
                 }
                 
+                // Helper to strip [timezone] suffix from datetime strings
+                const stripTzNameNoConv = (expr: string) => `CASE WHEN instr(${expr}, '[') > 0 THEN substr(${expr}, 1, instr(${expr}, '[') - 1) ELSE ${expr} END`;
                 return {
                   sql: `(SELECT ${hourSql} || ':' || ${minuteSql} || ':' || ${secondSql} || ${fracSql} || ${tzSql} FROM (SELECT 
                     substr(_t_raw, 1, 2) AS _t_hour, 
@@ -7108,7 +7112,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                       ELSE 'Z'
                     END AS _t_tz,
                     _t_raw 
-                  FROM (SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END AS _t_raw FROM (SELECT ${timeResult.sql} AS _t))))`,
+                  FROM (SELECT ${stripTzNameNoConv(`CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END`)} AS _t_raw FROM (SELECT ${timeResult.sql} AS _t))))`,
                   tables,
                   params,
                 };
@@ -8185,8 +8189,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                   
                   if (!isNaN(yearLit)) {
                     const offset = getTimezoneOffset(tzValue, yearLit, monthLit, dayLit, hourLit, minuteLit);
-                    // Replace the timezone param with the computed offset
-                    tzResult = { sql: "?", tables: [], params: [offset] };
+                    // Replace the timezone param with the computed offset + [timezone name]
+                    tzResult = { sql: "?", tables: [], params: [`${offset}[${tzValue}]`] };
                   }
                 }
               }

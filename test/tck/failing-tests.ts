@@ -1691,7 +1691,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/temporal > Temporal6 - Render Temporal Values as a String|6:7",
   // "expressions/temporal > Temporal6 - Render Temporal Values as a String|6:8",
   // "expressions/temporal > Temporal6 - Render Temporal Values as a String|6:9",
-  "expressions/temporal > Temporal6 - Render Temporal Values as a String|7",
+  // "expressions/temporal > Temporal6 - Render Temporal Values as a String|7",
   // "expressions/temporal > Temporal7 - Compare Temporal Values|1:1",
   // "expressions/temporal > Temporal7 - Compare Temporal Values|1:2",
   // "expressions/temporal > Temporal7 - Compare Temporal Values|2:1",

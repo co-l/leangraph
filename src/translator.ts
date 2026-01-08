@@ -6444,6 +6444,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // date('2024-01-15') - parse date string
             // Also supports compact formats:
             // - YYYY (year only, 4 digits): 2015 = 2015-01-01
+            // - YYYYMM (compact year-month, 6 digits): 201507 = 2015-07-01
             // - YYYY-MM (year-month, 7 chars): 2015-07 = 2015-07-01
             // - YYYYDDD (ordinal date, 7 digits): 2015202 = 2015, day 202 = 2015-07-21
             // - YYYYMMDD (compact date, 8 digits): 20150721 = 2015-07-21
@@ -6458,6 +6459,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const sql = `(SELECT CASE
               WHEN length(d) = 4 AND d GLOB '[0-9][0-9][0-9][0-9]'
               THEN DATE(d || '-01-01')
+              WHEN length(d) = 6 AND d GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'
+              THEN DATE(substr(d, 1, 4) || '-' || substr(d, 5, 2) || '-01')
               WHEN length(d) = 7 AND d GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'
               THEN DATE(d || '-01')
               WHEN length(d) = 7 AND d GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9]'

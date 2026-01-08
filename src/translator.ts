@@ -8043,6 +8043,43 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 };
               }
 
+              // Datetime from explicit year/month/day with time source: datetime({year: Y, month: M, day: D, time: other})
+              if (!dateExpr && timeExpr && yearExpr && monthExpr && dayExpr) {
+                const timeResult = this.translateExpression(timeExpr);
+                tables.push(...timeResult.tables);
+                params.push(...timeResult.params);
+                
+                const yearResult = this.translateExpression(yearExpr);
+                const monthResult = this.translateExpression(monthExpr);
+                const dayResult = this.translateExpression(dayExpr);
+                tables.push(...yearResult.tables, ...monthResult.tables, ...dayResult.tables);
+                params.push(...yearResult.params, ...monthResult.params, ...dayResult.params);
+                
+                // Default timezone to 'Z' if not provided
+                const tzResult = timezoneExpr 
+                  ? this.translateExpression(timezoneExpr)
+                  : { sql: "'Z'", tables: [] as string[], params: [] as unknown[] };
+                tables.push(...tzResult.tables);
+                params.push(...tzResult.params);
+                
+                const yearSql = `printf('%04d', CAST(${yearResult.sql} AS INTEGER))`;
+                const monthSql = `printf('%02d', CAST(${monthResult.sql} AS INTEGER))`;
+                const daySql = `printf('%02d', CAST(${dayResult.sql} AS INTEGER))`;
+                const datePart = `(${yearSql} || '-' || ${monthSql} || '-' || ${daySql})`;
+                
+                // Extract time components from time source
+                // localtime format is HH:MM:SS.NNNNNNNNN (no timezone)
+                // time format is HH:MM:SS.NNNNNNNNN+HH:MM
+                // We need to strip any timezone info from the time source for datetime
+                const timePart = `(SELECT substr(_t, 1, 2) || ':' || substr(_t, 4, 2) || ':' || substr(_t, 7, 2) || CASE WHEN length(_t) > 8 AND substr(_t, 9, 1) = '.' THEN substr(_t, 9, CASE WHEN instr(substr(_t, 9), '+') > 0 THEN instr(substr(_t, 9), '+') - 1 WHEN instr(substr(_t, 9), '-') > 0 THEN instr(substr(_t, 9), '-') - 1 ELSE length(_t) - 8 END) ELSE '' END FROM (SELECT ${timeResult.sql} AS _t))`;
+                
+                return {
+                  sql: `(${datePart} || 'T' || ${timePart} || ${tzResult.sql})`,
+                  tables,
+                  params,
+                };
+              }
+
               // Check date format type
               const hasCalendarDate = monthExpr && dayExpr;
               const hasWeekDate = weekExpr !== undefined;
@@ -8050,6 +8087,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const hasQuarterDate = quarterExpr !== undefined;
 
               if (!yearExpr || !hourExpr) {
+                // Allow if we have time source - will be handled above
+                if (timeExpr) {
+                  throw new Error("datetime(map) with time requires year, month, and day");
+                }
                 throw new Error("datetime(map) requires year and hour");
               }
 

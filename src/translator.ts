@@ -8635,36 +8635,58 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
   /**
    * Translate an expression within a list comprehension, replacing
    * references to the comprehension variable with the json_each value column.
+   * Supports scope chains for nested quantifiers.
    */
   private translateListComprehensionExpr(
     expr: Expression,
     compVar: string,
-    tableAlias: string
+    tableAlias: string,
+    scopes?: Array<{ variable: string; tableAlias: string }>
   ): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
     
+    // Build the full scope chain including the current scope
+    const allScopes = scopes 
+      ? [...scopes, { variable: compVar, tableAlias }]
+      : [{ variable: compVar, tableAlias }];
+    
+    // Helper to find the scope for a variable
+    const findScope = (varName: string) => {
+      // Search from innermost (end) to outermost (start)
+      for (let i = allScopes.length - 1; i >= 0; i--) {
+        if (allScopes[i].variable === varName) {
+          return allScopes[i];
+        }
+      }
+      return null;
+    };
+    
     switch (expr.type) {
-      case "variable":
-        if (expr.variable === compVar) {
-          return { sql: `${tableAlias}.value`, params };
+      case "variable": {
+        const scope = findScope(expr.variable!);
+        if (scope) {
+          return { sql: `${scope.tableAlias}.value`, params };
         }
         // Fall through to regular translation
         const varResult = this.translateExpression(expr);
         return { sql: varResult.sql, params: varResult.params };
+      }
       
-      case "property":
-        // Handle property access on the comprehension variable (e.g., x.a in "none(x IN list WHERE x.a = 2)")
-        if (expr.variable === compVar) {
+      case "property": {
+        // Handle property access on any comprehension variable (e.g., x.a in "none(x IN list WHERE x.a = 2)")
+        const scope = findScope(expr.variable!);
+        if (scope) {
           // Extract property from the JSON value in the list element
-          return { sql: `json_extract(${tableAlias}.value, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${scope.tableAlias}.value, '$.${expr.property}')`, params };
         }
         // Fall through to regular translation for other variables
         const propResult = this.translateExpression(expr);
         return { sql: propResult.sql, params: propResult.params };
+      }
         
       case "binary": {
-        const left = this.translateListComprehensionExpr(expr.left!, compVar, tableAlias);
-        const right = this.translateListComprehensionExpr(expr.right!, compVar, tableAlias);
+        const left = this.translateListComprehensionExpr(expr.left!, compVar, tableAlias, scopes);
+        const right = this.translateListComprehensionExpr(expr.right!, compVar, tableAlias, scopes);
         params.push(...left.params, ...right.params);
         return { sql: `(${left.sql} ${expr.operator} ${right.sql})`, params };
       }
@@ -8678,7 +8700,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         params.push(literalValue);
         return { sql: "?", params };
         
-      case "parameter":
+      case "parameter": {
         const paramValue = this.ctx.paramValues[expr.name!];
         if (Array.isArray(paramValue) || (typeof paramValue === "object" && paramValue !== null)) {
           params.push(JSON.stringify(paramValue));
@@ -8686,12 +8708,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           params.push(paramValue);
         }
         return { sql: "?", params };
+      }
         
       case "function": {
         // Handle functions like size(x)
         const funcArgs: string[] = [];
         for (const arg of expr.args || []) {
-          const argResult = this.translateListComprehensionExpr(arg, compVar, tableAlias);
+          const argResult = this.translateListComprehensionExpr(arg, compVar, tableAlias, scopes);
           params.push(...argResult.params);
           funcArgs.push(argResult.sql);
         }
@@ -8730,27 +8753,30 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return { sql: result.sql, params: result.params };
       }
       
-      default:
+      default: {
         // Fall back to regular translation
         const result2 = this.translateExpression(expr);
         return { sql: result2.sql, params: result2.params };
+      }
     }
   }
 
   /**
    * Translate a WHERE condition within a list comprehension.
+   * Supports scope chains for nested quantifiers.
    */
   private translateListComprehensionCondition(
     condition: WhereCondition,
     compVar: string,
-    tableAlias: string
+    tableAlias: string,
+    scopes?: Array<{ variable: string; tableAlias: string }>
   ): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
     
     switch (condition.type) {
       case "comparison": {
-        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias);
-        const right = this.translateListComprehensionExpr(condition.right!, compVar, tableAlias);
+        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias, scopes);
+        const right = this.translateListComprehensionExpr(condition.right!, compVar, tableAlias, scopes);
         params.push(...left.params, ...right.params);
         const temporalOps = new Set(["<", "<=", ">", ">="]);
         if (temporalOps.has(condition.operator!)) {
@@ -8773,7 +8799,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       case "and": {
         const parts = condition.conditions!.map(c => 
-          this.translateListComprehensionCondition(c, compVar, tableAlias)
+          this.translateListComprehensionCondition(c, compVar, tableAlias, scopes)
         );
         return {
           sql: `(${parts.map(p => p.sql).join(" AND ")})`,
@@ -8783,7 +8809,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       case "or": {
         const parts = condition.conditions!.map(c => 
-          this.translateListComprehensionCondition(c, compVar, tableAlias)
+          this.translateListComprehensionCondition(c, compVar, tableAlias, scopes)
         );
         return {
           sql: `(${parts.map(p => p.sql).join(" OR ")})`,
@@ -8792,7 +8818,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
       
       case "not": {
-        const inner = this.translateListComprehensionCondition(condition.condition!, compVar, tableAlias);
+        const inner = this.translateListComprehensionCondition(condition.condition!, compVar, tableAlias, scopes);
         return {
           sql: `NOT (${inner.sql})`,
           params: inner.params,
@@ -8800,7 +8826,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
       
       case "isNull": {
-        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias);
+        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias, scopes);
         return {
           sql: `${left.sql} IS NULL`,
           params: left.params,
@@ -8808,7 +8834,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
       
       case "isNotNull": {
-        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias);
+        const left = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias, scopes);
         return {
           sql: `${left.sql} IS NOT NULL`,
           params: left.params,
@@ -8817,7 +8843,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       case "expression": {
         // Handle bare expressions used as boolean conditions (e.g., all(x IN list WHERE x))
-        const exprResult = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias);
+        const exprResult = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias, scopes);
         return {
           sql: exprResult.sql,
           params: exprResult.params,
@@ -8826,7 +8852,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       case "listPredicate": {
         // Handle nested list predicates (e.g., none(x IN list WHERE none(y IN x WHERE y = 'abc')))
-        const nestedResult = this.translateNestedListPredicate(condition as unknown as Expression, compVar, tableAlias);
+        // Build the scope chain with the current scope included
+        const currentScopes = scopes 
+          ? [...scopes, { variable: compVar, tableAlias }]
+          : [{ variable: compVar, tableAlias }];
+        const nestedResult = this.translateNestedListPredicate(condition as unknown as Expression, currentScopes);
         return {
           sql: nestedResult.sql,
           params: nestedResult.params,
@@ -8949,15 +8979,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
   /**
    * Translate a nested list predicate within a list comprehension context.
    * This handles cases like: none(x IN list WHERE none(y IN x WHERE y = 'abc'))
+   * Also handles deeply nested cases: none(x IN list WHERE none(y IN list WHERE x <= y))
    * 
    * @param expr The nested list predicate expression
-   * @param outerCompVar The comprehension variable from the outer context
-   * @param outerTableAlias The table alias from the outer context
+   * @param scopes The scope chain from outer contexts (variable to alias mappings)
    */
   private translateNestedListPredicate(
     expr: Expression,
-    outerCompVar: string,
-    outerTableAlias: string
+    scopes: Array<{ variable: string; tableAlias: string }>
   ): { sql: string; params: unknown[] } {
     const params: unknown[] = [];
     
@@ -8966,18 +8995,23 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const listExpr = expr.listExpr!;
     const filterCondition = expr.filterCondition!;
     
-    // Generate a unique alias for the inner predicate
-    // Use the outer alias + "i" to create a nested alias (e.g., __lp__i, __lp__ii, etc.)
-    const innerAlias = outerTableAlias + "i";
+    // Generate a unique alias for this inner predicate
+    // Use the last alias in the scope chain + "i" to create a nested alias (e.g., __lp__i, __lp__ii, etc.)
+    const lastScope = scopes[scopes.length - 1];
+    const innerAlias = lastScope.tableAlias + "i";
     
-    // Translate the list expression using the outer context
-    // This converts references to the outer variable (e.g., x) to the outer table alias (e.g., __lp__.value)
-    const listResult = this.translateListComprehensionExpr(listExpr, outerCompVar, outerTableAlias);
+    // Translate the list expression using the scope chain
+    // This converts references to any outer variables to their respective aliases
+    // We use the last scope's variable and alias as the "current" for the expr translation,
+    // and pass the remaining scopes as outer scopes
+    const outerScopes = scopes.slice(0, -1);
+    const listResult = this.translateListComprehensionExpr(listExpr, lastScope.variable, lastScope.tableAlias, outerScopes.length > 0 ? outerScopes : undefined);
     const listSql = listResult.sql;
     const listParams = listResult.params;
     
-    // Translate the filter condition with the inner variable and inner alias
-    const condResult = this.translateListComprehensionCondition(filterCondition, innerVariable, innerAlias);
+    // Translate the filter condition with the inner variable and inner alias,
+    // passing the full outer scope chain so the condition can reference outer variables
+    const condResult = this.translateListComprehensionCondition(filterCondition, innerVariable, innerAlias, scopes);
     const condParams = condResult.params;
     
     // Build the SQL using the same pattern as translateListPredicate but with the inner alias

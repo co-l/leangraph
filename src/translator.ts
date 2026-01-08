@@ -8834,6 +8834,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const listExpr = expr.listExpr!;
     const filterCondition = expr.filterCondition!;
     
+    // Validate type compatibility before translation
+    this.validateListPredicateTypes(listExpr, filterCondition, variable);
+    
     // Translate the source list expression
     const listResult = this.translateExpression(listExpr);
     tables.push(...listResult.tables);
@@ -9015,6 +9018,141 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     // "null" (the literal null) is allowed in three-valued logic
     if (type !== null && type !== "boolean" && type !== "null") {
       throw new Error(`SyntaxError: InvalidArgumentType - ${operator.toUpperCase()} requires boolean operands, got ${type}`);
+    }
+  }
+
+  /**
+   * Get the static element type of a list expression (if determinable).
+   * Returns the common element type for literal arrays, or null if mixed or unknown.
+   */
+  private getListElementType(listExpr: Expression): "boolean" | "number" | "string" | "null" | null {
+    if (listExpr.type === "literal" && Array.isArray(listExpr.value)) {
+      const elements = listExpr.value;
+      if (elements.length === 0) return null;
+      
+      // Check if all elements have the same type
+      let commonType: "boolean" | "number" | "string" | "null" | null = null;
+      for (const elem of elements) {
+        let elemType: "boolean" | "number" | "string" | "null" | null;
+        if (elem === null) elemType = "null";
+        else if (typeof elem === "boolean") elemType = "boolean";
+        else if (typeof elem === "number") elemType = "number";
+        else if (typeof elem === "string") elemType = "string";
+        else elemType = null; // complex types
+        
+        if (elemType === null) return null; // Can't determine type
+        if (elemType === "null") continue; // null is compatible with any type
+        
+        if (commonType === null) {
+          commonType = elemType;
+        } else if (commonType !== elemType) {
+          return null; // Mixed types
+        }
+      }
+      return commonType;
+    }
+    return null;
+  }
+
+  /**
+   * Check if a filter condition uses arithmetic operators on a specific variable.
+   * Returns true if the variable is used with %, /, *, -, or ^ operators.
+   */
+  private conditionUsesArithmeticOnVariable(condition: WhereCondition, varName: string): boolean {
+    // Check the left expression if it exists
+    if (condition.left && this.expressionUsesArithmeticOnVariable(condition.left, varName)) {
+      return true;
+    }
+    // Check the right expression if it exists
+    if (condition.right && this.expressionUsesArithmeticOnVariable(condition.right, varName)) {
+      return true;
+    }
+    // Check nested conditions
+    if (condition.conditions) {
+      for (const c of condition.conditions) {
+        if (this.conditionUsesArithmeticOnVariable(c, varName)) return true;
+      }
+    }
+    if (condition.condition && this.conditionUsesArithmeticOnVariable(condition.condition, varName)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if an expression uses arithmetic operators on a specific variable.
+   * Returns true if the variable is an operand of %, /, *, -, or ^ operators.
+   */
+  private expressionUsesArithmeticOnVariable(expr: Expression, varName: string): boolean {
+    if (expr.type === "binary") {
+      const arithmeticOps = ["%", "/", "*", "-", "^"];
+      // For + operator, we only flag it as arithmetic if used with the variable
+      // (since + can also be string concatenation)
+      if (arithmeticOps.includes(expr.operator!)) {
+        // Check if left or right is the variable
+        if (this.expressionReferencesVariable(expr.left!, varName) ||
+            this.expressionReferencesVariable(expr.right!, varName)) {
+          return true;
+        }
+      }
+      // Recursively check sub-expressions
+      if (this.expressionUsesArithmeticOnVariable(expr.left!, varName)) return true;
+      if (this.expressionUsesArithmeticOnVariable(expr.right!, varName)) return true;
+    }
+    if (expr.args) {
+      for (const arg of expr.args) {
+        if (this.expressionUsesArithmeticOnVariable(arg, varName)) return true;
+      }
+    }
+    if (expr.operand && this.expressionUsesArithmeticOnVariable(expr.operand, varName)) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if an expression directly references a variable.
+   */
+  private expressionReferencesVariable(expr: Expression, varName: string): boolean {
+    if (expr.type === "variable" && expr.variable === varName) {
+      return true;
+    }
+    if (expr.type === "binary") {
+      return this.expressionReferencesVariable(expr.left!, varName) ||
+             this.expressionReferencesVariable(expr.right!, varName);
+    }
+    if (expr.type === "property" && expr.variable === varName) {
+      return true;
+    }
+    if (expr.args) {
+      for (const arg of expr.args) {
+        if (this.expressionReferencesVariable(arg, varName)) return true;
+      }
+    }
+    if (expr.operand) {
+      return this.expressionReferencesVariable(expr.operand, varName);
+    }
+    return false;
+  }
+
+  /**
+   * Validate type compatibility in list predicates (ALL, ANY, NONE, SINGLE).
+   * Throws SyntaxError if using arithmetic on non-numeric list elements.
+   */
+  private validateListPredicateTypes(
+    listExpr: Expression,
+    filterCondition: WhereCondition,
+    variable: string
+  ): void {
+    const elementType = this.getListElementType(listExpr);
+    
+    // If we can determine the element type is non-numeric
+    if (elementType === "string" || elementType === "boolean") {
+      // Check if the filter uses arithmetic on the iteration variable
+      if (this.conditionUsesArithmeticOnVariable(filterCondition, variable)) {
+        throw new Error("SyntaxError: Type mismatch: expected Number but was " + 
+          (elementType === "string" ? "String" : "Boolean"));
+      }
     }
   }
 

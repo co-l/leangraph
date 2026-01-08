@@ -7139,8 +7139,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const hasOrdinalDate = ordinalDayExpr !== undefined;
               const hasQuarterDate = quarterExpr !== undefined;
 
-              if (!yearExpr || !hourExpr || !minuteExpr) {
-                throw new Error("datetime(map) requires year, hour, and minute");
+              if (!yearExpr || !hourExpr) {
+                throw new Error("datetime(map) requires year and hour");
               }
 
               if (!hasCalendarDate && !hasWeekDate && !hasOrdinalDate && !hasQuarterDate) {
@@ -7149,7 +7149,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
               const yearResult = this.translateExpression(yearExpr);
               const hourResult = this.translateExpression(hourExpr);
-              const minuteResult = this.translateExpression(minuteExpr);
+              // minute defaults to 0 if not provided
+              const minuteResult = minuteExpr 
+                ? this.translateExpression(minuteExpr)
+                : { sql: "0", tables: [] as string[], params: [] as unknown[] };
               // Default timezone to 'Z' (UTC) if not provided
               const tzResult = timezoneExpr 
                 ? this.translateExpression(timezoneExpr)

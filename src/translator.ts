@@ -7286,17 +7286,37 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 const hasDateOverrides = yearExpr || monthExpr || dayExpr;
                 
                 if (hasDateOverrides) {
-                  // Apply overrides to the source date components
-                  const yearSqlDate = yearExpr
-                    ? (() => { const r = this.translateExpression(yearExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%04d', CAST(${r.sql} AS INTEGER))`; })()
-                    : `substr(${dateResult.sql}, 1, 4)`;
-                  const monthSqlDate = monthExpr
-                    ? (() => { const r = this.translateExpression(monthExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
-                    : `substr(${dateResult.sql}, 6, 2)`;
-                  const daySqlDate = dayExpr
-                    ? (() => { const r = this.translateExpression(dayExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
-                    : `substr(${dateResult.sql}, 9, 2)`;
-                  datePart = `(${yearSqlDate} || '-' || ${monthSqlDate} || '-' || ${daySqlDate})`;
+                  // Count how many components we need from source
+                  const needYear = !yearExpr;
+                  const needMonth = !monthExpr;
+                  const needDay = !dayExpr;
+                  const sourceComponentsNeeded = (needYear ? 1 : 0) + (needMonth ? 1 : 0) + (needDay ? 1 : 0);
+                  
+                  if (sourceComponentsNeeded <= 1) {
+                    // Only 0 or 1 components from source - safe to use dateResult.sql directly
+                    const yearSqlDate = yearExpr
+                      ? (() => { const r = this.translateExpression(yearExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%04d', CAST(${r.sql} AS INTEGER))`; })()
+                      : `substr(${dateResult.sql}, 1, 4)`;
+                    const monthSqlDate = monthExpr
+                      ? (() => { const r = this.translateExpression(monthExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                      : `substr(${dateResult.sql}, 6, 2)`;
+                    const daySqlDate = dayExpr
+                      ? (() => { const r = this.translateExpression(dayExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                      : `substr(${dateResult.sql}, 9, 2)`;
+                    datePart = `(${yearSqlDate} || '-' || ${monthSqlDate} || '-' || ${daySqlDate})`;
+                  } else {
+                    // Multiple components from source - use subquery to avoid param duplication
+                    const yearSqlDate = yearExpr
+                      ? (() => { const r = this.translateExpression(yearExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%04d', CAST(${r.sql} AS INTEGER))`; })()
+                      : `_d_year`;
+                    const monthSqlDate = monthExpr
+                      ? (() => { const r = this.translateExpression(monthExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                      : `_d_month`;
+                    const daySqlDate = dayExpr
+                      ? (() => { const r = this.translateExpression(dayExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                      : `_d_day`;
+                    datePart = `(SELECT ${yearSqlDate} || '-' || ${monthSqlDate} || '-' || ${daySqlDate} FROM (SELECT substr(_d, 1, 4) AS _d_year, substr(_d, 6, 2) AS _d_month, substr(_d, 9, 2) AS _d_day FROM (SELECT ${dateResult.sql} AS _d)))`;
+                  }
                 } else {
                   datePart = `substr(${dateResult.sql}, 1, 10)`;
                 }

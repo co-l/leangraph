@@ -6738,7 +6738,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               };
             }
 
-            // localtime('12:34:56.123') - parse time string
+            // localtime('12:34:56.123') - parse time string or pass through temporal value
             // Also supports compact formats:
             // - HHMM (4 digits): 2140 = 21:40:00
             // - HHMMSS (6 digits): 214032 = 21:40:32
@@ -6747,6 +6747,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             tables.push(...argResult.tables);
             params.push(...argResult.params);
             const timeArg = argResult.sql;
+            // When input is already HH:MM:SS format (with optional fractional), preserve it directly
+            // to avoid truncation of nanoseconds by SQLite's TIME() function
             const sql = `(SELECT CASE
               WHEN length(t) = 4 AND t GLOB '[0-9][0-9][0-9][0-9]'
               THEN TIME(substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':00')
@@ -6754,6 +6756,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               THEN TIME(substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':' || substr(t, 5, 2))
               WHEN length(t) >= 9 AND t GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9]*'
               THEN TIME(substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':' || substr(t, 5, 2) || '.' || substr(t, 7))
+              WHEN length(t) >= 8 AND substr(t, 3, 1) = ':' AND substr(t, 6, 1) = ':'
+              THEN t
               ELSE TIME(t)
             END FROM (SELECT ${timeArg} AS t))`;
             return { sql, tables, params };

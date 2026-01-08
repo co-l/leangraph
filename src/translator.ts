@@ -6457,6 +6457,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const arg = expr.args[0];
 
             // localtime({hour: 10, minute: 35, second: 13, nanosecond: 645876123})
+            // Also supports millisecond and microsecond which combine with nanosecond
             if (arg.type === "object") {
               const props = arg.properties ?? [];
               const byKey = new Map<string, Expression>();
@@ -6466,6 +6467,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const minuteExpr = byKey.get("minute");
               const secondExpr = byKey.get("second");
               const nanosecondExpr = byKey.get("nanosecond");
+              const millisecondExpr = byKey.get("millisecond");
+              const microsecondExpr = byKey.get("microsecond");
 
               if (!hourExpr || !minuteExpr) {
                 throw new Error("localtime(map) requires hour and minute");
@@ -6492,7 +6495,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               params.push(...secondResult.params);
               const secondSql = `CAST(${secondResult.sql} AS INTEGER)`;
 
-              if (!nanosecondExpr) {
+              // Check if any sub-second precision is provided
+              const hasSubSecond = nanosecondExpr || millisecondExpr || microsecondExpr;
+              if (!hasSubSecond) {
                 return {
                   sql: `printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql})`,
                   tables,
@@ -6500,13 +6505,31 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 };
               }
 
-              const nanosecondResult = this.translateExpression(nanosecondExpr);
-              tables.push(...nanosecondResult.tables);
-              params.push(...nanosecondResult.params);
-              const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
+              // Combine millisecond, microsecond, and nanosecond into total nanoseconds
+              // totalNanos = millisecond * 1000000 + microsecond * 1000 + nanosecond
+              const nanoParts: string[] = [];
+              if (millisecondExpr) {
+                const msResult = this.translateExpression(millisecondExpr);
+                tables.push(...msResult.tables);
+                params.push(...msResult.params);
+                nanoParts.push(`(CAST(${msResult.sql} AS INTEGER) * 1000000)`);
+              }
+              if (microsecondExpr) {
+                const usResult = this.translateExpression(microsecondExpr);
+                tables.push(...usResult.tables);
+                params.push(...usResult.params);
+                nanoParts.push(`(CAST(${usResult.sql} AS INTEGER) * 1000)`);
+              }
+              if (nanosecondExpr) {
+                const nsResult = this.translateExpression(nanosecondExpr);
+                tables.push(...nsResult.tables);
+                params.push(...nsResult.params);
+                nanoParts.push(`CAST(${nsResult.sql} AS INTEGER)`);
+              }
+              const totalNanosSql = nanoParts.length === 1 ? nanoParts[0] : `(${nanoParts.join(" + ")})`;
 
               return {
-                sql: `printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql})`,
+                sql: `printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${totalNanosSql})`,
                 tables,
                 params,
               };

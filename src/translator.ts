@@ -8508,9 +8508,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 if (hasSubSecond) {
                   // Format: seconds.nanoseconds (up to 9 digits, trim trailing zeros)
                   // For negative values: -59.999 means seconds=-59, nanos=-999000000
-                  // The sign of nanos matches the sign of seconds (both come from total)
-                  // So we can just concat: seconds || '.' || abs(nanos) trimmed
-                  secPart = `CASE WHEN ${finalSecondsSql} != 0 OR ${remainingNanosSql} != 0 THEN ${finalSecondsSql} || '.' || rtrim(printf('%09d', abs(${remainingNanosSql})), '0') || 'S' ELSE '' END`;
+                  // Special case: when seconds=0 but nanos<0, we need "-0.001S" format
+                  // So we prepend minus only when seconds=0 and nanos<0
+                  secPart = `CASE WHEN ${finalSecondsSql} != 0 OR ${remainingNanosSql} != 0 THEN (CASE WHEN ${finalSecondsSql} = 0 AND ${remainingNanosSql} < 0 THEN '-0' ELSE CAST(${finalSecondsSql} AS TEXT) END) || '.' || rtrim(printf('%09d', abs(${remainingNanosSql})), '0') || 'S' ELSE '' END`;
                 } else {
                   secPart = `CASE WHEN ${finalSecondsSql} != 0 THEN ${finalSecondsSql} || 'S' ELSE '' END`;
                 }

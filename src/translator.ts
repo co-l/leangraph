@@ -9827,79 +9827,374 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       e.args.length === 1 &&
       e.args[0]?.type === "object";
 
-    const leftIsDuration = isDurationFn(expr.left);
-    const rightIsDuration = isDurationFn(expr.right);
-    if (!leftIsDuration && !rightIsDuration) return null;
+    // Check if expression could be a duration (property access or variable)
+    const couldBeDuration = (e: Expression) =>
+      e.type === "property" || e.type === "variable" ||
+      (e.type === "function" && e.functionName === "DURATION");
 
-    const durationExpr = (leftIsDuration ? expr.left : expr.right) as Expression;
-    const temporalExpr = (leftIsDuration ? expr.right : expr.left) as Expression;
+    const leftIsDurationFn = isDurationFn(expr.left);
+    const rightIsDurationFn = isDurationFn(expr.right);
+    
+    // Check if either side is a temporal function
+    const isTemporalFn = (e: Expression): e is Expression & { functionName: string } =>
+      e.type === "function" &&
+      typeof e.functionName === "string" &&
+      ["DATE", "LOCALTIME", "TIME", "LOCALDATETIME", "DATETIME"].includes(e.functionName);
+    
+    const leftIsTemporal = isTemporalFn(expr.left);
+    const rightIsTemporal = isTemporalFn(expr.right);
+    
+    // Case 1: duration() function call + temporal
+    if (leftIsDurationFn || rightIsDurationFn) {
+      const durationExpr = (leftIsDurationFn ? expr.left : expr.right) as Expression;
+      const temporalExpr = (leftIsDurationFn ? expr.right : expr.left) as Expression;
 
-    if (expr.operator === "-" && leftIsDuration) {
-      return null;
-    }
+      if (expr.operator === "-" && leftIsDurationFn) {
+        return null;
+      }
 
-    const temporalType =
-      temporalExpr.type === "property"
-        ? temporalExpr.property?.toLowerCase?.() === "date"
-          ? "date"
-          : temporalExpr.property?.toLowerCase?.() === "time"
-            ? "time"
-            : temporalExpr.property?.toLowerCase?.() === "datetime"
-              ? "datetime"
-              : null
-        : temporalExpr.type === "function"
-          ? temporalExpr.functionName === "DATE"
+      const temporalType =
+        temporalExpr.type === "property"
+          ? temporalExpr.property?.toLowerCase?.() === "date"
             ? "date"
-            : temporalExpr.functionName === "LOCALTIME" || temporalExpr.functionName === "TIME"
+            : temporalExpr.property?.toLowerCase?.() === "time"
               ? "time"
-              : temporalExpr.functionName === "LOCALDATETIME" || temporalExpr.functionName === "DATETIME"
+              : temporalExpr.property?.toLowerCase?.() === "datetime"
                 ? "datetime"
                 : null
-          : null;
+          : temporalExpr.type === "function"
+            ? temporalExpr.functionName === "DATE"
+              ? "date"
+              : temporalExpr.functionName === "LOCALTIME" || temporalExpr.functionName === "TIME"
+                ? "time"
+                : temporalExpr.functionName === "LOCALDATETIME" || temporalExpr.functionName === "DATETIME"
+                  ? "datetime"
+                  : null
+            : null;
 
-    if (!temporalType) return null;
+      if (!temporalType) return null;
 
-    const temporalResult = this.translateExpression(temporalExpr);
-    const baseSql = this.wrapForArithmetic(temporalExpr, temporalResult.sql);
+      const temporalResult = this.translateExpression(temporalExpr);
+      const baseSql = this.wrapForArithmetic(temporalExpr, temporalResult.sql);
 
-    const durationMap = durationExpr.args![0] as Expression;
-    const properties = durationMap.properties ?? [];
-    const byKey = new Map<string, Expression>();
-    for (const prop of properties) {
-      byKey.set(prop.key.toLowerCase(), prop.value);
+      const durationMap = durationExpr.args![0] as Expression;
+      const properties = durationMap.properties ?? [];
+      const byKey = new Map<string, Expression>();
+      for (const prop of properties) {
+        byKey.set(prop.key.toLowerCase(), prop.value);
+      }
+
+      const sign = expr.operator === "-" ? -1 : 1;
+      const tables: string[] = [...temporalResult.tables];
+      const params: unknown[] = [...temporalResult.params];
+      const modifiers: string[] = [];
+
+      const addIntUnit = (keys: string[], unit: string) => {
+        const valueExpr = keys.map(k => byKey.get(k)).find(Boolean);
+        if (!valueExpr) return;
+        const valueResult = this.translateExpression(valueExpr);
+        tables.push(...valueResult.tables);
+        params.push(...valueResult.params);
+        modifiers.push(
+          `printf('%+d ${unit}', (${sign}) * CAST(${valueResult.sql} AS INTEGER))`,
+        );
+      };
+
+      addIntUnit(["years", "year"], "years");
+      addIntUnit(["months", "month"], "months");
+      addIntUnit(["days", "day"], "days");
+      addIntUnit(["hours", "hour"], "hours");
+      addIntUnit(["minutes", "minute"], "minutes");
+      addIntUnit(["seconds", "second"], "seconds");
+
+      if (modifiers.length === 0) return null;
+
+      const sqliteTemporalFn = temporalType === "date" ? "DATE" : temporalType === "time" ? "TIME" : "DATETIME";
+      return {
+        sql: `${sqliteTemporalFn}(${baseSql}, ${modifiers.join(", ")})`,
+        tables,
+        params,
+      };
     }
 
-    const sign = expr.operator === "-" ? -1 : 1;
-    const tables: string[] = [...temporalResult.tables];
-    const params: unknown[] = [...temporalResult.params];
-    const modifiers: string[] = [];
+    // Case 2: temporal function + duration property/variable
+    // Need to parse duration string at runtime
+    if ((leftIsTemporal && couldBeDuration(expr.right)) || 
+        (rightIsTemporal && couldBeDuration(expr.left))) {
+      const temporalExpr = leftIsTemporal ? expr.left : expr.right;
+      const durationExpr = leftIsTemporal ? expr.right : expr.left;
+      
+      if (expr.operator === "-" && !leftIsTemporal) {
+        // duration - temporal is not supported
+        return null;
+      }
 
-    const addIntUnit = (keys: string[], unit: string) => {
-      const valueExpr = keys.map(k => byKey.get(k)).find(Boolean);
-      if (!valueExpr) return;
-      const valueResult = this.translateExpression(valueExpr);
-      tables.push(...valueResult.tables);
-      params.push(...valueResult.params);
-      modifiers.push(
-        `printf('%+d ${unit}', (${sign}) * CAST(${valueResult.sql} AS INTEGER))`,
-      );
+      const temporalType = temporalExpr.functionName === "DATE"
+        ? "date"
+        : temporalExpr.functionName === "LOCALTIME" || temporalExpr.functionName === "TIME"
+          ? "time"
+          : temporalExpr.functionName === "LOCALDATETIME" || temporalExpr.functionName === "DATETIME"
+            ? "datetime"
+            : null;
+
+      if (!temporalType) return null;
+
+      const temporalResult = this.translateExpression(temporalExpr);
+      const durationResult = this.translateExpression(durationExpr);
+      
+      const tables: string[] = [...temporalResult.tables, ...durationResult.tables];
+      const params: unknown[] = [...temporalResult.params, ...durationResult.params];
+      
+      const baseSql = this.wrapForArithmetic(temporalExpr, temporalResult.sql);
+      const durSql = durationResult.sql;
+      const sign = expr.operator === "-" ? "-1" : "1";
+      
+      // Parse duration string and extract components using SQL
+      // Duration format: P[nY][nM][nW][nD][T[nH][nM][n.nS]]
+      // SQLite date/time functions accept modifiers like '+1 years', '-2 months', etc.
+      
+      // Helper to extract a numeric component from ISO 8601 duration
+      const extractComponent = (durRef: string, marker: string, beforeT: boolean) => {
+        if (beforeT) {
+          // Components before 'T': look between 'P' (or previous marker) and marker
+          // For years (Y): between P and Y
+          // For months (M before T): between Y (or P) and M, but only in date part
+          // For weeks (W): between M (or Y or P) and W
+          // For days (D): between W (or M or Y or P) and D
+          if (marker === "Y") {
+            return `COALESCE(CAST(NULLIF(substr(${durRef}, 2, CASE WHEN instr(${durRef}, 'Y') > 0 THEN instr(${durRef}, 'Y') - 2 ELSE 0 END), '') AS INTEGER), 0)`;
+          }
+          // For M (months) - only in date part (before T)
+          if (marker === "M") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'T') > 0 
+                   THEN substr(${durRef}, COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) + 1, 
+                              CASE WHEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') > 0 
+                                   THEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') - COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) - 1 
+                                   ELSE 0 END)
+                   ELSE substr(${durRef}, COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) + 1,
+                              CASE WHEN instr(${durRef}, 'M') > 0 
+                                   THEN instr(${durRef}, 'M') - COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) - 1 
+                                   ELSE 0 END)
+              END, '') AS INTEGER), 0)`;
+          }
+          if (marker === "D") {
+            // Days: find D before T (or at end if no T)
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'D') > 0 AND (instr(${durRef}, 'T') = 0 OR instr(${durRef}, 'D') < instr(${durRef}, 'T'))
+                   THEN substr(${durRef}, 
+                              COALESCE(NULLIF(instr(${durRef}, 'W'), 0), 
+                                       COALESCE(NULLIF(CASE WHEN instr(${durRef}, 'T') > 0 THEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') ELSE instr(${durRef}, 'M') END, 0),
+                                                COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1))) + 1,
+                              instr(${durRef}, 'D') - COALESCE(NULLIF(instr(${durRef}, 'W'), 0), 
+                                       COALESCE(NULLIF(CASE WHEN instr(${durRef}, 'T') > 0 THEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') ELSE instr(${durRef}, 'M') END, 0),
+                                                COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1))) - 1)
+                   ELSE ''
+              END, '') AS INTEGER), 0)`;
+          }
+        } else {
+          // Components after 'T': look in time part
+          if (marker === "H") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'T') > 0 AND instr(${durRef}, 'H') > instr(${durRef}, 'T')
+                   THEN substr(${durRef}, instr(${durRef}, 'T') + 1, instr(${durRef}, 'H') - instr(${durRef}, 'T') - 1)
+                   ELSE ''
+              END, '') AS INTEGER), 0)`;
+          }
+          if (marker === "TM") { // Minutes in time part
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'T') > 0 AND instr(substr(${durRef}, instr(${durRef}, 'T')), 'M') > 0
+                   THEN substr(${durRef}, 
+                              COALESCE(NULLIF(instr(${durRef}, 'H'), 0), instr(${durRef}, 'T')) + 1,
+                              instr(${durRef}, 'T') - 1 + instr(substr(${durRef}, instr(${durRef}, 'T')), 'M') - COALESCE(NULLIF(instr(${durRef}, 'H'), 0), instr(${durRef}, 'T')) - 1)
+                   ELSE ''
+              END, '') AS INTEGER), 0)`;
+          }
+          if (marker === "S") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'S') > 0
+                   THEN substr(${durRef}, 
+                              COALESCE(NULLIF(instr(${durRef}, 'T') - 1 + instr(substr(${durRef}, instr(${durRef}, 'T')), 'M'), 0),
+                                       COALESCE(NULLIF(instr(${durRef}, 'H'), 0), 
+                                                NULLIF(instr(${durRef}, 'T'), 0))) + 1,
+                              CASE WHEN instr(${durRef}, '.') > 0 
+                                   THEN instr(${durRef}, '.') 
+                                   ELSE instr(${durRef}, 'S') 
+                              END - COALESCE(NULLIF(instr(${durRef}, 'T') - 1 + instr(substr(${durRef}, instr(${durRef}, 'T')), 'M'), 0),
+                                       COALESCE(NULLIF(instr(${durRef}, 'H'), 0), 
+                                                NULLIF(instr(${durRef}, 'T'), 0))) - 1)
+                   ELSE ''
+              END, '') AS REAL), 0)`;
+          }
+        }
+        return "0";
+      };
+      
+      // Build modifiers using subquery to avoid repeating durSql
+      const yearsSql = extractComponent("_dur", "Y", true);
+      const monthsSql = extractComponent("_dur", "M", true);
+      const daysSql = extractComponent("_dur", "D", true);
+      const hoursSql = extractComponent("_dur", "H", false);
+      const minutesSql = extractComponent("_dur", "TM", false);
+      const secondsSql = extractComponent("_dur", "S", false);
+      
+      const sqliteTemporalFn = temporalType === "date" ? "DATE" : temporalType === "time" ? "TIME" : "DATETIME";
+      
+      return {
+        sql: `(SELECT ${sqliteTemporalFn}(${baseSql},
+          printf('%+d years', (${sign}) * ${yearsSql}),
+          printf('%+d months', (${sign}) * ${monthsSql}),
+          printf('%+d days', (${sign}) * ${daysSql}),
+          printf('%+d hours', (${sign}) * ${hoursSql}),
+          printf('%+d minutes', (${sign}) * ${minutesSql}),
+          printf('%+.0f seconds', (${sign}) * ${secondsSql}))
+        FROM (SELECT ${durSql} AS _dur))`,
+        tables,
+        params,
+      };
+    }
+
+    // Case 3: WITH alias that is a temporal function + property/variable that could be duration
+    // Check if either side is a variable that maps to a temporal function via WITH alias
+    const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+    
+    const getTemporalTypeFromAlias = (e: Expression): string | null => {
+      if (e.type !== "variable" || !e.variable || !withAliases) return null;
+      const aliasExpr = withAliases.get(e.variable);
+      if (!aliasExpr) return null;
+      if (aliasExpr.type === "function") {
+        if (aliasExpr.functionName === "DATE") return "date";
+        if (aliasExpr.functionName === "LOCALTIME" || aliasExpr.functionName === "TIME") return "time";
+        if (aliasExpr.functionName === "LOCALDATETIME" || aliasExpr.functionName === "DATETIME") return "datetime";
+      }
+      return null;
     };
+    
+    const leftTemporalType = getTemporalTypeFromAlias(expr.left!);
+    const rightTemporalType = getTemporalTypeFromAlias(expr.right!);
+    
+    if ((leftTemporalType && couldBeDuration(expr.right!)) || 
+        (rightTemporalType && couldBeDuration(expr.left!))) {
+      const temporalType = leftTemporalType || rightTemporalType;
+      const temporalExpr = leftTemporalType ? expr.left! : expr.right!;
+      const durationExpr = leftTemporalType ? expr.right! : expr.left!;
+      
+      if (expr.operator === "-" && !leftTemporalType) {
+        // duration - temporal is not supported
+        return null;
+      }
 
-    addIntUnit(["years", "year"], "years");
-    addIntUnit(["months", "month"], "months");
-    addIntUnit(["days", "day"], "days");
-    addIntUnit(["hours", "hour"], "hours");
-    addIntUnit(["minutes", "minute"], "minutes");
-    addIntUnit(["seconds", "second"], "seconds");
+      const temporalResult = this.translateExpression(temporalExpr);
+      const durationResult = this.translateExpression(durationExpr);
+      
+      const tables: string[] = [...temporalResult.tables, ...durationResult.tables];
+      const params: unknown[] = [...temporalResult.params, ...durationResult.params];
+      
+      const baseSql = temporalResult.sql;
+      const durSql = durationResult.sql;
+      const sign = expr.operator === "-" ? "-1" : "1";
+      
+      // Helper to extract duration components
+      const extractComponentCase3 = (durRef: string, marker: string, beforeT: boolean): string => {
+        if (beforeT) {
+          if (marker === "Y") {
+            return `COALESCE(CAST(NULLIF(substr(${durRef}, 2, CASE WHEN instr(${durRef}, 'Y') > 0 THEN instr(${durRef}, 'Y') - 2 ELSE 0 END), '') AS INTEGER), 0)`;
+          }
+          if (marker === "M") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'T') > 0 
+                   THEN substr(${durRef}, COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) + 1, 
+                              CASE WHEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') > 0 
+                                   THEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') - COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) - 1 
+                                   ELSE 0 END)
+                   ELSE substr(${durRef}, COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) + 1,
+                              CASE WHEN instr(${durRef}, 'M') > 0 
+                                   THEN instr(${durRef}, 'M') - COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1) - 1 
+                                   ELSE 0 END)
+              END, '') AS INTEGER), 0)`;
+          }
+          if (marker === "D") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'D') > 0 AND (instr(${durRef}, 'T') = 0 OR instr(${durRef}, 'D') < instr(${durRef}, 'T'))
+                   THEN substr(${durRef}, 
+                              COALESCE(NULLIF(instr(${durRef}, 'W'), 0), 
+                                       COALESCE(NULLIF(CASE WHEN instr(${durRef}, 'T') > 0 THEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') ELSE instr(${durRef}, 'M') END, 0),
+                                                COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1))) + 1,
+                              instr(${durRef}, 'D') - COALESCE(NULLIF(instr(${durRef}, 'W'), 0), 
+                                       COALESCE(NULLIF(CASE WHEN instr(${durRef}, 'T') > 0 THEN instr(substr(${durRef}, 1, instr(${durRef}, 'T')), 'M') ELSE instr(${durRef}, 'M') END, 0),
+                                                COALESCE(NULLIF(instr(${durRef}, 'Y'), 0), 1))) - 1)
+                   ELSE ''
+              END, '') AS INTEGER), 0)`;
+          }
+        } else {
+          if (marker === "H") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'T') > 0 AND instr(${durRef}, 'H') > instr(${durRef}, 'T')
+                   THEN substr(${durRef}, instr(${durRef}, 'T') + 1, instr(${durRef}, 'H') - instr(${durRef}, 'T') - 1)
+                   ELSE ''
+              END, '') AS INTEGER), 0)`;
+          }
+          if (marker === "TM") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'T') > 0 AND instr(substr(${durRef}, instr(${durRef}, 'T')), 'M') > 0
+                   THEN substr(${durRef}, 
+                              COALESCE(NULLIF(instr(${durRef}, 'H'), 0), instr(${durRef}, 'T')) + 1,
+                              instr(${durRef}, 'T') - 1 + instr(substr(${durRef}, instr(${durRef}, 'T')), 'M') - COALESCE(NULLIF(instr(${durRef}, 'H'), 0), instr(${durRef}, 'T')) - 1)
+                   ELSE ''
+              END, '') AS INTEGER), 0)`;
+          }
+          if (marker === "S") {
+            return `COALESCE(CAST(NULLIF(
+              CASE WHEN instr(${durRef}, 'S') > 0
+                   THEN substr(${durRef}, 
+                              COALESCE(NULLIF(instr(${durRef}, 'T') - 1 + instr(substr(${durRef}, instr(${durRef}, 'T')), 'M'), 0),
+                                       COALESCE(NULLIF(instr(${durRef}, 'H'), 0), 
+                                                NULLIF(instr(${durRef}, 'T'), 0))) + 1,
+                              CASE WHEN instr(${durRef}, '.') > 0 
+                                   THEN instr(${durRef}, '.') 
+                                   ELSE instr(${durRef}, 'S') 
+                              END - COALESCE(NULLIF(instr(${durRef}, 'T') - 1 + instr(substr(${durRef}, instr(${durRef}, 'T')), 'M'), 0),
+                                       COALESCE(NULLIF(instr(${durRef}, 'H'), 0), 
+                                                NULLIF(instr(${durRef}, 'T'), 0))) - 1)
+                   ELSE ''
+              END, '') AS REAL), 0)`;
+          }
+        }
+        return "0";
+      };
+      
+      const yearsSql = extractComponentCase3("_durval", "Y", true);
+      const monthsSql = extractComponentCase3("_durval", "M", true);
+      const daysSql = extractComponentCase3("_durval", "D", true);
+      const hoursSql = extractComponentCase3("_durval", "H", false);
+      const minutesSql = extractComponentCase3("_durval", "TM", false);
+      const secondsSql = extractComponentCase3("_durval", "S", false);
+      
+      const sqliteTemporalFn = temporalType === "date" ? "DATE" : temporalType === "time" ? "TIME" : "DATETIME";
+      
+      // Strip JSON quotes from duration value if present
+      // For DATE, only apply year/month/day modifiers (ignore time parts)
+      const modifiers = temporalType === "date"
+        ? `printf('%+d years', (${sign}) * ${yearsSql}),
+           printf('%+d months', (${sign}) * ${monthsSql}),
+           printf('%+d days', (${sign}) * ${daysSql})`
+        : `printf('%+d years', (${sign}) * ${yearsSql}),
+           printf('%+d months', (${sign}) * ${monthsSql}),
+           printf('%+d days', (${sign}) * ${daysSql}),
+           printf('%+d hours', (${sign}) * ${hoursSql}),
+           printf('%+d minutes', (${sign}) * ${minutesSql}),
+           printf('%+.0f seconds', (${sign}) * ${secondsSql})`;
+      
+      return {
+        sql: `(SELECT ${sqliteTemporalFn}(${baseSql}, ${modifiers})
+        FROM (SELECT CASE WHEN (${durSql}) LIKE '"P%' THEN substr(${durSql}, 2, length(${durSql}) - 2)
+                        ELSE ${durSql} END AS _durval))`,
+        tables,
+        params,
+      };
+    }
 
-    if (modifiers.length === 0) return null;
-
-    const sqliteTemporalFn = temporalType === "date" ? "DATE" : temporalType === "time" ? "TIME" : "DATETIME";
-    return {
-      sql: `${sqliteTemporalFn}(${baseSql}, ${modifiers.join(", ")})`,
-      tables,
-      params,
-    };
+    return null;
   }
 
   private isListExpression(expr: Expression, visitedVars?: Set<string>): boolean {

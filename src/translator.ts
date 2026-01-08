@@ -5342,9 +5342,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 };
               }
               
+              // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
+              const extractExpr = `json_extract(${varInfo.alias}.properties, '$.${arg.property}')`;
               params.push(...collectOrderParams);
               return {
-                sql: `json_group_array(json_extract(${varInfo.alias}.properties, '$.${arg.property}')${collectOrderClause})`,
+                sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${extractExpr} IS NOT NULL THEN json_quote(${extractExpr}) END${collectOrderClause}) || ']'), json('[]'))`,
                 tables,
                 params,
               };
@@ -5368,9 +5370,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                   };
                 }
 
-                params.push(...collectOrderParams);
+                // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
+                // Note: translated.sql appears twice in the SQL, so its params must be duplicated
+                params.push(...translated.params, ...collectOrderParams);
                 return {
-                  sql: `json_group_array(${translated.sql}${collectOrderClause})`,
+                  sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${translated.sql} IS NOT NULL THEN json_quote(${translated.sql}) END${collectOrderClause}) || ']'), json('[]'))`,
                   tables,
                   params,
                 };
@@ -5398,9 +5402,10 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                       params,
                     };
                   }
+                  // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
                   params.push(...collectOrderParams);
                   return {
-                    sql: `json_group_array(${unwindClause.alias}.value${collectOrderClause})`,
+                    sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${unwindClause.alias}.value IS NOT NULL THEN json_quote(${unwindClause.alias}.value) END${collectOrderClause}) || ']'), json('[]'))`,
                     tables,
                     params,
                   };
@@ -5413,15 +5418,16 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               }
               tables.push(varInfo.alias);
               // Neo4j 3.5 format: collect just the properties objects
-              // Use CASE WHEN to filter nulls
+              // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
               params.push(...collectOrderParams);
               return {
-                sql: `json_group_array(CASE WHEN ${varInfo.alias}.id IS NOT NULL THEN json(${varInfo.alias}.properties) END${collectOrderClause})`,
+                sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${varInfo.alias}.id IS NOT NULL THEN json(${varInfo.alias}.properties) END${collectOrderClause}) || ']'), json('[]'))`,
                 tables,
                 params,
               };
             } else if (arg.type === "object") {
               // COLLECT with object literal: collect({key: expr, ...})
+              // Note: Object literals are never null, so no filtering needed
               const objResult = this.translateObjectLiteral(arg);
               tables.push(...objResult.tables);
               params.push(...objResult.params);
@@ -5446,9 +5452,11 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 };
               }
 
-              params.push(...collectOrderParams);
+              // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
+              // Note: translated.sql appears twice in the SQL, so its params must be duplicated
+              params.push(...translated.params, ...collectOrderParams);
               return {
-                sql: `json_group_array(${translated.sql}${collectOrderClause})`,
+                sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${translated.sql} IS NOT NULL THEN json_quote(${translated.sql}) END${collectOrderClause}) || ']'), json('[]'))`,
                 tables,
                 params,
               };

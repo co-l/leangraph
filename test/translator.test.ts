@@ -863,21 +863,23 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["max(n.amount)"]);
     });
 
-    it("generates COLLECT with json_group_array for property", () => {
+    it("generates COLLECT with GROUP_CONCAT for property (filters nulls)", () => {
       const result = translateCypher("MATCH (n:Person) RETURN COLLECT(n.name)");
 
       expect(result.statements).toHaveLength(1);
-      // SQLite uses json_group_array for COLLECT
-      expect(result.statements[0].sql).toContain("json_group_array(");
+      // SQLite uses GROUP_CONCAT with null filtering for COLLECT (Neo4j skips nulls)
+      expect(result.statements[0].sql).toContain("GROUP_CONCAT(");
       expect(result.statements[0].sql).toContain("json_extract");
+      expect(result.statements[0].sql).toContain("IS NOT NULL");
       expect(result.returnColumns).toEqual(["collect(n.name)"]);
     });
 
-    it("generates COLLECT with json_group_array for variable", () => {
+    it("generates COLLECT with GROUP_CONCAT for variable (filters nulls)", () => {
       const result = translateCypher("MATCH (n:Person) RETURN COLLECT(n)");
 
       expect(result.statements).toHaveLength(1);
-      expect(result.statements[0].sql).toContain("json_group_array(");
+      // SQLite uses GROUP_CONCAT with null filtering for COLLECT (Neo4j skips nulls)
+      expect(result.statements[0].sql).toContain("GROUP_CONCAT(");
       expect(result.returnColumns).toEqual(["collect(n)"]);
     });
 

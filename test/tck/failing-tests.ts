@@ -1500,7 +1500,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:10",
   // "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:11",
   // "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:12",
-  "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:13",
+  // "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:13",
   "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:14",
   "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:15",
   // "expressions/temporal > Temporal1 - Create Temporal Values from a Map|1:2",

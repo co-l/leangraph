@@ -6294,12 +6294,21 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                   tables.push(...yearResult.tables);
                   params.push(...yearResult.params);
                   yearSql = `CAST(${yearResult.sql} AS INTEGER)`;
+                  // yearSql is used twice in the formula, so duplicate params if any
+                  params.push(...yearResult.params);
                 } else if (dateExpr) {
-                  // Extract year from the date expression
+                  // Extract ISO year from the date expression
+                  // ISO year = year of the Thursday of that week
+                  // Thursday = julianday(d) + (4 - iso_weekday), where iso_weekday = ((strftime('%w', d) + 6) % 7) + 1
                   const dateResult = this.translateExpression(dateExpr);
                   tables.push(...dateResult.tables);
-                  params.push(...dateResult.params);
-                  yearSql = `CAST(strftime('%Y', ${dateResult.sql}) AS INTEGER)`;
+                  // The ISO year formula uses dateResult.sql twice (julianday and strftime), and yearSql is used twice in the final formula
+                  // So we need dateResult.params 4 times total
+                  params.push(...dateResult.params); // 1st use (julianday)
+                  params.push(...dateResult.params); // 2nd use (strftime)
+                  params.push(...dateResult.params); // 3rd use (julianday in formula copy 2)
+                  params.push(...dateResult.params); // 4th use (strftime in formula copy 2)
+                  yearSql = `CAST(strftime('%Y', julianday(${dateResult.sql}) + 4 - (((CAST(strftime('%w', ${dateResult.sql}) AS INTEGER) + 6) % 7) + 1)) AS INTEGER)`;
                 } else {
                   throw new Error("date(map) with week requires year or date");
                 }

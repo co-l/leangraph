@@ -7223,6 +7223,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
               const dateExpr = byKey.get("date");
               const timeExpr = byKey.get("time");
+              const datetimeExpr = byKey.get("datetime");
               const yearExpr = byKey.get("year");
               const monthExpr = byKey.get("month");
               const dayExpr = byKey.get("day");
@@ -7237,6 +7238,75 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const nanosecondExpr = byKey.get("nanosecond");
               const millisecondExpr = byKey.get("millisecond");
               const microsecondExpr = byKey.get("microsecond");
+
+              // Localdatetime from datetime source: localdatetime({datetime: other, day: 28, second: 42})
+              if (datetimeExpr && !hourExpr && !minuteExpr && !yearExpr) {
+                const dtResult = this.translateExpression(datetimeExpr);
+                tables.push(...dtResult.tables);
+                params.push(...dtResult.params);
+                
+                // Check for overrides
+                const hasDateOverrides = monthExpr || dayExpr;
+                const hasTimeOverrides = secondExpr || nanosecondExpr || millisecondExpr || microsecondExpr;
+                
+                // Build using single subquery to avoid param duplication
+                // Date components
+                const yearSqlD = `_d_year`;
+                const monthSqlD = monthExpr
+                  ? (() => { const r = this.translateExpression(monthExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                  : `_d_month`;
+                const daySqlD = dayExpr
+                  ? (() => { const r = this.translateExpression(dayExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                  : `_d_day`;
+                
+                // Time components (strip timezone for localdatetime)
+                const hourSqlT = `_t_hour`;
+                const minuteSqlT = `_t_minute`;
+                const secondSqlT = secondExpr
+                  ? (() => { const r = this.translateExpression(secondExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                  : `COALESCE(_t_second, '00')`;
+                
+                let fracSql: string;
+                if (nanosecondExpr) {
+                  const r = this.translateExpression(nanosecondExpr);
+                  tables.push(...r.tables); params.push(...r.params);
+                  fracSql = `'.' || printf('%09d', CAST(${r.sql} AS INTEGER))`;
+                } else if (millisecondExpr) {
+                  const r = this.translateExpression(millisecondExpr);
+                  tables.push(...r.tables); params.push(...r.params);
+                  fracSql = `'.' || printf('%09d', CAST(${r.sql} AS INTEGER) * 1000000)`;
+                } else if (microsecondExpr) {
+                  const r = this.translateExpression(microsecondExpr);
+                  tables.push(...r.tables); params.push(...r.params);
+                  fracSql = `'.' || printf('%09d', CAST(${r.sql} AS INTEGER) * 1000)`;
+                } else {
+                  // Extract fractional from source (stop at timezone marker)
+                  fracSql = `COALESCE(_t_frac, '')`;
+                }
+                
+                // Use single subquery to extract all components
+                return {
+                  sql: `(SELECT ${yearSqlD} || '-' || ${monthSqlD} || '-' || ${daySqlD} || 'T' || ${hourSqlT} || ':' || ${minuteSqlT} || ':' || ${secondSqlT} || ${fracSql}
+                    FROM (SELECT 
+                      substr(_dt, 1, 4) AS _d_year,
+                      substr(_dt, 6, 2) AS _d_month,
+                      substr(_dt, 9, 2) AS _d_day,
+                      substr(_dt, 12, 2) AS _t_hour,
+                      substr(_dt, 15, 2) AS _t_minute,
+                      CASE WHEN length(_dt) >= 19 AND substr(_dt, 18, 1) != '+' AND substr(_dt, 18, 1) != 'Z' THEN substr(_dt, 18, 2) ELSE NULL END AS _t_second,
+                      CASE WHEN instr(_dt, '.') > 0 THEN substr(_dt, instr(_dt, '.'), 
+                        CASE 
+                          WHEN instr(substr(_dt, instr(_dt, '.')), '+') > 0 THEN instr(substr(_dt, instr(_dt, '.')), '+') - 1
+                          WHEN instr(substr(_dt, instr(_dt, '.')), 'Z') > 0 THEN instr(substr(_dt, instr(_dt, '.')), 'Z') - 1
+                          WHEN instr(substr(_dt, instr(_dt, '.')), '-') > 0 AND instr(substr(_dt, instr(_dt, '.')), '-') < 7 THEN instr(substr(_dt, instr(_dt, '.')), '-') - 1
+                          ELSE length(_dt) - instr(_dt, '.') + 1
+                        END
+                      ) ELSE NULL END AS _t_frac
+                    FROM (SELECT ${dtResult.sql} AS _dt)))`,
+                  tables,
+                  params,
+                };
+              }
 
               // Localdatetime from date and time sources: localdatetime({date: otherDate, time: otherTime})
               // Also supports overrides: localdatetime({date: d, time: t, day: 28, second: 42})

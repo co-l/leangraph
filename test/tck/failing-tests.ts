@@ -1636,7 +1636,7 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|6:24",
   // "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|6:8",
   // "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|6:9",
-  "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|7:6",
+  // "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|7:6",
   "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|8:1",
   "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|8:10",
   "expressions/temporal > Temporal3 - Project Temporal Values from other Temporal Values|8:11",

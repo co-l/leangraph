@@ -8451,12 +8451,19 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 }
               }
               
-              // Handle fractional values normalization:
-              // - 0.5 years = 6 months (12 months/year)
-              // - 0.5 months = 15 days (30 days/month per Cypher spec)
-              // - 0.5 days = 12 hours (24 hours/day)
-              // - 0.5 hours = 30 minutes
-              // - 0.5 minutes = 30 seconds
+              // Handle fractional values normalization per Neo4j/Cypher spec:
+              // Based on TCK test analysis:
+              // - For DATE operations: fractional parts cascade (years→months→days)
+              // - For TIME operations: only time-relevant fractions cascade
+              // - The ISO 8601 string representation affects how much time is applied
+              //
+              // Key insight: Neo4j stores duration with 3 main components:
+              // 1. months (from years*12 + months, with fractional years going to months)
+              // 2. days (from days + fractional months*30)
+              // 3. seconds (from hours*3600 + minutes*60 + seconds + fractional days*86400)
+              //
+              // When applied to TIME, years/months are ignored by SQLite's TIME(), but
+              // fractional days should contribute to the seconds/time component.
               
               // Years: integer part stays, fractional part converts to months
               const rawYears = yearsSql?.sql ?? "0";
@@ -8473,10 +8480,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const rawWeeks = weeksSql?.sql ?? "0";
               const finalWeeksSql = `CAST(${rawWeeks} AS INTEGER)`;
               
-              // Days: add days from months fraction, use ROUND for final value (Cypher rounds half up)
+              // Days: add days from months fraction
+              // Use floor for integer days, cascade fractional part to hours
               const rawDays = daysSql?.sql ?? "0";
               const totalDaysSql = `(${rawDays} + ${daysFromMonthsFracSql})`;
-              const finalDaysSql = `CAST(ROUND(${totalDaysSql}) AS INTEGER)`;
+              const finalDaysSql = `CAST(${totalDaysSql} AS INTEGER)`;
               const hoursFromDaysFracSql = `((${totalDaysSql} - CAST(${totalDaysSql} AS INTEGER)) * 24)`;
               
               // Hours: add hours from days fraction, then integer part stays, fractional converts to minutes
@@ -10106,8 +10114,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       if (!aliasExpr) return null;
       if (aliasExpr.type === "function") {
         if (aliasExpr.functionName === "DATE") return "date";
-        if (aliasExpr.functionName === "LOCALTIME" || aliasExpr.functionName === "TIME") return "time";
-        if (aliasExpr.functionName === "LOCALDATETIME" || aliasExpr.functionName === "DATETIME") return "datetime";
+        if (aliasExpr.functionName === "LOCALTIME") return "localtime";
+        if (aliasExpr.functionName === "TIME") return "time";  // time with timezone
+        if (aliasExpr.functionName === "LOCALDATETIME") return "localdatetime";
+        if (aliasExpr.functionName === "DATETIME") return "datetime";  // datetime with timezone
       }
       return null;
     };
@@ -10212,7 +10222,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const minutesSql = extractComponentCase3("_durval", "TM", false);
       const secondsSql = extractComponentCase3("_durval", "S", false);
       
-      const sqliteTemporalFn = temporalType === "date" ? "DATE" : temporalType === "time" ? "TIME" : "DATETIME";
+      // Determine SQLite function and whether we have timezone
+      const hasTimezone = temporalType === "time" || temporalType === "datetime";
+      const sqliteTemporalFn = (temporalType === "date") ? "DATE" : 
+                               (temporalType === "time" || temporalType === "localtime") ? "TIME" : "DATETIME";
       
       // Strip JSON quotes from duration value if present
       // For DATE, only apply year/month/day modifiers (ignore time parts)
@@ -10233,6 +10246,33 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // For time/datetime, we need to handle nanoseconds separately
       // Use a single WITH clause (CTE) to compute all intermediate values
       
+      // For zoned time/datetime, we need to:
+      // 1. Extract and strip timezone from base time before SQLite TIME/DATETIME call
+      // 2. Do arithmetic on the local time
+      // 3. Re-append timezone to result
+      
+      // Helper SQL to extract timezone from base time (e.g., "+01:00" or "Z" or "[Europe/Paris]" or "")
+      // Timezone patterns: +HH:MM, -HH:MM, Z, or [TzName] at the end
+      // Note: These use _basetime (not _d._basetime) because they're placed in the subquery column definitions
+      const extractTzSql = hasTimezone ? `
+        CASE 
+          WHEN _basetime LIKE '%]' THEN substr(_basetime, instr(_basetime, '['))
+          WHEN _basetime LIKE '%Z' THEN 'Z'
+          WHEN _basetime LIKE '%+__:__' THEN substr(_basetime, -6)
+          WHEN _basetime LIKE '%-__:__' THEN substr(_basetime, -6)
+          ELSE ''
+        END` : "''";
+      
+      // Helper SQL to strip timezone from base time for arithmetic
+      const stripTzSql = hasTimezone ? `
+        CASE 
+          WHEN _basetime LIKE '%]' THEN substr(_basetime, 1, instr(_basetime, '[') - 1)
+          WHEN _basetime LIKE '%Z' THEN substr(_basetime, 1, length(_basetime) - 1)
+          WHEN _basetime LIKE '%+__:__' THEN substr(_basetime, 1, length(_basetime) - 6)
+          WHEN _basetime LIKE '%-__:__' THEN substr(_basetime, 1, length(_basetime) - 6)
+          ELSE _basetime
+        END` : "_basetime";
+      
       // Extract nanoseconds from duration (fractional part after decimal in seconds, padded to 9 digits)
       const durationNanosSql = `COALESCE(CAST(
         CASE WHEN instr(_d._durval, '.') > 0 AND instr(_d._durval, 'S') > instr(_d._durval, '.')
@@ -10241,7 +10281,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         END AS INTEGER), 0)`;
       
       // Extract nanoseconds from the base time value (fractional part after decimal, padded to 9 digits)
-      const baseTimeNanosSql = `COALESCE(CAST(
+      // Need to handle timezone suffix: strip it first, then extract fractional seconds
+      const baseTimeNanosSql = hasTimezone ? `COALESCE(CAST(
+        CASE WHEN instr(_d._localtime, '.') > 0
+             THEN substr(substr(_d._localtime, instr(_d._localtime, '.') + 1) || '000000000', 1, 9)
+             ELSE '0'
+        END AS INTEGER), 0)` : `COALESCE(CAST(
         CASE WHEN instr(_d._basetime, '.') > 0
              THEN substr(substr(_d._basetime, instr(_d._basetime, '.') + 1) || '000000000', 1, 9)
              ELSE '0'
@@ -10269,7 +10314,38 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
          printf('%+d minutes', (${sign}) * ${minutesSql}),
          printf('%+.0f seconds', (${sign}) * CAST(${secondsSql} AS INTEGER) + ${secondsAdjustSql})`;
       
+      // For zoned types, use _localtime (with tz stripped) for arithmetic, then re-append _tz
+      const timeInputSql = hasTimezone ? "_d._localtime" : "_d._basetime";
+      
       // For TIME and DATETIME, handle nanoseconds and format the output
+      // For zoned types, append timezone to result
+      const tzAppendSql = hasTimezone ? ` || _d._tz` : "";
+      
+      // For zoned types, we need to nest the subquery so we can reference _basetime in column expressions
+      if (hasTimezone) {
+        return {
+          sql: `(SELECT 
+            CASE WHEN ${finalNanosSql} = 0 
+                 THEN ${sqliteTemporalFn}(_d._localtime, ${timeModifiers}) || _d._tz
+                 ELSE ${sqliteTemporalFn}(_d._localtime, ${timeModifiers}) || '.' || 
+                      substr('000000000' || CAST(${finalNanosSql} AS TEXT), -9) || _d._tz
+            END
+          FROM (
+            SELECT _inner._basetime,
+                   _inner._durval,
+                   (${stripTzSql.replace(/_basetime/g, "_inner._basetime")}) AS _localtime,
+                   (${extractTzSql.replace(/_basetime/g, "_inner._basetime")}) AS _tz
+            FROM (
+              SELECT ${baseSql} AS _basetime,
+                     CASE WHEN (${durSql}) LIKE '"P%' THEN substr(${durSql}, 2, length(${durSql}) - 2)
+                          ELSE ${durSql} END AS _durval
+            ) AS _inner
+          ) AS _d)`,
+          tables,
+          params,
+        };
+      }
+      
       return {
         sql: `(SELECT 
           CASE WHEN ${finalNanosSql} = 0 

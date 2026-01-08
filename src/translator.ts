@@ -4704,6 +4704,30 @@ export class Translator {
         // Node: return properties with hidden _nf_id for identity
         // Return NULL if the node is NULL (OPTIONAL MATCH case)
         if (varInfo.type === "node") {
+          // Check if this is actually an UNWIND variable (stored as node type but uses json_each)
+          // UNWIND aliases start with "unwind" prefix
+          if (varInfo.alias.startsWith("unwind")) {
+            const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+              alias: string;
+              variable: string;
+              jsonExpr: string;
+              params: unknown[];
+            }> | undefined;
+            
+            if (unwindClauses) {
+              const unwindClause = unwindClauses.find(u => u.alias === varInfo.alias);
+              if (unwindClause) {
+                tables.push(unwindClause.alias);
+                // UNWIND variables access the 'value' column from json_each
+                return {
+                  sql: `${unwindClause.alias}.value`,
+                  tables,
+                  params,
+                };
+              }
+            }
+          }
+          
           const relPatterns = (this.ctx as any).relationshipPatterns as Array<{
             sourceAlias: string;
             targetAlias: string;
@@ -4819,6 +4843,28 @@ export class Translator {
                 }
               }
             }
+          }
+        }
+        
+        // Check if this is a property access on an UNWIND variable
+        const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+          alias: string;
+          variable: string;
+          jsonExpr: string;
+          params: unknown[];
+        }> | undefined;
+        
+        if (unwindClauses) {
+          const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
+          if (unwindClause) {
+            tables.push(unwindClause.alias);
+            // UNWIND variables use the 'value' column from json_each
+            // Access property from the unwound value using json_extract
+            return {
+              sql: `json_extract(${unwindClause.alias}.value, '$.${expr.property}')`,
+              tables,
+              params,
+            };
           }
         }
         
@@ -9844,6 +9890,25 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
   private translateWhereExpression(expr: Expression): { sql: string; params: unknown[] } {
     switch (expr.type) {
       case "property": {
+        // Check if this is a property access on an UNWIND variable
+        const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+          alias: string;
+          variable: string;
+          jsonExpr: string;
+          params: unknown[];
+        }> | undefined;
+        
+        if (unwindClauses) {
+          const unwindClause = unwindClauses.find(u => u.variable === expr.variable);
+          if (unwindClause) {
+            // UNWIND variables use the 'value' column from json_each
+            return {
+              sql: `json_extract(${unwindClause.alias}.value, '$.${expr.property}')`,
+              params: [],
+            };
+          }
+        }
+        
         const varInfo = this.ctx.variables.get(expr.variable!);
         if (!varInfo) {
           throw new Error(`Unknown variable: ${expr.variable}`);

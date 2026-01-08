@@ -7910,7 +7910,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         leftSql = this.wrapForComparison(expr.left!, leftResult.sql);
       }
       return {
-        sql: `CASE WHEN ${leftSql} ${expr.comparisonOperator} THEN json('true') ELSE json('false') END`,
+        sql: `CASE WHEN (${leftSql}) ${expr.comparisonOperator} THEN json('true') ELSE json('false') END`,
         tables,
         params,
       };

@@ -6927,13 +6927,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               if (timeExpr) {
                 const timeResult = this.translateExpression(timeExpr);
                 tables.push(...timeResult.tables);
-                params.push(...timeResult.params);
+                // Don't push timeResult.params yet - need to determine correct order
                 
                 const hasOverrides = hourExpr || minuteExpr || secondExpr || nanosecondExpr || millisecondExpr || microsecondExpr || timezoneExpr;
                 
                 if (!hasOverrides) {
                   // Just extract time portion with timezone - find time after 'T' or use as is
                   // For datetime with tz, extract time and keep the timezone
+                  params.push(...timeResult.params);
                   return {
                     sql: `(SELECT CASE 
                       WHEN instr(_t, 'T') > 0 THEN 
@@ -6976,21 +6977,33 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 
                 // Get timezone from override or extract from source in subquery
                 let tzSql: string;
+                let needsTimezoneConversion = false;
+                let tzParams: unknown[] = [];
                 if (timezoneExpr) {
                   const tzResult = this.translateExpression(timezoneExpr);
                   tables.push(...tzResult.tables);
-                  params.push(...tzResult.params);
+                  tzParams = tzResult.params;
                   tzSql = tzResult.sql;
+                  // If we're changing timezone but not explicitly setting hour/minute, we need to convert
+                  needsTimezoneConversion = !hourExpr && !minuteExpr;
                 } else {
                   // Will extract timezone from _t_raw in subquery
                   tzSql = `_t_tz`;
                 }
                 
+                // For timezone conversion, params order is: [tzParams, timeResult.params]
+                // For non-conversion, params order is: [timeResult.params, tzParams]
+                if (needsTimezoneConversion) {
+                  params.push(...tzParams, ...timeResult.params);
+                } else {
+                  params.push(...timeResult.params, ...tzParams);
+                }
+                
                 // Build overridden components
-                const hourSql = hourExpr
+                let hourSql = hourExpr
                   ? (() => { const r = this.translateExpression(hourExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
                   : `_t_hour`;
-                const minuteSql = minuteExpr
+                let minuteSql = minuteExpr
                   ? (() => { const r = this.translateExpression(minuteExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
                   : `_t_minute`;
                 const secondSql = secondExpr
@@ -6998,8 +7011,77 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                   : `_t_second`;
                 const fracSql = getFracSql('_t_raw');
                 
+                // If timezone is being changed without explicit hour/minute override, perform conversion
+                // Convert time from source timezone to target timezone
+                if (needsTimezoneConversion) {
+                  // Calculate offset difference in minutes and adjust time
+                  // Source offset: _t_tz (extracted from source)
+                  // Target offset: tzSql (the new timezone)
+                  // Formula: new_total_minutes = old_total_minutes + (new_offset - old_offset)
+                  // where offset is in minutes from UTC (e.g., +01:00 = +60, -05:00 = -300)
+                  
+                  // Use _new_tz_offset computed in subquery (avoids multiple param references)
+                  // _t_tz_offset is the source offset, _new_tz_offset is target offset
+                  // Both are in minutes from UTC
+                  
+                  // Calculate new time in minutes from midnight, then wrap around for 24h
+                  const newTotalMinutesSql = `((_t_minutes + (_new_tz_offset - _t_tz_offset) + 1440) % 1440)`;
+                  
+                  hourSql = `printf('%02d', ${newTotalMinutesSql} / 60)`;
+                  minuteSql = `printf('%02d', ${newTotalMinutesSql} % 60)`;
+                }
+                
                 // Use subquery to extract all components once
                 // Extract timezone: Z, +HH:MM, or -HH:MM from end of time string
+                if (needsTimezoneConversion) {
+                  // Include offset calculations in subquery for timezone conversion
+                  // Helper function to convert timezone to offset in minutes (as SQL)
+                  const tzOffsetCalc = (tzRef: string) => `(
+                    CASE 
+                      WHEN ${tzRef} = 'Z' OR ${tzRef} = '+00:00' THEN 0
+                      ELSE (
+                        CAST(substr(${tzRef}, 2, 2) AS INTEGER) * 60 + 
+                        CAST(substr(${tzRef}, 5, 2) AS INTEGER)
+                      ) * (CASE WHEN substr(${tzRef}, 1, 1) = '-' THEN -1 ELSE 1 END)
+                    END
+                  )`;
+                  
+                  // If source has no timezone (localtime), don't convert - just append new timezone
+                  // If source has timezone (time/datetime), convert the time
+                  // _has_tz: 1 if source has explicit timezone, 0 if not (localtime)
+                  return {
+                    sql: `(SELECT 
+                      CASE WHEN _has_tz = 1 THEN 
+                        ${hourSql} || ':' || ${minuteSql} 
+                      ELSE 
+                        _t_hour || ':' || _t_minute 
+                      END || ':' || ${secondSql} || ${fracSql} || _new_tz 
+                    FROM (SELECT 
+                      _t_hour, _t_minute, _t_second, _t_tz, _t_raw, _new_tz, _has_tz,
+                      (CAST(_t_hour AS INTEGER) * 60 + CAST(_t_minute AS INTEGER)) AS _t_minutes,
+                      ${tzOffsetCalc('_t_tz')} AS _t_tz_offset,
+                      ${tzOffsetCalc('_new_tz')} AS _new_tz_offset
+                    FROM (SELECT 
+                      substr(_t_raw, 1, 2) AS _t_hour, 
+                      substr(_t_raw, 4, 2) AS _t_minute, 
+                      COALESCE(substr(_t_raw, 7, 2), '00') AS _t_second,
+                      CASE 
+                        WHEN _t_raw GLOB '*Z' THEN 'Z'
+                        WHEN _t_raw GLOB '*[+-][0-9][0-9]:[0-9][0-9]' THEN substr(_t_raw, length(_t_raw) - 5)
+                        ELSE '+00:00'
+                      END AS _t_tz,
+                      CASE 
+                        WHEN _t_raw GLOB '*Z' OR _t_raw GLOB '*[+-][0-9][0-9]:[0-9][0-9]' THEN 1
+                        ELSE 0
+                      END AS _has_tz,
+                      ${tzSql} AS _new_tz,
+                      _t_raw 
+                    FROM (SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END AS _t_raw FROM (SELECT ${timeResult.sql} AS _t)))))`,
+                    tables,
+                    params,
+                  };
+                }
+                
                 return {
                   sql: `(SELECT ${hourSql} || ':' || ${minuteSql} || ':' || ${secondSql} || ${fracSql} || ${tzSql} FROM (SELECT 
                     substr(_t_raw, 1, 2) AS _t_hour, 

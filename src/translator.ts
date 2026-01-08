@@ -6479,14 +6479,18 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const minuteResult = this.translateExpression(minuteExpr);
               const tzResult = this.translateExpression(timezoneExpr);
               tables.push(...hourResult.tables, ...minuteResult.tables, ...tzResult.tables);
-              params.push(...hourResult.params, ...minuteResult.params, ...tzResult.params);
+              params.push(...hourResult.params, ...minuteResult.params);
+              // Push timezone params 4 times since we use it 4 times in the CASE expression
+              params.push(...tzResult.params, ...tzResult.params, ...tzResult.params, ...tzResult.params);
 
               const hourSql = `CAST(${hourResult.sql} AS INTEGER)`;
               const minuteSql = `CAST(${minuteResult.sql} AS INTEGER)`;
+              // Normalize timezone: remove trailing ':00' seconds if present (e.g., '+02:05:00' -> '+02:05')
+              const tzNormalized = `(CASE WHEN ${tzResult.sql} LIKE '%:00' AND LENGTH(${tzResult.sql}) = 9 THEN SUBSTR(${tzResult.sql}, 1, 6) ELSE ${tzResult.sql} END)`;
 
               if (!secondExpr) {
                 return {
-                  sql: `(printf('%02d:%02d', ${hourSql}, ${minuteSql}) || ${tzResult.sql})`,
+                  sql: `(printf('%02d:%02d', ${hourSql}, ${minuteSql}) || ${tzNormalized})`,
                   tables,
                   params,
                 };
@@ -6499,7 +6503,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
               if (!nanosecondExpr) {
                 return {
-                  sql: `(printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql}) || ${tzResult.sql})`,
+                  sql: `(printf('%02d:%02d:%02d', ${hourSql}, ${minuteSql}, ${secondSql}) || ${tzNormalized})`,
                   tables,
                   params,
                 };
@@ -6511,7 +6515,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const nanosecondSql = `CAST(${nanosecondResult.sql} AS INTEGER)`;
 
               return {
-                sql: `(printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql}) || ${tzResult.sql})`,
+                sql: `(printf('%02d:%02d:%02d.%09d', ${hourSql}, ${minuteSql}, ${secondSql}, ${nanosecondSql}) || ${tzNormalized})`,
                 tables,
                 params,
               };

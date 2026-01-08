@@ -7239,16 +7239,64 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const microsecondExpr = byKey.get("microsecond");
 
               // Localdatetime from date and time sources: localdatetime({date: otherDate, time: otherTime})
+              // Also supports overrides: localdatetime({date: d, time: t, day: 28, second: 42})
               if (dateExpr && timeExpr && !hourExpr && !minuteExpr && !yearExpr) {
                 const dateResult = this.translateExpression(dateExpr);
                 const timeResult = this.translateExpression(timeExpr);
                 tables.push(...dateResult.tables, ...timeResult.tables);
                 params.push(...dateResult.params, ...timeResult.params);
                 
-                // Extract date part (first 10 chars: YYYY-MM-DD)
-                const datePart = `substr(${dateResult.sql}, 1, 10)`;
-                // Extract time part (everything after 'T' or the whole string)
-                const timePart = `(SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END FROM (SELECT ${timeResult.sql} AS _t))`;
+                // Check for date component overrides
+                const hasDateOverrides = monthExpr || dayExpr;
+                // Check for time component overrides
+                const hasTimeOverrides = secondExpr || nanosecondExpr || millisecondExpr || microsecondExpr;
+                
+                let datePart: string;
+                if (hasDateOverrides) {
+                  // Apply overrides using subquery to avoid param duplication
+                  const yearSqlD = `_d_year`;
+                  const monthSqlD = monthExpr
+                    ? (() => { const r = this.translateExpression(monthExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                    : `_d_month`;
+                  const daySqlD = dayExpr
+                    ? (() => { const r = this.translateExpression(dayExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                    : `_d_day`;
+                  datePart = `(SELECT ${yearSqlD} || '-' || ${monthSqlD} || '-' || ${daySqlD} FROM (SELECT substr(_d, 1, 4) AS _d_year, substr(_d, 6, 2) AS _d_month, substr(_d, 9, 2) AS _d_day FROM (SELECT ${dateResult.sql} AS _d)))`;
+                } else {
+                  datePart = `substr(${dateResult.sql}, 1, 10)`;
+                }
+                
+                let timePart: string;
+                if (hasTimeOverrides) {
+                  // Apply overrides from source time components
+                  const hourSqlT = `substr(_t_raw, 1, 2)`;
+                  const minuteSqlT = `substr(_t_raw, 4, 2)`;
+                  const secondSqlT = secondExpr
+                    ? (() => { const r = this.translateExpression(secondExpr); tables.push(...r.tables); params.push(...r.params); return `printf('%02d', CAST(${r.sql} AS INTEGER))`; })()
+                    : `COALESCE(substr(_t_raw, 7, 2), '00')`;
+                  
+                  let fracSql: string;
+                  if (nanosecondExpr) {
+                    const r = this.translateExpression(nanosecondExpr);
+                    tables.push(...r.tables); params.push(...r.params);
+                    fracSql = `'.' || printf('%09d', CAST(${r.sql} AS INTEGER))`;
+                  } else if (millisecondExpr) {
+                    const r = this.translateExpression(millisecondExpr);
+                    tables.push(...r.tables); params.push(...r.params);
+                    fracSql = `'.' || printf('%09d', CAST(${r.sql} AS INTEGER) * 1000000)`;
+                  } else if (microsecondExpr) {
+                    const r = this.translateExpression(microsecondExpr);
+                    tables.push(...r.tables); params.push(...r.params);
+                    fracSql = `'.' || printf('%09d', CAST(${r.sql} AS INTEGER) * 1000)`;
+                  } else {
+                    // Extract fractional from source
+                    fracSql = `COALESCE(CASE WHEN instr(_t_raw, '.') > 0 THEN substr(_t_raw, instr(_t_raw, '.')) ELSE '' END, '')`;
+                  }
+                  
+                  timePart = `(SELECT ${hourSqlT} || ':' || ${minuteSqlT} || ':' || ${secondSqlT} || ${fracSql} FROM (SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END AS _t_raw FROM (SELECT ${timeResult.sql} AS _t)))`;
+                } else {
+                  timePart = `(SELECT CASE WHEN instr(_t, 'T') > 0 THEN substr(_t, instr(_t, 'T') + 1) ELSE _t END FROM (SELECT ${timeResult.sql} AS _t))`;
+                }
                 
                 return {
                   sql: `(${datePart} || 'T' || ${timePart})`,

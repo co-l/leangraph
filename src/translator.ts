@@ -6956,12 +6956,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // Also supports compact formats:
             // - HHMMSS+HHMM or HHMMSS-HHMM (e.g., 214032-0100 -> 21:40:32-01:00)
             // - HHMM+HHMM (e.g., 2140+0100 -> 21:40:00+01:00)
-            // - Normal format with colons passes through
+            // - Normal format with colons - add 'Z' timezone if not present
             const argResult = this.translateFunctionArg(arg);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
             const timeArg = argResult.sql;
             // Parse and normalize compact time formats with timezone
+            // For time values without timezone (e.g., from localtime), add 'Z' suffix
             const sql = `(SELECT CASE
               WHEN t GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][+-][0-9][0-9][0-9][0-9]'
               THEN substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':' || substr(t, 5, 2) || substr(t, 7, 1) || substr(t, 8, 2) || ':' || substr(t, 10, 2)
@@ -6971,7 +6972,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               THEN substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':' || substr(t, 5, 2) || 'Z'
               WHEN t GLOB '[0-9][0-9][0-9][0-9]Z'
               THEN substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':00Z'
-              ELSE t
+              WHEN t GLOB '*Z' OR t GLOB '*[+-][0-9][0-9]:[0-9][0-9]'
+              THEN t
+              ELSE t || 'Z'
             END FROM (SELECT ${timeArg} AS t))`;
             return { sql, tables, params };
           }

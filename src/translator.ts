@@ -7202,12 +7202,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // Parse various datetime formats and normalize to ISO format
             // The string includes timezone at the end (Z, +HH:MM, -HH:MM)
             // We need to extract datetime part and timezone separately, then reassemble
-            // Helper: normalize compact time HHMMSS to HH:MM:SS (time part before timezone)
+            // Helper: normalize compact time HHMMSS to HH:MM:SS and compact timezone -HHMM to -HH:MM
             const normalizeTimeWithTz = (timeExpr: string) => `CASE
               WHEN ${timeExpr} GLOB '[0-9][0-9][0-9][0-9][0-9][0-9].*[+-][0-9][0-9]:[0-9][0-9]'
               THEN substr(${timeExpr}, 1, 2) || ':' || substr(${timeExpr}, 3, 2) || ':' || substr(${timeExpr}, 5, 2) || substr(${timeExpr}, 7)
               WHEN ${timeExpr} GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][+-][0-9][0-9]:[0-9][0-9]'
               THEN substr(${timeExpr}, 1, 2) || ':' || substr(${timeExpr}, 3, 2) || ':' || substr(${timeExpr}, 5, 2) || substr(${timeExpr}, 7)
+              WHEN ${timeExpr} GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][+-][0-9][0-9][0-9][0-9]'
+              THEN substr(${timeExpr}, 1, 2) || ':' || substr(${timeExpr}, 3, 2) || ':' || substr(${timeExpr}, 5, 2) || substr(${timeExpr}, 7, 1) || substr(${timeExpr}, 8, 2) || ':' || substr(${timeExpr}, 10, 2)
               WHEN ${timeExpr} GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]Z'
               THEN substr(${timeExpr}, 1, 2) || ':' || substr(${timeExpr}, 3, 2) || ':' || substr(${timeExpr}, 5, 2) || 'Z'
               WHEN ${timeExpr} GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'

@@ -7571,8 +7571,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       this.validateBooleanOperand(expr.left!, expr.operator);
       this.validateBooleanOperand(expr.right!, expr.operator);
       
+      // Use custom cypher_and/cypher_or functions for proper JSON boolean handling
+      const func = expr.operator === "AND" ? "cypher_and" : "cypher_or";
       return {
-        sql: `(${leftResult.sql} ${expr.operator} ${rightResult.sql})`,
+        sql: `${func}(${leftResult.sql}, ${rightResult.sql})`,
         tables,
         params,
       };
@@ -8841,8 +8843,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       tables.push(...operandResult.tables);
       params.push(...operandResult.params);
       
+      // Use custom cypher_not function that properly handles JSON booleans and integers
       return {
-        sql: `NOT (${operandResult.sql})`,
+        sql: `cypher_not(${operandResult.sql})`,
         tables,
         params,
       };

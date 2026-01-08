@@ -262,9 +262,51 @@ function toComparableValue(value: unknown, type: string): number | string | bool
 }
 
 /**
+ * Helper to convert SQLite boolean representation to JavaScript boolean.
+ * SQLite can represent booleans as: 1, 0, 'true', 'false'
+ */
+function toBoolValue(x: unknown): boolean | null {
+  if (x === null || x === undefined) return null;
+  if (x === 1 || x === true || x === 'true') return true;
+  if (x === 0 || x === false || x === 'false') return false;
+  return null;
+}
+
+/**
  * Register custom SQL functions for Cypher semantics on a database instance.
  */
 function registerCypherFunctions(db: Database.Database): void {
+  // cypher_not: Proper boolean negation that works with both JSON booleans and integers
+  // Converts json('true')/1 -> 0, json('false')/0 -> 1, null -> null
+  // Returns integers for SQLite compatibility in WHERE clauses
+  db.function("cypher_not", { deterministic: true }, (x: unknown) => {
+    const b = toBoolValue(x);
+    if (b === null) return null;
+    return b ? 0 : 1;
+  });
+  
+  // cypher_and: Proper boolean AND that works with both JSON booleans and integers
+  // Returns integers for SQLite compatibility in WHERE clauses
+  db.function("cypher_and", { deterministic: true }, (a: unknown, b: unknown) => {
+    const boolA = toBoolValue(a);
+    const boolB = toBoolValue(b);
+    // Cypher AND with NULL: false AND NULL = false, true AND NULL = NULL
+    if (boolA === false || boolB === false) return 0;
+    if (boolA === null || boolB === null) return null;
+    return boolA && boolB ? 1 : 0;
+  });
+  
+  // cypher_or: Proper boolean OR that works with both JSON booleans and integers
+  // Returns integers for SQLite compatibility in WHERE clauses
+  db.function("cypher_or", { deterministic: true }, (a: unknown, b: unknown) => {
+    const boolA = toBoolValue(a);
+    const boolB = toBoolValue(b);
+    // Cypher OR with NULL: true OR NULL = true, false OR NULL = NULL
+    if (boolA === true || boolB === true) return 1;
+    if (boolA === null || boolB === null) return null;
+    return boolA || boolB ? 1 : 0;
+  });
+
   // cypher_compare: Type-aware comparison for ordering operators (<, <=, >, >=)
   // Returns: 1 if condition is true, 0 if false, null if types are incompatible
   db.function("cypher_lt", { deterministic: true }, (a: unknown, b: unknown) => {

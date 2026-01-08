@@ -2636,8 +2636,59 @@ export class Parser {
         this.advance(); // consume .
         // Property access - property names can be keywords too
         const property = this.expectIdentifierOrKeyword();
-        // Convert to propertyAccess expression for chained access
-        expr = { type: "propertyAccess", object: expr, property };
+        
+        // Check for namespaced function call: namespace.function(args)
+        // e.g., duration.between(), duration.inMonths(), etc.
+        if (this.check("LPAREN")) {
+          this.advance(); // consume (
+          
+          // Build the namespaced function name (e.g., "duration.between")
+          let namespace: string;
+          if (expr.type === "variable") {
+            namespace = expr.variable!;
+          } else if (expr.type === "propertyAccess") {
+            // For deeper chains like a.b.c() - build full namespace path
+            const parts: string[] = [];
+            let current: Expression = expr;
+            while (current.type === "propertyAccess") {
+              parts.unshift(current.property!);
+              current = current.object!;
+            }
+            if (current.type === "variable") {
+              parts.unshift(current.variable!);
+            }
+            namespace = parts.join(".");
+          } else {
+            // Can't form a namespace from this expression type
+            throw new Error(`Invalid namespace function call syntax`);
+          }
+          
+          // Convert to uppercase for consistency with other functions
+          const functionName = `${namespace}.${property}`.toUpperCase();
+          const args: Expression[] = [];
+          
+          // Check for DISTINCT keyword (for aggregation functions)
+          let distinct: boolean | undefined;
+          if (this.checkKeyword("DISTINCT")) {
+            this.advance();
+            distinct = true;
+          }
+          
+          if (!this.check("RPAREN")) {
+            do {
+              if (args.length > 0) {
+                this.expect("COMMA");
+              }
+              args.push(this.parseReturnExpression());
+            } while (this.check("COMMA"));
+          }
+          
+          this.expect("RPAREN");
+          expr = { type: "function", functionName, args, distinct };
+        } else {
+          // Regular property access
+          expr = { type: "propertyAccess", object: expr, property };
+        }
       } else {
         // LBRACKET - parse index or slice
         this.advance(); // consume [
@@ -2956,6 +3007,35 @@ export class Parser {
         this.advance();
         // Property names can also be keywords (like 'count', 'order', etc.)
         const property = this.expectIdentifierOrKeyword();
+        
+        // Check for namespaced function call: namespace.function(args)
+        // e.g., duration.between(), duration.inMonths(), etc.
+        if (this.check("LPAREN")) {
+          this.advance(); // consume (
+          // Convert to uppercase for consistency with other functions
+          const functionName = `${variable}.${property}`.toUpperCase();
+          const args: Expression[] = [];
+          
+          // Check for DISTINCT keyword (for aggregation functions)
+          let distinct: boolean | undefined;
+          if (this.checkKeyword("DISTINCT")) {
+            this.advance();
+            distinct = true;
+          }
+          
+          if (!this.check("RPAREN")) {
+            do {
+              if (args.length > 0) {
+                this.expect("COMMA");
+              }
+              args.push(this.parseReturnExpression());
+            } while (this.check("COMMA"));
+          }
+          
+          this.expect("RPAREN");
+          return { type: "function", functionName, args, distinct };
+        }
+        
         return { type: "property", variable, property };
       }
 

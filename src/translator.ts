@@ -6643,6 +6643,111 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
 
         // ============================================================================
+        // Duration functions: duration.between, duration.inMonths, duration.inDays, duration.inSeconds
+        // ============================================================================
+
+        // duration.between: compute duration between two temporal values
+        if (expr.functionName === "DURATION.BETWEEN") {
+          if (expr.args && expr.args.length === 2) {
+            const arg1Result = this.translateFunctionArg(expr.args[0]);
+            const arg2Result = this.translateFunctionArg(expr.args[1]);
+            tables.push(...arg1Result.tables, ...arg2Result.tables);
+            // If either argument is NULL, return NULL
+            // Otherwise compute the ISO 8601 duration between the two temporal values
+            // For simplicity, compute the difference in seconds and format as ISO 8601 duration
+            params.push(
+              ...arg1Result.params,
+              ...arg2Result.params,
+              ...arg1Result.params,
+              ...arg2Result.params
+            );
+            // Return PT...S format (duration in seconds) - simplified implementation
+            return {
+              sql: `CASE WHEN ${arg1Result.sql} IS NULL OR ${arg2Result.sql} IS NULL THEN NULL ` +
+                   `ELSE 'PT' || CAST((julianday(${arg2Result.sql}) - julianday(${arg1Result.sql})) * 86400 AS INTEGER) || 'S' END`,
+              tables,
+              params
+            };
+          }
+          throw new Error("duration.between requires 2 arguments");
+        }
+
+        // duration.inMonths: compute months component between two temporal values
+        if (expr.functionName === "DURATION.INMONTHS") {
+          if (expr.args && expr.args.length === 2) {
+            const arg1Result = this.translateFunctionArg(expr.args[0]);
+            const arg2Result = this.translateFunctionArg(expr.args[1]);
+            tables.push(...arg1Result.tables, ...arg2Result.tables);
+            // Returns a duration with only months component
+            params.push(
+              ...arg1Result.params,
+              ...arg2Result.params,
+              ...arg1Result.params,
+              ...arg1Result.params,
+              ...arg2Result.params,
+              ...arg2Result.params
+            );
+            // Calculate months difference
+            return {
+              sql: `CASE WHEN ${arg1Result.sql} IS NULL OR ${arg2Result.sql} IS NULL THEN NULL ` +
+                   `ELSE 'P' || ((CAST(strftime('%Y', ${arg2Result.sql}) AS INTEGER) - CAST(strftime('%Y', ${arg1Result.sql}) AS INTEGER)) * 12 + ` +
+                   `(CAST(strftime('%m', ${arg2Result.sql}) AS INTEGER) - CAST(strftime('%m', ${arg1Result.sql}) AS INTEGER))) || 'M' END`,
+              tables,
+              params
+            };
+          }
+          throw new Error("duration.inMonths requires 2 arguments");
+        }
+
+        // duration.inDays: compute days component between two temporal values
+        if (expr.functionName === "DURATION.INDAYS") {
+          if (expr.args && expr.args.length === 2) {
+            const arg1Result = this.translateFunctionArg(expr.args[0]);
+            const arg2Result = this.translateFunctionArg(expr.args[1]);
+            tables.push(...arg1Result.tables, ...arg2Result.tables);
+            // Returns a duration with only days component
+            params.push(
+              ...arg1Result.params,
+              ...arg2Result.params,
+              ...arg1Result.params,
+              ...arg2Result.params
+            );
+            // Calculate days difference
+            return {
+              sql: `CASE WHEN ${arg1Result.sql} IS NULL OR ${arg2Result.sql} IS NULL THEN NULL ` +
+                   `ELSE 'P' || CAST((julianday(${arg2Result.sql}) - julianday(${arg1Result.sql})) AS INTEGER) || 'D' END`,
+              tables,
+              params
+            };
+          }
+          throw new Error("duration.inDays requires 2 arguments");
+        }
+
+        // duration.inSeconds: compute seconds component between two temporal values
+        if (expr.functionName === "DURATION.INSECONDS") {
+          if (expr.args && expr.args.length === 2) {
+            const arg1Result = this.translateFunctionArg(expr.args[0]);
+            const arg2Result = this.translateFunctionArg(expr.args[1]);
+            tables.push(...arg1Result.tables, ...arg2Result.tables);
+            // Returns a duration with only seconds component
+            params.push(
+              ...arg1Result.params,
+              ...arg2Result.params,
+              ...arg1Result.params,
+              ...arg2Result.params
+            );
+            // Calculate seconds difference (86400 seconds per day)
+            return {
+              sql: `CASE WHEN ${arg1Result.sql} IS NULL OR ${arg2Result.sql} IS NULL THEN NULL ` +
+                   `ELSE 'PT' || CAST((julianday(${arg2Result.sql}) - julianday(${arg1Result.sql})) * 86400 AS INTEGER) || 'S' END`,
+              tables,
+              params
+            };
+          }
+          throw new Error("duration.inSeconds requires 2 arguments");
+        }
+
+        // ============================================================================
         // Extended string functions
         // ============================================================================
 

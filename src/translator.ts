@@ -8688,7 +8688,17 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         
         // Map Cypher functions to SQLite equivalents
         const funcName = expr.functionName!;
-        if (funcName === "SIZE" || funcName === "LENGTH") {
+        if (funcName === "SIZE") {
+          // SIZE works on both lists (json arrays) and strings
+          // Use json_array_length for arrays, LENGTH for strings
+          // Must check json_valid first to avoid "malformed JSON" error on plain strings
+          const arg = funcArgs[0];
+          return { 
+            sql: `CASE WHEN json_valid(${arg}) AND json_type(${arg}) = 'array' THEN json_array_length(${arg}) ELSE LENGTH(${arg}) END`, 
+            params 
+          };
+        }
+        if (funcName === "LENGTH") {
           return { sql: `LENGTH(${funcArgs[0]})`, params };
         }
         if (funcName === "TOUPPER" || funcName === "UPPER") {

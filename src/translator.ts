@@ -6442,10 +6442,43 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             }
 
             // date('2024-01-15') - parse date string
+            // Also supports compact formats:
+            // - YYYYDDD (ordinal date, 7 digits): 2015202 = 2015, day 202 = 2015-07-21
+            // - YYYYMMDD (compact date, 8 digits): 20150721 = 2015-07-21
+            // - YYYY-DDD (ordinal with hyphen): 2015-202 = 2015-07-21
+            // - YYYYWwwD (week date, 8 chars): 2015W294 = 2015, week 29, day 4
+            // - YYYY-Www-D (week date with hyphens): 2015-W29-4
             const argResult = this.translateFunctionArg(arg);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
-            return { sql: `DATE(${argResult.sql})`, tables, params };
+            // Handle various date string formats using a subquery to avoid repeating the parameter
+            const dateArg = argResult.sql;
+            const sql = `(SELECT CASE
+              WHEN length(d) = 7 AND d GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+              THEN DATE(printf('%04d-01-01', CAST(substr(d, 1, 4) AS INTEGER)), 
+                        '+' || (CAST(substr(d, 5, 3) AS INTEGER) - 1) || ' days')
+              WHEN length(d) = 8 AND d GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+              THEN DATE(substr(d, 1, 4) || '-' || substr(d, 5, 2) || '-' || substr(d, 7, 2))
+              WHEN d GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9]'
+              THEN DATE(printf('%04d-01-01', CAST(substr(d, 1, 4) AS INTEGER)),
+                        '+' || (CAST(substr(d, 6, 3) AS INTEGER) - 1) || ' days')
+              WHEN d GLOB '[0-9][0-9][0-9][0-9]W[0-9][0-9][0-9]'
+              THEN DATE(
+                julianday(printf('%04d-01-04', CAST(substr(d, 1, 4) AS INTEGER)))
+                - ((CAST(strftime('%w', printf('%04d-01-04', CAST(substr(d, 1, 4) AS INTEGER))) AS INTEGER) + 6) % 7)
+                + (CAST(substr(d, 6, 2) AS INTEGER) - 1) * 7
+                + (CAST(substr(d, 8, 1) AS INTEGER) - 1)
+              )
+              WHEN d GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]-[0-9]'
+              THEN DATE(
+                julianday(printf('%04d-01-04', CAST(substr(d, 1, 4) AS INTEGER)))
+                - ((CAST(strftime('%w', printf('%04d-01-04', CAST(substr(d, 1, 4) AS INTEGER))) AS INTEGER) + 6) % 7)
+                + (CAST(substr(d, 7, 2) AS INTEGER) - 1) * 7
+                + (CAST(substr(d, 10, 1) AS INTEGER) - 1)
+              )
+              ELSE DATE(d)
+            END FROM (SELECT ${dateArg} AS d))`;
+            return { sql, tables, params };
           }
           // date() - current date
           return { sql: `DATE('now')`, tables, params };

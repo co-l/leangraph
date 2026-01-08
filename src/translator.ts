@@ -6407,8 +6407,55 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 };
               }
 
+              // Date projection with quarter: date({date: D, quarter: Q})
+              // Keep year and day-of-quarter from source, but change the quarter
+              if (dateExpr && quarterExpr && !dayOfQuarterExpr && !yearExpr && !monthExpr && !dayExpr) {
+                const dateResult = this.translateExpression(dateExpr);
+                tables.push(...dateResult.tables);
+                params.push(...dateResult.params);
+                
+                const quarterResult = this.translateExpression(quarterExpr);
+                tables.push(...quarterResult.tables);
+                params.push(...quarterResult.params);
+                
+                // Need to:
+                // 1. Get year from source date
+                // 2. Compute day-of-quarter from source date  
+                // 3. Apply that day-of-quarter to the new quarter
+                // Quarter start months: Q1=1, Q2=4, Q3=7, Q4=10
+                // Day of quarter = day of year - first day of quarter + 1
+                // For the new quarter: start from first day of new quarter, add day-of-quarter - 1
+                
+                // Use subquery to avoid duplicating dateResult with params
+                const yearFromSource = `CAST(substr(_d, 1, 4) AS INTEGER)`;
+                const monthFromSource = `CAST(substr(_d, 6, 2) AS INTEGER)`;
+                const dayFromSource = `CAST(substr(_d, 9, 2) AS INTEGER)`;
+                
+                // Day of quarter calculation:
+                // First, find which quarter the source month is in: (month - 1) / 3 + 1
+                // Then find the first day of that quarter as ordinal: (quarter - 1) * 91 + something
+                // Actually simpler: calculate day of year for source, and day of year for start of its quarter
+                // day_of_quarter = julianday(source) - julianday(start_of_quarter) + 1
+                
+                // Start of quarter for month M: month ((M-1)/3)*3 + 1, day 1
+                // E.g., Nov (11): (11-1)/3 = 3, 3*3+1 = 10 (October)
+                const startOfSourceQuarter = `printf('%04d-%02d-01', ${yearFromSource}, ((${monthFromSource} - 1) / 3) * 3 + 1)`;
+                const dayOfQuarter = `(julianday(substr(_d, 1, 10)) - julianday(${startOfSourceQuarter}) + 1)`;
+                
+                // New quarter start month
+                const newQuarterSql = `CAST(${quarterResult.sql} AS INTEGER)`;
+                const newQuarterStartMonth = `((${newQuarterSql} - 1) * 3 + 1)`;
+                
+                // Result: start of new quarter + day_of_quarter - 1 days
+                return {
+                  sql: `(SELECT DATE(printf('%04d-%02d-01', ${yearFromSource}, ${newQuarterStartMonth}), '+' || (${dayOfQuarter} - 1) || ' days') FROM (SELECT substr(${dateResult.sql}, 1, 10) AS _d))`,
+                  tables,
+                  params,
+                };
+              }
+
               // Date projection with ordinalDay: date({date: D, ordinalDay: N})
-              // Extract year from source and compute date from ordinal day
+              // Extract year from source and compute date using the ordinal day
               if (dateExpr && ordinalDayExpr) {
                 const dateResult = this.translateExpression(dateExpr);
                 tables.push(...dateResult.tables);

@@ -8423,6 +8423,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const hoursExpr = byKey.get("hours");
               const minutesExpr = byKey.get("minutes");
               const secondsExpr = byKey.get("seconds");
+              const millisecondsExpr = byKey.get("milliseconds");
+              const microsecondsExpr = byKey.get("microseconds");
               const nanosecondsExpr = byKey.get("nanoseconds");
               
               // Translate all expressions
@@ -8433,34 +8435,42 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               const hoursSql = hoursExpr ? this.translateExpression(hoursExpr) : null;
               const minutesSql = minutesExpr ? this.translateExpression(minutesExpr) : null;
               const secondsSql = secondsExpr ? this.translateExpression(secondsExpr) : null;
+              const millisecondsSql = millisecondsExpr ? this.translateExpression(millisecondsExpr) : null;
+              const microsecondsSql = microsecondsExpr ? this.translateExpression(microsecondsExpr) : null;
               const nanosecondsSql = nanosecondsExpr ? this.translateExpression(nanosecondsExpr) : null;
               
               // Collect tables and params
-              for (const r of [yearsSql, monthsSql, weeksSql, daysSql, hoursSql, minutesSql, secondsSql, nanosecondsSql]) {
+              for (const r of [yearsSql, monthsSql, weeksSql, daysSql, hoursSql, minutesSql, secondsSql, millisecondsSql, microsecondsSql, nanosecondsSql]) {
                 if (r) {
                   tables.push(...r.tables);
                   params.push(...r.params);
                 }
               }
               
-              // Build normalized duration - carry over seconds→minutes→hours
-              // totalSeconds = inputSeconds + floor(inputNanos / 1000000000)
-              // remainingNanos = inputNanos % 1000000000
-              // extraMinutesFromSeconds = floor(totalSeconds / 60)
-              // finalSeconds = totalSeconds % 60
-              // totalMinutes = inputMinutes + extraMinutesFromSeconds
-              // extraHoursFromMinutes = floor(totalMinutes / 60)
-              // finalMinutes = totalMinutes % 60
-              // finalHours = inputHours + extraHoursFromMinutes
+              // Has sub-second precision
+              const hasSubSecond = millisecondsExpr || microsecondsExpr || nanosecondsExpr;
               
+              // Build total nanoseconds from all time components  
+              // seconds * 1e9 + milliseconds * 1e6 + microseconds * 1e3 + nanoseconds
               const rawSecs = secondsSql?.sql ?? "0";
-              const rawNanos = nanosecondsSql?.sql ?? "0";
+              const msNanos = millisecondsSql ? `((${millisecondsSql.sql}) * 1000000)` : "0";
+              const usNanos = microsecondsSql ? `((${microsecondsSql.sql}) * 1000)` : "0";
+              const nsNanos = nanosecondsSql ? `(${nanosecondsSql.sql})` : "0";
+              
+              // Total nanoseconds from seconds + sub-second parts
+              const totalNanosSql = `((${rawSecs}) * 1000000000 + ${msNanos} + ${usNanos} + ${nsNanos})`;
+              
+              // Extract seconds and fractional part from total nanoseconds
+              // Use truncation toward zero (SQLite's default behavior)
+              const totalSecondsSql = `(${totalNanosSql} / 1000000000)`;
+              const remainingNanosSql = `(${totalNanosSql} % 1000000000)`;
+              
               const rawMins = minutesSql?.sql ?? "0";
               const rawHours = hoursSql?.sql ?? "0";
               
-              // Compute carry-over values
-              const totalSecondsSql = `(${rawSecs} + (${rawNanos}) / 1000000000)`;
-              const remainingNanosSql = `((${rawNanos}) % 1000000000)`;
+              // Normalize: carry over seconds→minutes→hours
+              // For values like 70 seconds → 1 min 10 sec
+              // Always normalize based on total seconds (integer division truncates toward zero)
               const extraMinutesFromSecsSql = `(${totalSecondsSql} / 60)`;
               const finalSecondsSql = `(${totalSecondsSql} % 60)`;
               const totalMinutesSql = `(${rawMins} + ${extraMinutesFromSecsSql})`;
@@ -8493,10 +8503,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               if (minutesExpr || secondsExpr) {
                 timeParts.push(`CASE WHEN ${finalMinutesSql} != 0 THEN ${finalMinutesSql} || 'M' ELSE '' END`);
               }
-              if (secondsExpr || nanosecondsExpr) {
+              if (secondsExpr || hasSubSecond) {
                 let secPart: string;
-                if (nanosecondsExpr) {
-                  secPart = `CASE WHEN ${finalSecondsSql} != 0 OR ${remainingNanosSql} != 0 THEN ${finalSecondsSql} || '.' || printf('%09d', ${remainingNanosSql}) || 'S' ELSE '' END`;
+                if (hasSubSecond) {
+                  // Format: seconds.nanoseconds (up to 9 digits, trim trailing zeros)
+                  // For negative values: -59.999 means seconds=-59, nanos=-999000000
+                  // The sign of nanos matches the sign of seconds (both come from total)
+                  // So we can just concat: seconds || '.' || abs(nanos) trimmed
+                  secPart = `CASE WHEN ${finalSecondsSql} != 0 OR ${remainingNanosSql} != 0 THEN ${finalSecondsSql} || '.' || rtrim(printf('%09d', abs(${remainingNanosSql})), '0') || 'S' ELSE '' END`;
                 } else {
                   secPart = `CASE WHEN ${finalSecondsSql} != 0 THEN ${finalSecondsSql} || 'S' ELSE '' END`;
                 }

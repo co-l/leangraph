@@ -6904,6 +6904,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const timeArg = argResult.sql;
             // When input is already HH:MM:SS format (with optional fractional), preserve it directly
             // to avoid truncation of nanoseconds by SQLite's TIME() function
+            // Strip JSON quotes if input is wrapped in "" (from toString() output)
             const sql = `(SELECT CASE
               WHEN length(t) = 4 AND t GLOB '[0-9][0-9][0-9][0-9]'
               THEN TIME(substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':00')
@@ -6914,7 +6915,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               WHEN length(t) >= 8 AND substr(t, 3, 1) = ':' AND substr(t, 6, 1) = ':'
               THEN t
               ELSE TIME(t)
-            END FROM (SELECT ${timeArg} AS t))`;
+            END FROM (SELECT CASE
+              WHEN substr(_t, 1, 1) = '"' AND substr(_t, length(_t), 1) = '"'
+              THEN substr(_t, 2, length(_t) - 2)
+              ELSE _t
+            END AS t FROM (SELECT ${timeArg} AS _t)))`;
             return { sql, tables, params };
           }
           // localtime() - current local time
@@ -7213,6 +7218,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const timeArg = argResult.sql;
             // Parse and normalize compact time formats with timezone
             // For time values without timezone (e.g., from localtime), add 'Z' suffix
+            // Strip JSON quotes if input is wrapped in "" (from toString() output)
             const sql = `(SELECT CASE
               WHEN t GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][+-][0-9][0-9][0-9][0-9]'
               THEN substr(t, 1, 2) || ':' || substr(t, 3, 2) || ':' || substr(t, 5, 2) || substr(t, 7, 1) || substr(t, 8, 2) || ':' || substr(t, 10, 2)
@@ -7225,7 +7231,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               WHEN t GLOB '*Z' OR t GLOB '*[+-][0-9][0-9]:[0-9][0-9]'
               THEN t
               ELSE t || 'Z'
-            END FROM (SELECT ${timeArg} AS t))`;
+            END FROM (SELECT CASE
+              WHEN substr(_t, 1, 1) = '"' AND substr(_t, length(_t), 1) = '"'
+              THEN substr(_t, 2, length(_t) - 2)
+              ELSE _t
+            END AS t FROM (SELECT ${timeArg} AS _t)))`;
             return { sql, tables, params };
           }
           // time() - current time with timezone isn't supported (needs timezone context)
@@ -7760,6 +7770,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               THEN substr(${timeExpr}, 1, 2) || ':' || substr(${timeExpr}, 3, 2) || ':00'
               ELSE ${timeExpr}
             END`;
+            // Strip JSON quotes if input is wrapped in "" (from toString() output)
             const sql = `(SELECT CASE
               WHEN d GLOB '[0-9][0-9][0-9][0-9]T[0-9]*'
               THEN substr(d, 1, 4) || '-01-01T' || (${normalizeTime("substr(d, 6)")})
@@ -7784,7 +7795,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 + (CAST(substr(d, 8, 1) AS INTEGER) - 1)
               ) || 'T' || (${normalizeTime("substr(d, 10)")})
               ELSE d
-            END FROM (SELECT ${dtArg} AS d))`;
+            END FROM (SELECT CASE
+              WHEN substr(_d, 1, 1) = '"' AND substr(_d, length(_d), 1) = '"'
+              THEN substr(_d, 2, length(_d) - 2)
+              ELSE _d
+            END AS d FROM (SELECT ${dtArg} AS _d)))`;
             return { sql, tables, params };
           }
           // localdatetime() - current local datetime
@@ -8367,6 +8382,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               THEN substr(${timeExpr}, 1, 2) || ':' || substr(${timeExpr}, 3, 2) || ':' || substr(${timeExpr}, 5, 2)
               ELSE ${timeExpr}
             END`;
+            // Strip JSON quotes if input is wrapped in "" (from toString() output)
             const sql = `(SELECT CASE
               WHEN d GLOB '[0-9][0-9][0-9][0-9]T[0-9]*'
               THEN substr(d, 1, 4) || '-01-01T' || (${normalizeTimeWithTz("substr(d, 6)")})
@@ -8391,7 +8407,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 + (CAST(substr(d, 8, 1) AS INTEGER) - 1)
               ) || 'T' || (${normalizeTimeWithTz("substr(d, 10)")})
               ELSE d
-            END FROM (SELECT ${dtArg} AS d))`; 
+            END FROM (SELECT CASE
+              WHEN substr(_d, 1, 1) = '"' AND substr(_d, length(_d), 1) = '"'
+              THEN substr(_d, 2, length(_d) - 2)
+              ELSE _d
+            END AS d FROM (SELECT ${dtArg} AS _d)))`; 
             return { sql, tables, params };
           }
           // datetime() - current datetime

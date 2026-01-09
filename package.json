@@ -24,6 +24,8 @@
     "prepare": "[ -d .git ] && cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit || true",
     "build": "tsc",
     "test": "vitest run",
+    "test:remote": "./scripts/test-remote.sh",
+    "test:all": "npm test && npm run test:remote",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "dev": "tsx watch src/server.ts",

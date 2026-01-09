@@ -1,12 +1,20 @@
 #!/bin/bash
 # Pre-commit hook: run tests before committing
 
-echo "Running tests..."
-pnpm test -- --run
+echo "Running local tests..."
+npm test
 
 if [ $? -ne 0 ]; then
-  echo "Tests failed. Commit aborted."
+  echo "Local tests failed. Commit aborted."
   exit 1
 fi
 
-echo "Tests passed."
+echo "Running remote tests..."
+npm run test:remote
+
+if [ $? -ne 0 ]; then
+  echo "Remote tests failed. Commit aborted."
+  exit 1
+fi
+
+echo "All tests passed."

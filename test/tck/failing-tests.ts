@@ -1892,6 +1892,6 @@ export const FAILING_TESTS = new Set<string>([
   // "expressions/typeConversion > TypeConversion4 - To String|7",
   // "expressions/typeConversion > TypeConversion4 - To String|8",
   // "expressions/typeConversion > TypeConversion4 - To String|9",
-  "useCases/triadicSelection > TriadicSelection1 - Query three related nodes on binary-tree graphs|4",
-  "useCases/triadicSelection > TriadicSelection1 - Query three related nodes on binary-tree graphs|8"
+  // "useCases/triadicSelection > TriadicSelection1 - Query three related nodes on binary-tree graphs|4",
+  // "useCases/triadicSelection > TriadicSelection1 - Query three related nodes on binary-tree graphs|8"
 ]);

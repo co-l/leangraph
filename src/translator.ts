@@ -5805,22 +5805,26 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         if (expr.functionName === "TOSTRING") {
           if (expr.args && expr.args.length > 0) {
             const arg = expr.args[0];
-            // Special case: if the argument is a boolean literal, return 'true' or 'false' directly
+            // Special case: if the argument is a boolean literal, return 'true' or 'false' as JSON strings
+            // Using json_quote ensures the result is a proper JSON string that won't be parsed as boolean
             if (arg.type === "literal" && typeof arg.value === "boolean") {
-              return { 
-                sql: arg.value ? "'true'" : "'false'", 
-                tables, 
-                params 
+              return {
+                sql: arg.value ? "json_quote('true')" : "json_quote('false')",
+                tables,
+                params
               };
             }
             const argResult = this.translateFunctionArg(arg);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
-            // Simple CAST to TEXT - let SQLite handle the conversion
-            return { 
-              sql: `CAST(${argResult.sql} AS TEXT)`, 
-              tables, 
-              params 
+            // Use a subquery to evaluate the argument once, then check for NULL
+            // toString(null) should return SQL NULL, not the string 'null'
+            // For non-null values, use json_quote(CAST()) to produce a proper JSON string
+            // that won't be re-parsed as a number/boolean by deepParseJson
+            return {
+              sql: `(SELECT CASE WHEN _v IS NULL THEN NULL ELSE json_quote(CAST(_v AS TEXT)) END FROM (SELECT ${argResult.sql} AS _v))`,
+              tables,
+              params
             };
           }
           throw new Error("toString requires an argument");
@@ -6666,6 +6670,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             tables.push(...argResult.tables);
             params.push(...argResult.params);
             // Handle various date string formats using a subquery to avoid repeating the parameter
+            // First strip JSON quotes if present (from toString() output which uses json_quote)
             const dateArg = argResult.sql;
             const sql = `(SELECT CASE
               WHEN length(d) = 4 AND d GLOB '[0-9][0-9][0-9][0-9]'
@@ -6709,7 +6714,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 + (CAST(substr(d, 10, 1) AS INTEGER) - 1)
               )
               ELSE DATE(d)
-            END FROM (SELECT ${dateArg} AS d))`;
+            END FROM (SELECT CASE WHEN _raw LIKE '"%"' THEN substr(_raw, 2, length(_raw) - 2) ELSE _raw END AS d FROM (SELECT ${dateArg} AS _raw)))`;
             return { sql, tables, params };
           }
           // date() - current date

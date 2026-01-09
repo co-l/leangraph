@@ -1,6 +1,10 @@
-# LeanGraph
+# CLAUDE.md
 
-SQLite-based graph database with Cypher query support.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+LeanGraph is a SQLite-based graph database with full Cypher query support. It achieves 100% openCypher TCK compliance (2,684 tests, Neo4j 3.5 baseline).
 
 ## Architecture
 
@@ -49,16 +53,7 @@ Options:
   -f, --force      Run even if in failing list
 ```
 
-Examples:
-```bash
-npm run tck 'Return6|11'           # Exact test by number
-npm run tck 'Counting matches'     # Match by name
-npm run tck 'Match3' -- --list     # List all Match3 tests
-```
-
 ### List Failing Tests
-
-See all currently failing TCK tests for TDD workflow:
 
 ```bash
 npm run tck:failing               # Summary by category
@@ -66,27 +61,6 @@ npm run tck:failing -- --full     # Detailed list with queries
 npm run tck:failing -- --errors   # Only tests expecting errors
 npm run tck:failing -- --category match  # Filter by category
 ```
-
-## Next Implementation Priorities
-
-See `README.md` for the full support table. Priority candidates for implementation:
-
-1. **`CALL` procedures** - Database introspection
-   ```cypher
-   CALL db.labels() YIELD label RETURN label
-   CALL db.relationshipTypes() YIELD type RETURN type
-   ```
-
-2. **Path expressions** - Named paths and path functions
-   ```cypher
-   MATCH p = (a:Person)-[:KNOWS*]->(b:Person) RETURN p
-   RETURN length(p) AS pathLength
-   ```
-
-3. **List comprehensions** - Filter and transform lists
-   ```cypher
-   RETURN [x IN range(1, 10) WHERE x % 2 = 0] AS evens
-   ```
 
 ## Key Patterns
 
@@ -120,6 +94,6 @@ Example: `IN` uses `WhereCondition.list` for the array expression.
 4. Add `translateBinaryExpression()` in translator
 5. Handle in `translateWhereExpression()` for WHERE clause arithmetic
 
-## Specs
+## Agent Instructions
 
-See `graph-db-spec.md` for full project specification.
+See `agents/TDD_CYPHER_COMPLIANCE.md` for the TCK compliance TDD workflow.

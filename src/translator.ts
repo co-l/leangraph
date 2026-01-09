@@ -10235,11 +10235,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                                (temporalType === "time" || temporalType === "localtime") ? "TIME" : "DATETIME";
       
       // Strip JSON quotes from duration value if present
-      // For DATE, only apply year/month/day modifiers (ignore time parts)
+      // For DATE, apply year/month/day modifiers, plus hours converted to full days
+      // (e.g., 33 hours = 1 day + 9 hours, the 1 day should be added)
       if (temporalType === "date") {
+        // Calculate extra days from hours: floor(hours / 24)
+        const extraDaysFromHours = `(${hoursSql} / 24)`;
+        const totalDays = `(${daysSql} + ${extraDaysFromHours})`;
+        
         const modifiers = `printf('%+d years', (${sign}) * ${yearsSql}),
            printf('%+d months', (${sign}) * ${monthsSql}),
-           printf('%+d days', (${sign}) * ${daysSql})`;
+           printf('%+d days', (${sign}) * ${totalDays})`;
         
         return {
           sql: `(SELECT ${sqliteTemporalFn}(${baseSql}, ${modifiers})

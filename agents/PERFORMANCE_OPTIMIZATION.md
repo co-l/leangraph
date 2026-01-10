@@ -11,8 +11,12 @@ Follow this workflow exactly:
 3. **Implement the fix** - follow the code changes in the plan
 4. **Run tests** - `npm test` - must pass!
 5. **Re-benchmark** - `npm run benchmark -- -s micro -d leangraph`
-6. **Mark complete** - update checkbox in `OPTIMIZATION_PLAN.md`
-7. **Commit and push**
+6. **Compare results** - `npm run benchmark:compare <baseline> <target>`
+   - Verify improvement or no regression
+   - Check for unexpected side effects
+   - Document performance changes
+7. **Mark complete** - update checkbox in `OPTIMIZATION_PLAN.md`
+8. **Commit and push`
 
 ### Example
 
@@ -179,7 +183,26 @@ Before marking an optimization complete:
 
 Start with `micro` for fast feedback, use `quick` to confirm gains.
 
-## Benchmark Expectations
+## Benchmark Comparison
+
+### How to Compare Benchmarks
+
+```bash
+# List available benchmarks
+npm run benchmark:compare -- --list
+
+# Compare two benchmarks
+npm run benchmark:compare <baseline> <target>
+```
+
+### Interpreting Results
+
+The comparison tool shows:
+- Overall performance changes
+- Query-specific improvements/regressions
+- Memory and disk usage changes
+
+### Benchmark Expectations
 
 Not all optimizations show dramatic improvements in benchmarks:
 
@@ -188,3 +211,28 @@ Not all optimizations show dramatic improvements in benchmarks:
 - **Batching**: Large improvements visible when benchmark includes bulk operations.
 
 If the benchmark shows **no regression**, the optimization is still valid - it may benefit real-world usage patterns that benchmarks don't stress.
+
+### Specialized Testing
+
+For optimizations that don't show in standard benchmarks:
+
+```bash
+# Test UNWIND+CREATE performance specifically
+cd /home/conrad/dev/leangraph && LEANGRAPH_PROJECT=test tsx -e "
+(async () => {
+  const { LeanGraph } = require('./src/index.ts');
+  const db = await LeanGraph({ dataPath: ':memory:' });
+  
+  const start = performance.now();
+  await db.query('UNWIND range(1, 1000) AS i CREATE (n:Item {num: i})');
+  const end = performance.now();
+  
+  console.log('UNWIND+CREATE 1000 items:');
+  console.log('  Time:', (end - start).toFixed(2), 'ms');
+  
+  const result = await db.query('MATCH (n:Item) RETURN count(n) as count');
+  console.log('  Count:', result[0].count);
+  
+  db.close();
+})();
+"

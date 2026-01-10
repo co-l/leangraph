@@ -3,18 +3,13 @@ import { LeanGraph, GraphDBError } from "../src/index.js";
 import type { GraphDBClient } from "../src/types.js";
 
 describe("LeanGraph Factory", () => {
-  describe("Development Mode (Local Client)", () => {
+  describe("Local Mode", () => {
     let db: GraphDBClient;
 
     beforeEach(async () => {
-      // Set NODE_ENV to development
-      vi.stubEnv("NODE_ENV", "development");
-
       db = await LeanGraph({
-        url: "https://example.com", // ignored in dev mode
+        mode: "test", // in-memory
         project: "test-project",
-        apiKey: "ignored-key", // ignored in dev mode
-        dataPath: ":memory:", // use in-memory for tests
       });
     });
 
@@ -22,10 +17,9 @@ describe("LeanGraph Factory", () => {
       if (db) {
         db.close();
       }
-      vi.unstubAllEnvs();
     });
 
-    it("should create a local client in development mode", async () => {
+    it("should create a local client in local mode", async () => {
       expect(db).toBeDefined();
       expect(typeof db.query).toBe("function");
       expect(typeof db.execute).toBe("function");
@@ -165,81 +159,76 @@ describe("LeanGraph Factory", () => {
     });
   });
 
-  describe("Production Mode Detection", () => {
+  describe("Remote Mode Detection", () => {
     afterEach(() => {
       vi.unstubAllEnvs();
     });
 
-    it("should use remote client when NODE_ENV is not development", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      
+    it("should use remote client when mode is remote", async () => {
       // Remote client will fail to connect, but we can verify it tries HTTP
-      await expect(
-        LeanGraph({
-          url: "http://localhost:99999", // non-existent server
-          project: "test",
-        })
-      ).resolves.toBeDefined();
-      
-      // The client is created but will fail on first query
+      const db = await LeanGraph({
+        mode: "remote",
+        url: "http://localhost:99999", // non-existent server
+        project: "test",
+      });
+
+      // This should fail because it tries to make HTTP request
+      await expect(db.query("MATCH (n) RETURN n")).rejects.toThrow();
+
+      db.close();
+    });
+
+    it("should use remote client when LEANGRAPH_MODE is remote", async () => {
+      vi.stubEnv("LEANGRAPH_MODE", "remote");
+
       const db = await LeanGraph({
         url: "http://localhost:99999",
         project: "test",
       });
-      
+
       // This should fail because it tries to make HTTP request
       await expect(db.query("MATCH (n) RETURN n")).rejects.toThrow();
-      
+
       db.close();
     });
 
-    it("should use local client when NODE_ENV is empty string", async () => {
-      vi.stubEnv("NODE_ENV", "");
-      
+    it("should use local client by default", async () => {
       const db = await LeanGraph({
-        url: "http://localhost:99999", // ignored for local client
         project: "test",
         dataPath: ":memory:",
       });
-      
+
       // Local client should work (no remote server needed)
       const results = await db.query("MATCH (n) RETURN n");
       expect(results).toEqual([]);
-      
+
       db.close();
     });
   });
 
-  describe("Options Handling", () => {
-    beforeEach(() => {
-      vi.stubEnv("NODE_ENV", "development");
-    });
-
-    afterEach(() => {
-      vi.unstubAllEnvs();
-    });
-
-    it("should default env to production", async () => {
+  describe("Mode Options", () => {
+    it("should default to local mode", async () => {
       const db = await LeanGraph({
-        url: "http://example.com",
         project: "test",
         dataPath: ":memory:",
       });
-      
-      // Default env is 'production', but in dev mode, local client is used
-      expect(db).toBeDefined();
+
+      // Local mode should work without a server
+      const results = await db.query("MATCH (n) RETURN n");
+      expect(results).toEqual([]);
       db.close();
     });
 
-    it("should accept test environment", async () => {
+    it("should use test mode for in-memory database", async () => {
       const db = await LeanGraph({
-        url: "http://example.com",
+        mode: "test",
         project: "test",
-        env: "test",
-        dataPath: ":memory:",
       });
-      
-      expect(db).toBeDefined();
+
+      // Test mode uses in-memory database
+      await db.execute('CREATE (n:Test {value: 1})');
+      const results = await db.query("MATCH (n:Test) RETURN n.value");
+      expect(results).toHaveLength(1);
       db.close();
     });
   });

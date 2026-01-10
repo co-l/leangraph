@@ -25,20 +25,6 @@ describe("API Key Authentication", () => {
       expect(result.valid).toBe(false);
     });
 
-    it("should support keys with environment restrictions", () => {
-      const store = new ApiKeyStore();
-      store.addKey("prod-key", { project: "myproject", env: "production" });
-      store.addKey("test-key", { project: "myproject", env: "test" });
-
-      const prodResult = store.validate("prod-key");
-      expect(prodResult.valid).toBe(true);
-      expect(prodResult.env).toBe("production");
-
-      const testResult = store.validate("test-key");
-      expect(testResult.valid).toBe(true);
-      expect(testResult.env).toBe("test");
-    });
-
     it("should support admin keys with full access", () => {
       const store = new ApiKeyStore();
       store.addKey("admin-key", { admin: true });
@@ -153,24 +139,18 @@ describe("API Key Authentication", () => {
   });
 
   describe("Project-scoped authentication", () => {
-    let dbManager: DatabaseManager;
-
-    beforeEach(() => {
-      dbManager = new DatabaseManager(":memory:");
-    });
-
     it("should restrict access to specified project only", async () => {
       const store = new ApiKeyStore();
       store.addKey("project-key", { project: "allowed-project" });
 
       const app = new Hono();
       app.use("*", authMiddleware(store));
-      app.post("/query/:env/:project", (c) => {
+      app.post("/query/:project", (c) => {
         return c.json({ success: true, project: c.req.param("project") });
       });
 
       // Should allow access to allowed project
-      const allowedRes = await app.request("/query/production/allowed-project", {
+      const allowedRes = await app.request("/query/allowed-project", {
         method: "POST",
         headers: { Authorization: "Bearer project-key" },
         body: JSON.stringify({ cypher: "MATCH (n) RETURN n" }),
@@ -178,39 +158,12 @@ describe("API Key Authentication", () => {
       expect(allowedRes.status).toBe(200);
 
       // Should deny access to other projects
-      const deniedRes = await app.request("/query/production/other-project", {
+      const deniedRes = await app.request("/query/other-project", {
         method: "POST",
         headers: { Authorization: "Bearer project-key" },
         body: JSON.stringify({ cypher: "MATCH (n) RETURN n" }),
       });
       expect(deniedRes.status).toBe(403);
-    });
-
-    it("should restrict access to specified environment only", async () => {
-      const store = new ApiKeyStore();
-      store.addKey("test-only-key", { project: "myproject", env: "test" });
-
-      const app = new Hono();
-      app.use("*", authMiddleware(store));
-      app.post("/query/:env/:project", (c) => {
-        return c.json({ success: true });
-      });
-
-      // Should allow test environment
-      const testRes = await app.request("/query/test/myproject", {
-        method: "POST",
-        headers: { Authorization: "Bearer test-only-key" },
-        body: JSON.stringify({ cypher: "MATCH (n) RETURN n" }),
-      });
-      expect(testRes.status).toBe(200);
-
-      // Should deny production environment
-      const prodRes = await app.request("/query/production/myproject", {
-        method: "POST",
-        headers: { Authorization: "Bearer test-only-key" },
-        body: JSON.stringify({ cypher: "MATCH (n) RETURN n" }),
-      });
-      expect(prodRes.status).toBe(403);
     });
   });
 });

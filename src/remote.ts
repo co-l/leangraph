@@ -11,13 +11,11 @@ import type {
 import { GraphDBError } from "./types.js";
 
 /**
- * Create a remote GraphDB client that connects via HTTP.
+ * Create a remote LeanGraph client that connects via HTTP.
  */
 export function createRemoteClient(options: GraphDBOptions = {}): GraphDBClient {
-  // Resolve options with environment variable defaults
   const rawUrl = options.url ?? process.env.LEANGRAPH_URL ?? "https://leangraph.io";
   const project = options.project ?? process.env.LEANGRAPH_PROJECT;
-  const env = options.env ?? process.env.NODE_ENV ?? "development";
   const apiKey = options.apiKey ?? process.env.LEANGRAPH_API_KEY;
 
   if (!project) {
@@ -40,7 +38,7 @@ export function createRemoteClient(options: GraphDBOptions = {}): GraphDBClient 
       cypher: string,
       params: Record<string, unknown> = {}
     ): Promise<QueryResponse<T>> {
-      const endpoint = `${url}/query/${env}/${project}`;
+      const endpoint = `${url}/query/${project}`;
 
       const headers: Record<string, string> = {
         "Content-Type": "application/json",

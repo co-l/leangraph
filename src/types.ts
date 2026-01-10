@@ -5,43 +5,41 @@
 // ============================================================================
 
 /**
- * Options for creating a GraphDB client.
- * All options support environment variable defaults.
+ * Options for creating a LeanGraph client.
  */
 export interface GraphDBOptions {
   /**
-   * Base URL of the GraphDB server.
-   * Used in production mode. Ignored in development mode.
+   * Connection mode.
+   * - local: Embedded SQLite, persisted to disk
+   * - remote: HTTP connection to server
+   * - test: Embedded SQLite, in-memory (resets on restart)
+   * @default LEANGRAPH_MODE env var or 'local'
+   */
+  mode?: "local" | "remote" | "test";
+
+  /**
+   * Base URL of the LeanGraph server.
+   * Only used in remote mode.
    * @default LEANGRAPH_URL env var or 'https://leangraph.io'
-   * @example 'https://my-graphdb.example.com'
    */
   url?: string;
 
   /**
-   * Project name.
-   * In production: used as part of the API endpoint path.
-   * In development: used as the database filename.
+   * Project name. Used as the database filename in local mode.
    * @default LEANGRAPH_PROJECT env var (required)
    */
   project?: string;
 
   /**
    * API key for authentication.
-   * Used in production mode. Ignored in development mode.
+   * Only used in remote mode.
    * @default LEANGRAPH_API_KEY env var
    */
   apiKey?: string;
 
   /**
-   * Environment name for data isolation.
-   * @default NODE_ENV or 'development'
-   */
-  env?: string;
-
-  /**
    * Path for local data storage.
-   * Only used in development mode (when NODE_ENV=development).
-   * - Use ':memory:' for an in-memory database (resets on restart)
+   * Only used in local mode. Database stored at {dataPath}/{project}.db
    * @default LEANGRAPH_DATA_PATH env var or './data'
    */
   dataPath?: string;

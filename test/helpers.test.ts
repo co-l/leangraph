@@ -98,7 +98,7 @@ describe("CLI Helpers", () => {
       });
 
       it("loads keys from file", () => {
-        const keys = { "key-1": { project: "test", env: "production" } };
+        const keys = { "key-1": { project: "test" } };
         fs.writeFileSync(
           path.join(testDir, "api-keys.json"),
           JSON.stringify(keys)
@@ -143,8 +143,8 @@ describe("CLI Helpers", () => {
 
       it("counts matching keys", () => {
         const keys: Record<string, ApiKeyConfig> = {
-          "key-1": { project: "myproject", env: "production" },
-          "key-2": { project: "myproject", env: "test" },
+          "key-1": { project: "myproject" },
+          "key-2": { project: "myproject", admin: true },
           "key-3": { project: "other" },
         };
         expect(getProjectKeyCount(keys, "myproject")).toBe(2);
@@ -158,16 +158,13 @@ describe("CLI Helpers", () => {
       ensureDataDir(dataPath);
 
       expect(fs.existsSync(dataPath)).toBe(true);
-      expect(fs.existsSync(path.join(dataPath, "production"))).toBe(true);
-      expect(fs.existsSync(path.join(dataPath, "test"))).toBe(true);
     });
 
-    it("creates subdirectories if they do not exist", () => {
+    it("does nothing if directory already exists", () => {
       fs.mkdirSync(testDir, { recursive: true });
       ensureDataDir(testDir);
 
-      expect(fs.existsSync(path.join(testDir, "production"))).toBe(true);
-      expect(fs.existsSync(path.join(testDir, "test"))).toBe(true);
+      expect(fs.existsSync(testDir)).toBe(true);
     });
   });
 
@@ -222,41 +219,31 @@ describe("CLI Helpers", () => {
 
   describe("Project functions", () => {
     describe("listProjects", () => {
-      it("returns empty map when no projects exist", () => {
+      it("returns empty array when no projects exist", () => {
         ensureDataDir(testDir);
         const projects = listProjects(testDir);
-        expect(projects.size).toBe(0);
+        expect(projects).toEqual([]);
       });
 
-      it("lists projects from production directory", () => {
+      it("lists projects from data directory", () => {
         ensureDataDir(testDir);
-        fs.writeFileSync(path.join(testDir, "production", "proj1.db"), "");
-        fs.writeFileSync(path.join(testDir, "production", "proj2.db"), "");
+        fs.writeFileSync(path.join(testDir, "proj1.db"), "");
+        fs.writeFileSync(path.join(testDir, "proj2.db"), "");
 
         const projects = listProjects(testDir);
-        expect(projects.size).toBe(2);
-        expect(projects.get("proj1")).toContain("production");
-        expect(projects.get("proj2")).toContain("production");
-      });
-
-      it("lists projects from both environments", () => {
-        ensureDataDir(testDir);
-        fs.writeFileSync(path.join(testDir, "production", "myproject.db"), "");
-        fs.writeFileSync(path.join(testDir, "test", "myproject.db"), "");
-
-        const projects = listProjects(testDir);
-        expect(projects.size).toBe(1);
-        expect(projects.get("myproject")).toContain("production");
-        expect(projects.get("myproject")).toContain("test");
+        expect(projects).toHaveLength(2);
+        expect(projects).toContain("proj1");
+        expect(projects).toContain("proj2");
       });
 
       it("ignores non-db files", () => {
         ensureDataDir(testDir);
-        fs.writeFileSync(path.join(testDir, "production", "project.db"), "");
-        fs.writeFileSync(path.join(testDir, "production", "readme.txt"), "");
+        fs.writeFileSync(path.join(testDir, "project.db"), "");
+        fs.writeFileSync(path.join(testDir, "readme.txt"), "");
 
         const projects = listProjects(testDir);
-        expect(projects.size).toBe(1);
+        expect(projects).toHaveLength(1);
+        expect(projects).toContain("project");
       });
     });
 
@@ -269,21 +256,9 @@ describe("CLI Helpers", () => {
         expect(projectExists(testDir, "nonexistent")).toBe(false);
       });
 
-      it("returns true when project exists in production", () => {
-        fs.writeFileSync(path.join(testDir, "production", "myproject.db"), "");
+      it("returns true when project exists", () => {
+        fs.writeFileSync(path.join(testDir, "myproject.db"), "");
         expect(projectExists(testDir, "myproject")).toBe(true);
-      });
-
-      it("returns true when project exists in test", () => {
-        fs.writeFileSync(path.join(testDir, "test", "myproject.db"), "");
-        expect(projectExists(testDir, "myproject")).toBe(true);
-      });
-
-      it("checks specific environment", () => {
-        fs.writeFileSync(path.join(testDir, "production", "myproject.db"), "");
-
-        expect(projectExists(testDir, "myproject", "production")).toBe(true);
-        expect(projectExists(testDir, "myproject", "test")).toBe(false);
       });
     });
   });

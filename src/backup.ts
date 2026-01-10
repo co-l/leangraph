@@ -28,7 +28,7 @@ export interface BackupStatus {
 }
 
 export interface BackupAllOptions {
-  includeTest?: boolean;
+  // Reserved for future options
 }
 
 // ============================================================================
@@ -102,27 +102,24 @@ export class BackupManager {
 
   /**
    * Backup all databases in a data directory.
-   * By default, only backs up production databases.
    */
-  async backupAll(dataDir: string, options: BackupAllOptions = {}): Promise<BackupResult[]> {
+  async backupAll(
+    dataDir: string,
+    _options: BackupAllOptions = {}
+  ): Promise<BackupResult[]> {
     const results: BackupResult[] = [];
-    const envs = options.includeTest ? ["production", "test"] : ["production"];
 
-    for (const env of envs) {
-      const envPath = path.join(dataDir, env);
-      
-      if (!fs.existsSync(envPath)) {
-        continue;
-      }
+    if (!fs.existsSync(dataDir)) {
+      return results;
+    }
 
-      const files = fs.readdirSync(envPath).filter(f => f.endsWith(".db"));
-      
-      for (const file of files) {
-        const project = file.replace(".db", "");
-        const sourcePath = path.join(envPath, file);
-        const result = await this.backupDatabase(sourcePath, project);
-        results.push(result);
-      }
+    const files = fs.readdirSync(dataDir).filter((f) => f.endsWith(".db"));
+
+    for (const file of files) {
+      const project = file.replace(".db", "");
+      const sourcePath = path.join(dataDir, file);
+      const result = await this.backupDatabase(sourcePath, project);
+      results.push(result);
     }
 
     return results;

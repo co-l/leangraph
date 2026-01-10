@@ -15,13 +15,12 @@ import type {
 import { GraphDBError } from "./types.js";
 
 /**
- * Create a local embedded GraphDB client.
+ * Create a local embedded LeanGraph client.
  * This client uses SQLite directly without any HTTP layer.
  */
 export function createLocalClient(options: GraphDBOptions = {}): GraphDBClient {
-  const dataPath = options.dataPath ?? process.env.LEANGRAPH_DATA_PATH ?? "./data";
+  const mode = options.mode ?? "local";
   const project = options.project ?? process.env.LEANGRAPH_PROJECT;
-  const env = options.env ?? process.env.NODE_ENV ?? "development";
 
   if (!project) {
     throw new Error("Project is required. Set via options.project or LEANGRAPH_PROJECT env var.");
@@ -29,15 +28,15 @@ export function createLocalClient(options: GraphDBOptions = {}): GraphDBClient {
 
   // Determine database path
   let dbPath: string;
-  if (dataPath === ":memory:") {
+  const dataPath = options.dataPath ?? process.env.LEANGRAPH_DATA_PATH ?? "./data";
+
+  if (mode === "test" || dataPath === ":memory:") {
     dbPath = ":memory:";
   } else {
-    // Ensure directory exists
-    const dir = path.join(dataPath, env);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(dataPath)) {
+      fs.mkdirSync(dataPath, { recursive: true });
     }
-    dbPath = path.join(dir, `${project}.db`);
+    dbPath = path.join(dataPath, `${project}.db`);
   }
 
   // Create and initialize database

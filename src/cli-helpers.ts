@@ -9,7 +9,6 @@ import * as path from "path";
 
 export interface ApiKeyConfig {
   project?: string;
-  env?: string;
   admin?: boolean;
 }
 
@@ -52,7 +51,10 @@ export function loadApiKeys(dataPath: string): Record<string, ApiKeyConfig> {
   return {};
 }
 
-export function saveApiKeys(dataPath: string, keys: Record<string, ApiKeyConfig>): void {
+export function saveApiKeys(
+  dataPath: string,
+  keys: Record<string, ApiKeyConfig>
+): void {
   const keysFile = getApiKeysPath(dataPath);
   fs.writeFileSync(keysFile, JSON.stringify(keys, null, 2) + "\n");
 }
@@ -64,13 +66,6 @@ export function saveApiKeys(dataPath: string, keys: Record<string, ApiKeyConfig>
 export function ensureDataDir(dataPath: string): void {
   if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
-  }
-  // Ensure env subdirs exist
-  for (const env of ["production", "test"]) {
-    const envPath = path.join(dataPath, env);
-    if (!fs.existsSync(envPath)) {
-      fs.mkdirSync(envPath, { recursive: true });
-    }
   }
 }
 
@@ -97,23 +92,23 @@ export function calculateColumnWidths(
   maxWidth: number = 40
 ): Record<string, number> {
   const widths: Record<string, number> = {};
-  
+
   for (const col of columns) {
     widths[col] = col.length;
   }
-  
+
   for (const row of rows) {
     for (const col of columns) {
       const val = formatValue(row[col]);
       widths[col] = Math.max(widths[col], val.length);
     }
   }
-  
+
   // Cap max width
   for (const col of columns) {
     widths[col] = Math.min(widths[col], maxWidth);
   }
-  
+
   return widths;
 }
 
@@ -121,42 +116,26 @@ export function calculateColumnWidths(
 // Project Helpers
 // ============================================================================
 
-export function listProjects(dataPath: string): Map<string, string[]> {
-  const projects = new Map<string, string[]>();
-
-  for (const env of ["production", "test"]) {
-    const envPath = path.join(dataPath, env);
-    if (fs.existsSync(envPath)) {
-      const files = fs.readdirSync(envPath).filter((f) => f.endsWith(".db"));
-      for (const file of files) {
-        const project = file.replace(".db", "");
-        if (!projects.has(project)) {
-          projects.set(project, []);
-        }
-        projects.get(project)!.push(env);
-      }
-    }
+export function listProjects(dataPath: string): string[] {
+  if (!fs.existsSync(dataPath)) {
+    return [];
   }
 
-  return projects;
+  return fs
+    .readdirSync(dataPath)
+    .filter((f) => f.endsWith(".db"))
+    .map((f) => f.replace(".db", ""));
 }
 
-export function projectExists(dataPath: string, project: string, env?: string): boolean {
-  if (env) {
-    const dbPath = path.join(dataPath, env, `${project}.db`);
-    return fs.existsSync(dbPath);
-  }
-  
-  // Check both environments
-  return (
-    fs.existsSync(path.join(dataPath, "production", `${project}.db`)) ||
-    fs.existsSync(path.join(dataPath, "test", `${project}.db`))
-  );
+export function projectExists(dataPath: string, project: string): boolean {
+  const dbPath = path.join(dataPath, `${project}.db`);
+  return fs.existsSync(dbPath);
 }
 
 export function getProjectKeyCount(
   keys: Record<string, ApiKeyConfig>,
   project: string
 ): number {
-  return Object.values(keys).filter((config) => config.project === project).length;
+  return Object.values(keys).filter((config) => config.project === project)
+    .length;
 }

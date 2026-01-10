@@ -50,15 +50,15 @@ describe("HTTP Routes", () => {
     });
   });
 
-  describe("POST /query/:env/:project", () => {
+  describe("POST /query/:project", () => {
     it("executes valid Cypher query", async () => {
       // First create some data
-      await request("POST", "/query/test/myproject", {
+      await request("POST", "/query/myproject", {
         cypher: "CREATE (n:Person {name: 'Alice'})",
       });
 
       // Then query it
-      const { status, json } = await request("POST", "/query/test/myproject", {
+      const { status, json } = await request("POST", "/query/myproject", {
         cypher: "MATCH (n:Person) RETURN n",
       });
 
@@ -68,11 +68,11 @@ describe("HTTP Routes", () => {
     });
 
     it("returns results with meta", async () => {
-      await request("POST", "/query/test/myproject", {
+      await request("POST", "/query/myproject", {
         cypher: "CREATE (n:Person {name: 'Alice'})",
       });
 
-      const { json } = await request("POST", "/query/test/myproject", {
+      const { json } = await request("POST", "/query/myproject", {
         cypher: "MATCH (n:Person) RETURN n",
       });
 
@@ -82,12 +82,12 @@ describe("HTTP Routes", () => {
     });
 
     it("handles query parameters", async () => {
-      await request("POST", "/query/test/myproject", {
+      await request("POST", "/query/myproject", {
         cypher: "CREATE (n:Person {name: $name})",
         params: { name: "Bob" },
       });
 
-      const { json } = await request("POST", "/query/test/myproject", {
+      const { json } = await request("POST", "/query/myproject", {
         cypher: "MATCH (n:Person {name: $name}) RETURN n",
         params: { name: "Bob" },
       });
@@ -96,7 +96,7 @@ describe("HTTP Routes", () => {
     });
 
     it("returns 400 for invalid Cypher", async () => {
-      const { status, json } = await request("POST", "/query/test/myproject", {
+      const { status, json } = await request("POST", "/query/myproject", {
         cypher: "INVALID QUERY",
       });
 
@@ -106,7 +106,7 @@ describe("HTTP Routes", () => {
     });
 
     it("returns 400 for missing body", async () => {
-      const req = new Request("http://localhost/query/test/myproject", {
+      const req = new Request("http://localhost/query/myproject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "not json",
@@ -117,7 +117,7 @@ describe("HTTP Routes", () => {
     });
 
     it("returns 400 for missing cypher field", async () => {
-      const { status, json } = await request("POST", "/query/test/myproject", {
+      const { status, json } = await request("POST", "/query/myproject", {
         params: {},
       });
 
@@ -125,37 +125,12 @@ describe("HTTP Routes", () => {
       expect((json as any).error.message).toContain("cypher");
     });
 
-    it("returns 400 for invalid environment", async () => {
-      const { status, json } = await request(
-        "POST",
-        "/query/invalid/myproject",
-        {
-          cypher: "MATCH (n) RETURN n",
-        }
-      );
-
-      expect(status).toBe(400);
-      expect((json as any).error.message).toContain("environment");
-    });
-
     it("isolates data between projects", async () => {
-      await request("POST", "/query/test/project-a", {
+      await request("POST", "/query/project-a", {
         cypher: "CREATE (n:Person {name: 'Alice'})",
       });
 
-      const { json } = await request("POST", "/query/test/project-b", {
-        cypher: "MATCH (n:Person) RETURN n",
-      });
-
-      expect((json as any).data).toHaveLength(0);
-    });
-
-    it("isolates data between environments", async () => {
-      await request("POST", "/query/production/myproject", {
-        cypher: "CREATE (n:Person {name: 'Prod'})",
-      });
-
-      const { json } = await request("POST", "/query/test/myproject", {
+      const { json } = await request("POST", "/query/project-b", {
         cypher: "MATCH (n:Person) RETURN n",
       });
 
@@ -164,7 +139,7 @@ describe("HTTP Routes", () => {
 
     it("creates project DB on first query", async () => {
       // Query a new project that doesn't exist yet
-      const { status, json } = await request("POST", "/query/test/newproject", {
+      const { status, json } = await request("POST", "/query/newproject", {
         cypher: "MATCH (n:Person) RETURN n",
       });
 
@@ -179,29 +154,29 @@ describe("HTTP Routes", () => {
 
       expect(status).toBe(200);
       expect((json as any).success).toBe(true);
-      expect((json as any).data.projects).toEqual({});
+      expect((json as any).data.projects).toEqual([]);
     });
 
     it("returns list of active projects", async () => {
-      await request("POST", "/query/test/project-a", {
+      await request("POST", "/query/project-a", {
         cypher: "MATCH (n) RETURN n",
       });
-      await request("POST", "/query/production/project-b", {
+      await request("POST", "/query/project-b", {
         cypher: "MATCH (n) RETURN n",
       });
 
       const { json } = await request("GET", "/admin/list");
 
-      expect((json as any).data.projects["project-a"]).toContain("test");
-      expect((json as any).data.projects["project-b"]).toContain("production");
+      expect((json as any).data.projects).toContain("project-a");
+      expect((json as any).data.projects).toContain("project-b");
     });
   });
 
-  describe("POST /admin/projects/:env/:project", () => {
+  describe("POST /admin/projects/:project", () => {
     it("creates a new project database", async () => {
       const { status, json } = await request(
         "POST",
-        "/admin/projects/test/newproject"
+        "/admin/projects/newproject"
       );
 
       expect(status).toBe(200);
@@ -209,28 +184,19 @@ describe("HTTP Routes", () => {
 
       // Verify it's in the list
       const { json: listJson } = await request("GET", "/admin/list");
-      expect((listJson as any).data.projects["newproject"]).toContain("test");
-    });
-
-    it("returns 400 for invalid environment", async () => {
-      const { status, json } = await request(
-        "POST",
-        "/admin/projects/invalid/newproject"
-      );
-
-      expect(status).toBe(400);
+      expect((listJson as any).data.projects).toContain("newproject");
     });
   });
 
   describe("POST /admin/wipe/:project", () => {
-    it("wipes test database", async () => {
+    it("wipes database", async () => {
       // Create some data
-      await request("POST", "/query/test/myproject", {
+      await request("POST", "/query/myproject", {
         cypher: "CREATE (n:Person {name: 'Alice'})",
       });
 
       // Verify data exists
-      let result = await request("POST", "/query/test/myproject", {
+      let result = await request("POST", "/query/myproject", {
         cypher: "MATCH (n:Person) RETURN n",
       });
       expect((result.json as any).data).toHaveLength(1);
@@ -241,7 +207,7 @@ describe("HTTP Routes", () => {
       expect((json as any).success).toBe(true);
 
       // Verify data is gone
-      result = await request("POST", "/query/test/myproject", {
+      result = await request("POST", "/query/myproject", {
         cypher: "MATCH (n:Person) RETURN n",
       });
       expect((result.json as any).data).toHaveLength(0);
@@ -250,7 +216,7 @@ describe("HTTP Routes", () => {
 
   describe("Error responses", () => {
     it("returns error with position for parse errors", async () => {
-      const { json } = await request("POST", "/query/test/myproject", {
+      const { json } = await request("POST", "/query/myproject", {
         cypher: "CREATE (n:Person",
       });
 
@@ -273,8 +239,7 @@ describe("Backup Routes", () => {
 
   beforeEach(() => {
     // Create test directories
-    fs.mkdirSync(path.join(dataPath, "production"), { recursive: true });
-    fs.mkdirSync(path.join(dataPath, "test"), { recursive: true });
+    fs.mkdirSync(dataPath, { recursive: true });
     fs.mkdirSync(backupPath, { recursive: true });
 
     dbManager = new DatabaseManager(dataPath);
@@ -326,7 +291,7 @@ describe("Backup Routes", () => {
   describe("POST /admin/backup", () => {
     it("backs up a single project", async () => {
       // Create a database with data
-      const db = dbManager.getDatabase("myproject", "production");
+      const db = dbManager.getDatabase("myproject");
       db.insertNode("n1", "Person", { name: "Alice" });
 
       const { status, json } = await request("POST", "/admin/backup?project=myproject");
@@ -348,9 +313,9 @@ describe("Backup Routes", () => {
 
     it("backs up all databases", async () => {
       // Create multiple databases
-      const db1 = dbManager.getDatabase("project1", "production");
+      const db1 = dbManager.getDatabase("project1");
       db1.insertNode("n1", "Test", {});
-      const db2 = dbManager.getDatabase("project2", "production");
+      const db2 = dbManager.getDatabase("project2");
       db2.insertNode("n2", "Test", {});
 
       const { status, json } = await request("POST", "/admin/backup");
@@ -361,19 +326,6 @@ describe("Backup Routes", () => {
       expect((json as any).data.successful).toBe(2);
       expect((json as any).data.failed).toBe(0);
       expect((json as any).data.backups).toHaveLength(2);
-    });
-
-    it("backs up including test databases when requested", async () => {
-      // Create prod and test databases
-      const prodDb = dbManager.getDatabase("myproject", "production");
-      prodDb.insertNode("n1", "Test", {});
-      const testDb = dbManager.getDatabase("myproject", "test");
-      testDb.insertNode("n2", "Test", {});
-
-      const { status, json } = await request("POST", "/admin/backup?includeTest=true");
-
-      expect(status).toBe(200);
-      expect((json as any).data.total).toBe(2);
     });
 
     it("returns 400 when backup not configured", async () => {
@@ -393,12 +345,12 @@ describe("API Key Authentication", () => {
     const server = createServer({
       dataPath: ":memory:",
       apiKeys: {
-        "test-api-key": { project: "myproject", env: "test" },
+        "test-api-key": { project: "myproject" },
       },
     });
 
     // Request to query endpoint without API key should fail
-    const reqWithoutKey = new Request("http://localhost/query/test/myproject", {
+    const reqWithoutKey = new Request("http://localhost/query/myproject", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cypher: "MATCH (n) RETURN n" }),
@@ -407,7 +359,7 @@ describe("API Key Authentication", () => {
     expect(resWithoutKey.status).toBe(401);
 
     // Request with valid API key should succeed
-    const reqWithKey = new Request("http://localhost/query/test/myproject", {
+    const reqWithKey = new Request("http://localhost/query/myproject", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -424,7 +376,7 @@ describe("API Key Authentication", () => {
   it("allows all requests when no API keys are configured", async () => {
     const server = createServer({ dataPath: ":memory:" });
 
-    const req = new Request("http://localhost/query/test/myproject", {
+    const req = new Request("http://localhost/query/myproject", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cypher: "MATCH (n) RETURN n" }),

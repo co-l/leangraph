@@ -261,8 +261,8 @@ describe("DatabaseManager", () => {
   });
 
   it("creates databases for different projects", () => {
-    const db1 = manager.getDatabase("project-a", "production");
-    const db2 = manager.getDatabase("project-b", "production");
+    const db1 = manager.getDatabase("project-a");
+    const db2 = manager.getDatabase("project-b");
 
     db1.insertNode("node1", "Person", { name: "Alice" });
 
@@ -270,36 +270,25 @@ describe("DatabaseManager", () => {
     expect(db2.countNodes()).toBe(0);
   });
 
-  it("creates databases for different environments", () => {
-    const prod = manager.getDatabase("project-a", "production");
-    const test = manager.getDatabase("project-a", "test");
-
-    prod.insertNode("node1", "Person", { name: "Prod" });
-    test.insertNode("node1", "Person", { name: "Test" });
-
-    expect(prod.getNode("node1")!.properties.name).toBe("Prod");
-    expect(test.getNode("node1")!.properties.name).toBe("Test");
-  });
-
   it("reuses existing database connections", () => {
-    const db1 = manager.getDatabase("project-a", "production");
-    const db2 = manager.getDatabase("project-a", "production");
+    const db1 = manager.getDatabase("project-a");
+    const db2 = manager.getDatabase("project-a");
 
     expect(db1).toBe(db2);
   });
 
   it("lists open databases", () => {
-    manager.getDatabase("project-a", "production");
-    manager.getDatabase("project-b", "test");
+    manager.getDatabase("project-a");
+    manager.getDatabase("project-b");
 
     const list = manager.listDatabases();
-    expect(list).toContain("production/project-a");
-    expect(list).toContain("test/project-b");
+    expect(list).toContain("project-a");
+    expect(list).toContain("project-b");
   });
 
   it("closes all databases", () => {
-    manager.getDatabase("project-a", "production");
-    manager.getDatabase("project-b", "test");
+    manager.getDatabase("project-a");
+    manager.getDatabase("project-b");
 
     manager.closeAll();
 

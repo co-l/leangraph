@@ -48,22 +48,8 @@ export function createApp(
   // Query Endpoint
   // ============================================================================
 
-  app.post("/query/:env/:project", async (c) => {
-    const env = c.req.param("env");
+  app.post("/query/:project", async (c) => {
     const project = c.req.param("project");
-
-    // Validate environment
-    if (env !== "production" && env !== "test") {
-      return c.json(
-        {
-          success: false,
-          error: {
-            message: `Invalid environment: ${env}. Must be 'production' or 'test'`,
-          },
-        },
-        400
-      );
-    }
 
     // Parse request body
     let body: QueryRequest;
@@ -90,8 +76,8 @@ export function createApp(
       );
     }
 
-    // Get database for this project/env
-    const db = dbManager.getDatabase(project, env);
+    // Get database for this project
+    const db = dbManager.getDatabase(project);
 
     // Execute query
     const executor = new Executor(db);
@@ -109,16 +95,7 @@ export function createApp(
   // ============================================================================
 
   app.get("/admin/list", (c) => {
-    const databases = dbManager.listDatabases();
-    const projects: Record<string, string[]> = {};
-
-    for (const key of databases) {
-      const [env, project] = key.split("/");
-      if (!projects[project]) {
-        projects[project] = [];
-      }
-      projects[project].push(env);
-    }
+    const projects = dbManager.listDatabases();
 
     return c.json({
       success: true,
@@ -126,34 +103,22 @@ export function createApp(
     });
   });
 
-  app.post("/admin/projects/:env/:project", (c) => {
-    const env = c.req.param("env");
+  app.post("/admin/projects/:project", (c) => {
     const project = c.req.param("project");
 
-    if (env !== "production" && env !== "test") {
-      return c.json(
-        {
-          success: false,
-          error: { message: `Invalid environment: ${env}` },
-        },
-        400
-      );
-    }
-
     // Creating a database just by accessing it
-    dbManager.getDatabase(project, env);
+    dbManager.getDatabase(project);
 
     return c.json({
       success: true,
-      message: `Created database for ${project} in ${env}`,
+      message: `Created database for ${project}`,
     });
   });
 
   app.post("/admin/wipe/:project", (c) => {
     const project = c.req.param("project");
 
-    // Only allow wiping test databases
-    const db = dbManager.getDatabase(project, "test");
+    const db = dbManager.getDatabase(project);
 
     // Clear all data
     db.execute("DELETE FROM edges");
@@ -161,7 +126,7 @@ export function createApp(
 
     return c.json({
       success: true,
-      message: `Wiped test database for ${project}`,
+      message: `Wiped database for ${project}`,
     });
   });
 
@@ -198,15 +163,14 @@ export function createApp(
       );
     }
 
-    // Get optional query params
+    // Get optional project param for single project backup
     const project = c.req.query("project");
-    const includeTest = c.req.query("includeTest") === "true";
 
     if (project) {
       // Backup single project
-      const sourcePath = `${dataPath}/production/${project}.db`;
+      const sourcePath = `${dataPath}/${project}.db`;
       const result = await backupManager.backupDatabase(sourcePath, project);
-      
+
       if (!result.success) {
         return c.json(
           {
@@ -229,7 +193,7 @@ export function createApp(
     }
 
     // Backup all databases
-    const results = await backupManager.backupAll(dataPath, { includeTest });
+    const results = await backupManager.backupAll(dataPath);
     
     const successful = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
@@ -265,7 +229,7 @@ export interface ServerOptions {
   port?: number;
   dataPath?: string;
   backupPath?: string;
-  apiKeys?: Record<string, { project?: string; env?: string; admin?: boolean }>;
+  apiKeys?: Record<string, { project?: string; admin?: boolean }>;
 }
 
 export function createServer(options: ServerOptions = {}) {

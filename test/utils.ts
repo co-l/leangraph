@@ -83,10 +83,9 @@ function createRemoteTestClient(): TestClient {
   // Generate unique project name for test isolation
   const testId = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const project = testId;
-  const env = "test";
 
   const baseUrl = REMOTE_URL.replace(/\/$/, "");
-  const endpoint = `${baseUrl}/query/${env}/${project}`;
+  const endpoint = `${baseUrl}/query/${project}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

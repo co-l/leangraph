@@ -89,8 +89,6 @@ export const VERSION: string = pkg.version;
 /**
  * Create a LeanGraph client.
  *
- * By default uses local SQLite. Set NODE_ENV=production for remote mode.
- *
  * @example
  * ```typescript
  * import { LeanGraph } from 'leangraph';
@@ -104,20 +102,20 @@ export const VERSION: string = pkg.version;
  * ```
  */
 export async function LeanGraph(options: GraphDBOptions = {}): Promise<GraphDBClient> {
-  const isProduction = process.env.NODE_ENV === "production";
+  const mode = options.mode ?? (process.env.LEANGRAPH_MODE as "local" | "remote" | "test") ?? "local";
 
-  if (isProduction) {
+  if (mode === "remote") {
     return createRemoteClient(options);
   } else {
-    // Lazy-load local client to avoid requiring better-sqlite3 when not needed
+    // local or test - lazy-load to avoid requiring better-sqlite3 when not needed
     try {
       const { createLocalClient } = await import("./local.js");
-      return createLocalClient(options);
+      return createLocalClient({ ...options, mode });
     } catch (err) {
       if (err instanceof Error && err.message.includes("better-sqlite3")) {
         throw new Error(
-          "Local mode requires better-sqlite3. Install it with: npm install better-sqlite3\n" +
-          "Or set NODE_ENV=production to use remote mode instead."
+          "Local/test mode requires better-sqlite3. Install it with: npm install better-sqlite3\n" +
+          "Or set LEANGRAPH_MODE=remote to use remote mode instead."
         );
       }
       throw err;

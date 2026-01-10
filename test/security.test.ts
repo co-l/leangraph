@@ -277,7 +277,7 @@ describe("Security Tests", () => {
       ];
 
       for (const name of maliciousNames) {
-        const { status } = await request("POST", `/query/test/${encodeURIComponent(name)}`, {
+        const { status } = await request("POST", `/query/${encodeURIComponent(name)}`, {
           cypher: "MATCH (n) RETURN n",
         });
 
@@ -287,29 +287,8 @@ describe("Security Tests", () => {
       }
     });
 
-    it("rejects invalid environment values", async () => {
-      const invalidEnvs = [
-        "production; rm -rf /",
-        "../production",
-        "test\x00production",
-        "PRODUCTION",
-        "Production",
-      ];
-
-      for (const env of invalidEnvs) {
-        const { status, json } = await request(
-          "POST",
-          `/query/${encodeURIComponent(env)}/myproject`,
-          { cypher: "MATCH (n) RETURN n" }
-        );
-
-        expect(status).toBe(400);
-        expect(json.success).toBe(false);
-      }
-    });
-
     it("handles malformed JSON gracefully", async () => {
-      const req = new Request("http://localhost/query/test/myproject", {
+      const req = new Request("http://localhost/query/myproject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: '{"cypher": "MATCH (n) RETURN n"', // Missing closing brace
@@ -325,7 +304,7 @@ describe("Security Tests", () => {
     it("handles extremely large payloads", async () => {
       const largeString = "x".repeat(1000000); // 1MB string
 
-      const { status, json } = await request("POST", "/query/test/myproject", {
+      const { status, json } = await request("POST", "/query/myproject", {
         cypher: `CREATE (n:Test {data: '${largeString}'})`,
       });
 
@@ -334,7 +313,7 @@ describe("Security Tests", () => {
     });
 
     it("handles null bytes in input", async () => {
-      const { status, json } = await request("POST", "/query/test/myproject", {
+      const { status, json } = await request("POST", "/query/myproject", {
         cypher: "MATCH (n) RETURN n\x00; DROP TABLE nodes;",
       });
 
@@ -349,7 +328,7 @@ describe("Security Tests", () => {
         nested = { level: nested };
       }
 
-      const { status } = await request("POST", "/query/test/myproject", {
+      const { status } = await request("POST", "/query/myproject", {
         cypher: "CREATE (n:Test {data: $d})",
         params: { d: nested },
       });

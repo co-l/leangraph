@@ -88,7 +88,7 @@ program
 ║  Auth:      ${authStatus.padEnd(43)} ║
 ║                                                           ║
 ║  Routes:                                                  ║
-║    POST /query/:env/:project  - Execute Cypher queries    ║
+║    POST /query/:project       - Execute Cypher queries    ║
 ║    GET  /health               - Health check              ║
 ║    GET  /admin/list           - List all projects         ║
 ║    GET  /admin/backup         - Backup status             ║
@@ -122,90 +122,68 @@ program
 
 program
   .command("create <project>")
-  .description("Create a new project with databases and API key")
+  .description("Create a new project with database and API key")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .option("--no-key", "Skip API key generation")
   .action((project: string, options: { data: string; key: boolean }) => {
     const dataPath = path.resolve(options.data);
     ensureDataDir(dataPath);
 
-    const envs = ["production", "test"];
-    let created = false;
+    const dbPath = path.join(dataPath, `${project}.db`);
 
-    for (const env of envs) {
-      const dbPath = path.join(dataPath, env, `${project}.db`);
-      const dbDir = path.dirname(dbPath);
-
-      if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
-      }
-
-      if (fs.existsSync(dbPath)) {
-        console.log(`  [skip] ${env}/${project}.db already exists`);
-      } else {
-        const db = new GraphDatabase(dbPath);
-        db.initialize();
-        db.close();
-        console.log(`  [created] ${env}/${project}.db`);
-        created = true;
-      }
+    if (fs.existsSync(dbPath)) {
+      console.log(`Project '${project}' already exists.`);
+      return;
     }
 
-    // Generate API keys for the project (one for production, one for test)
-    if (options.key && created) {
+    const db = new GraphDatabase(dbPath);
+    db.initialize();
+    db.close();
+    console.log(`  [created] ${project}.db`);
+
+    // Generate API key for the project
+    if (options.key) {
       const keys = loadApiKeys(dataPath);
-      const prodKey = generateApiKey();
-      const testKey = generateApiKey();
-      keys[prodKey] = { project, env: "production" };
-      keys[testKey] = { project, env: "test" };
+      const apiKey = generateApiKey();
+      keys[apiKey] = { project };
       saveApiKeys(dataPath, keys);
 
       console.log(`\nProject '${project}' is ready.`);
-      console.log(`\nAPI Keys:`);
-      console.log(`  production: ${prodKey}`);
-      console.log(`  test:       ${testKey}`);
-    } else if (!created) {
-      console.log(`\nProject '${project}' already exists.`);
+      console.log(`\nAPI Key: ${apiKey}`);
     } else {
       console.log(`\nProject '${project}' is ready (no API key generated).`);
     }
   });
 
 // ============================================================================
-// delete - Delete a project (both production and test DBs)
+// delete - Delete a project
 // ============================================================================
 
 program
   .command("delete <project>")
-  .description("Delete a project (removes databases and API keys)")
+  .description("Delete a project (removes database and API keys)")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .option("-f, --force", "Skip confirmation prompt", false)
   .action((project: string, options: { data: string; force: boolean }) => {
     const dataPath = path.resolve(options.data);
-    const envs = ["production", "test"];
-
-    // Check what exists
-    const existing: string[] = [];
-    for (const env of envs) {
-      const dbPath = path.join(dataPath, env, `${project}.db`);
-      if (fs.existsSync(dbPath)) {
-        existing.push(`${env}/${project}.db`);
-      }
-    }
+    const dbPath = path.join(dataPath, `${project}.db`);
+    const dbExists = fs.existsSync(dbPath);
 
     // Check for API keys
     const keys = loadApiKeys(dataPath);
-    const projectKeys = Object.entries(keys).filter(([_, config]) => config.project === project);
+    const projectKeys = Object.entries(keys).filter(
+      ([_, config]) => config.project === project
+    );
 
-    if (existing.length === 0 && projectKeys.length === 0) {
+    if (!dbExists && projectKeys.length === 0) {
       console.log(`Project '${project}' does not exist.`);
       process.exit(1);
     }
 
     if (!options.force) {
       console.log(`This will delete:`);
-      for (const file of existing) {
-        console.log(`  - ${file}`);
+      if (dbExists) {
+        console.log(`  - ${project}.db`);
       }
       if (projectKeys.length > 0) {
         console.log(`  - ${projectKeys.length} API key(s)`);
@@ -214,13 +192,10 @@ program
       process.exit(1);
     }
 
-    // Delete database files
-    for (const env of envs) {
-      const dbPath = path.join(dataPath, env, `${project}.db`);
-      if (fs.existsSync(dbPath)) {
-        fs.unlinkSync(dbPath);
-        console.log(`  [deleted] ${env}/${project}.db`);
-      }
+    // Delete database file
+    if (dbExists) {
+      fs.unlinkSync(dbPath);
+      console.log(`  [deleted] ${project}.db`);
     }
 
     // Delete API keys for this project
@@ -241,7 +216,7 @@ program
 
 program
   .command("list")
-  .description("List all projects and their environments")
+  .description("List all projects")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .action((options: { data: string }) => {
     const dataPath = path.resolve(options.data);
@@ -253,7 +228,7 @@ program
 
     const projects = listProjects(dataPath);
 
-    if (projects.size === 0) {
+    if (projects.length === 0) {
       console.log("No projects found.");
       return;
     }
@@ -262,11 +237,11 @@ program
     const keys = loadApiKeys(dataPath);
 
     console.log("\nProjects:\n");
-    for (const [project, envs] of projects) {
-      const envList = envs.map((e) => (e === "production" ? "prod" : "test")).join(", ");
+    for (const project of projects) {
       const keyCount = getProjectKeyCount(keys, project);
-      const keyInfo = keyCount > 0 ? ` (${keyCount} key${keyCount > 1 ? "s" : ""})` : " (no keys)";
-      console.log(`  ${project} [${envList}]${keyInfo}`);
+      const keyInfo =
+        keyCount > 0 ? ` (${keyCount} key${keyCount > 1 ? "s" : ""})` : " (no keys)";
+      console.log(`  ${project}${keyInfo}`);
     }
     console.log("");
   });
@@ -276,87 +251,89 @@ program
 // ============================================================================
 
 program
-  .command("query <env> <project> <cypher>")
+  .command("query <project> <cypher>")
   .description("Execute a Cypher query against a project database")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .option("-p, --params <json>", "Query parameters as JSON", "{}")
   .option("--json", "Output raw JSON", false)
-  .action((env: string, project: string, cypher: string, options: { data: string; params: string; json: boolean }) => {
-    const dataPath = path.resolve(options.data);
+  .action(
+    (
+      project: string,
+      cypher: string,
+      options: { data: string; params: string; json: boolean }
+    ) => {
+      const dataPath = path.resolve(options.data);
+      const dbPath = path.join(dataPath, `${project}.db`);
 
-    if (env !== "production" && env !== "test") {
-      console.error(`Invalid environment: ${env}. Must be 'production' or 'test'.`);
-      process.exit(1);
-    }
-
-    const dbPath = path.join(dataPath, env, `${project}.db`);
-
-    if (!fs.existsSync(dbPath)) {
-      console.error(`Database not found: ${dbPath}`);
-      console.error(`Run 'leangraph create ${project}' first.`);
-      process.exit(1);
-    }
-
-    let params: Record<string, unknown> = {};
-    try {
-      params = JSON.parse(options.params);
-    } catch {
-      console.error("Invalid JSON in --params");
-      process.exit(1);
-    }
-
-    const db = new GraphDatabase(dbPath);
-    db.initialize();
-
-    const executor = new Executor(db);
-    const result = executor.execute(cypher, params);
-
-    db.close();
-
-    if (!result.success) {
-      console.error(`Query failed: ${result.error.message}`);
-      if (result.error.position !== undefined) {
-        console.error(`  at position ${result.error.position} (line ${result.error.line}, column ${result.error.column})`);
+      if (!fs.existsSync(dbPath)) {
+        console.error(`Database not found: ${dbPath}`);
+        console.error(`Run 'leangraph create ${project}' first.`);
+        process.exit(1);
       }
-      process.exit(1);
-    }
 
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(`\nResults (${result.meta.count} rows, ${result.meta.time_ms}ms):\n`);
+      let params: Record<string, unknown> = {};
+      try {
+        params = JSON.parse(options.params);
+      } catch {
+        console.error("Invalid JSON in --params");
+        process.exit(1);
+      }
 
-      if (result.data.length === 0) {
-        console.log("  (no results)");
+      const db = new GraphDatabase(dbPath);
+      db.initialize();
+
+      const executor = new Executor(db);
+      const result = executor.execute(cypher, params);
+
+      db.close();
+
+      if (!result.success) {
+        console.error(`Query failed: ${result.error.message}`);
+        if (result.error.position !== undefined) {
+          console.error(
+            `  at position ${result.error.position} (line ${result.error.line}, column ${result.error.column})`
+          );
+        }
+        process.exit(1);
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
       } else {
-        // Print as table
-        const columns = Object.keys(result.data[0]);
-        printTable(columns, result.data);
+        console.log(`\nResults (${result.meta.count} rows, ${result.meta.time_ms}ms):\n`);
+
+        if (result.data.length === 0) {
+          console.log("  (no results)");
+        } else {
+          // Print as table
+          const columns = Object.keys(result.data[0]);
+          printTable(columns, result.data);
+        }
+        console.log("");
       }
-      console.log("");
     }
-  });
+  );
 
 // ============================================================================
-// wipe - Wipe a test database (refuses on production)
+// wipe - Wipe a database
 // ============================================================================
 
 program
   .command("wipe <project>")
-  .description("Wipe test database for a project (production is protected)")
+  .description("Wipe all data from a project database")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .option("-f, --force", "Skip confirmation prompt", false)
   .action((project: string, options: { data: string; force: boolean }) => {
     const dataPath = path.resolve(options.data);
-    const dbPath = path.join(dataPath, "test", `${project}.db`);
+    const dbPath = path.join(dataPath, `${project}.db`);
 
     if (!fs.existsSync(dbPath)) {
-      console.error(`Test database not found: ${dbPath}`);
+      console.error(`Database not found: ${dbPath}`);
       process.exit(1);
     }
 
     if (!options.force) {
-      console.log(`This will delete all data in test/${project}.db`);
+      console.log(`This will delete all data in ${project}.db`);
       console.log(`\nUse --force to confirm.`);
       process.exit(1);
     }
@@ -367,45 +344,41 @@ program
     db.execute("DELETE FROM nodes");
     db.close();
 
-    console.log(`Wiped test/${project}.db`);
+    console.log(`Wiped ${project}.db`);
   });
 
 // ============================================================================
-// clone - Clone production to test
+// clone - Clone one project to another
 // ============================================================================
 
 program
-  .command("clone <project>")
-  .description("Clone production database to test (overwrites test)")
+  .command("clone <source> <target>")
+  .description("Clone a project database to a new project")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
-  .option("-f, --force", "Skip confirmation prompt", false)
-  .action((project: string, options: { data: string; force: boolean }) => {
-    const dataPath = path.resolve(options.data);
-    const prodPath = path.join(dataPath, "production", `${project}.db`);
-    const testPath = path.join(dataPath, "test", `${project}.db`);
+  .option("-f, --force", "Skip confirmation prompt (required if target exists)", false)
+  .action(
+    (source: string, target: string, options: { data: string; force: boolean }) => {
+      const dataPath = path.resolve(options.data);
+      const sourcePath = path.join(dataPath, `${source}.db`);
+      const targetPath = path.join(dataPath, `${target}.db`);
 
-    if (!fs.existsSync(prodPath)) {
-      console.error(`Production database not found: ${prodPath}`);
-      process.exit(1);
+      if (!fs.existsSync(sourcePath)) {
+        console.error(`Source database not found: ${sourcePath}`);
+        process.exit(1);
+      }
+
+      if (fs.existsSync(targetPath) && !options.force) {
+        console.log(`Target ${target}.db already exists.`);
+        console.log(`\nUse --force to overwrite.`);
+        process.exit(1);
+      }
+
+      // Copy file
+      fs.copyFileSync(sourcePath, targetPath);
+
+      console.log(`Cloned ${source}.db → ${target}.db`);
     }
-
-    if (!options.force) {
-      console.log(`This will overwrite test/${project}.db with production/${project}.db`);
-      console.log(`\nUse --force to confirm.`);
-      process.exit(1);
-    }
-
-    // Ensure test directory exists
-    const testDir = path.dirname(testPath);
-    if (!fs.existsSync(testDir)) {
-      fs.mkdirSync(testDir, { recursive: true });
-    }
-
-    // Copy file
-    fs.copyFileSync(prodPath, testPath);
-
-    console.log(`Cloned production/${project}.db → test/${project}.db`);
-  });
+  );
 
 // ============================================================================
 // migrate - Migrate databases from old label format to JSON array
@@ -418,131 +391,133 @@ program
   .option("-p, --project <name>", "Migrate specific project only")
   .option("--dry-run", "Preview changes without modifying data", false)
   .option("-f, --force", "Skip confirmation prompt", false)
-  .action((options: { data: string; project?: string; dryRun: boolean; force: boolean }) => {
-    const dataPath = path.resolve(options.data);
+  .action(
+    (options: { data: string; project?: string; dryRun: boolean; force: boolean }) => {
+      const dataPath = path.resolve(options.data);
 
-    if (!fs.existsSync(dataPath)) {
-      console.error(`Data directory not found: ${dataPath}`);
-      process.exit(1);
-    }
+      if (!fs.existsSync(dataPath)) {
+        console.error(`Data directory not found: ${dataPath}`);
+        process.exit(1);
+      }
 
-    // Find all databases to migrate
-    const databases: { env: string; project: string; path: string }[] = [];
-    
-    for (const env of ["production", "test"]) {
-      const envPath = path.join(dataPath, env);
-      if (fs.existsSync(envPath)) {
-        const files = fs.readdirSync(envPath).filter((f) => f.endsWith(".db"));
-        for (const file of files) {
-          const project = file.replace(".db", "");
-          if (!options.project || options.project === project) {
-            databases.push({
-              env,
-              project,
-              path: path.join(envPath, file),
-            });
-          }
+      // Find all databases to migrate
+      const databases: { project: string; path: string }[] = [];
+
+      const files = fs.readdirSync(dataPath).filter((f) => f.endsWith(".db"));
+      for (const file of files) {
+        const project = file.replace(".db", "");
+        if (!options.project || options.project === project) {
+          databases.push({
+            project,
+            path: path.join(dataPath, file),
+          });
         }
       }
-    }
 
-    if (databases.length === 0) {
-      if (options.project) {
-        console.error(`Project '${options.project}' not found.`);
-      } else {
-        console.log("No databases found.");
-      }
-      process.exit(1);
-    }
-
-    // Check what needs migration
-    console.log("\nChecking databases for migration...\n");
-
-    const toMigrate: { env: string; project: string; path: string; count: number }[] = [];
-    
-    for (const dbInfo of databases) {
-      // Open database directly with better-sqlite3 to avoid schema initialization
-      const db = new Database(dbInfo.path);
-      
-      try {
-        // Check if nodes table exists
-        const tableExists = db.prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'"
-        ).get();
-        
-        if (!tableExists) {
-          console.log(`  ${dbInfo.env}/${dbInfo.project}.db: no nodes table (skipped)`);
-          continue;
-        }
-
-        // Count nodes that need migration (label is not valid JSON)
-        const result = db.prepare(
-          "SELECT COUNT(*) as count FROM nodes WHERE json_valid(label) = 0"
-        ).get() as { count: number };
-
-        if (result.count > 0) {
-          toMigrate.push({ ...dbInfo, count: result.count });
-          console.log(`  ${dbInfo.env}/${dbInfo.project}.db: ${result.count} node(s) need migration`);
+      if (databases.length === 0) {
+        if (options.project) {
+          console.error(`Project '${options.project}' not found.`);
         } else {
-          console.log(`  ${dbInfo.env}/${dbInfo.project}.db: already migrated`);
+          console.log("No databases found.");
         }
-      } finally {
-        db.close();
+        process.exit(1);
+      }
+
+      // Check what needs migration
+      console.log("\nChecking databases for migration...\n");
+
+      const toMigrate: { project: string; path: string; count: number }[] = [];
+
+      for (const dbInfo of databases) {
+        // Open database directly with better-sqlite3 to avoid schema initialization
+        const db = new Database(dbInfo.path);
+
+        try {
+          // Check if nodes table exists
+          const tableExists = db
+            .prepare(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'"
+            )
+            .get();
+
+          if (!tableExists) {
+            console.log(`  ${dbInfo.project}.db: no nodes table (skipped)`);
+            continue;
+          }
+
+          // Count nodes that need migration (label is not valid JSON)
+          const result = db
+            .prepare("SELECT COUNT(*) as count FROM nodes WHERE json_valid(label) = 0")
+            .get() as { count: number };
+
+          if (result.count > 0) {
+            toMigrate.push({ ...dbInfo, count: result.count });
+            console.log(`  ${dbInfo.project}.db: ${result.count} node(s) need migration`);
+          } else {
+            console.log(`  ${dbInfo.project}.db: already migrated`);
+          }
+        } finally {
+          db.close();
+        }
+      }
+
+      if (toMigrate.length === 0) {
+        console.log("\nAll databases are already migrated.");
+        return;
+      }
+
+      // Dry run - just show what would be done
+      if (options.dryRun) {
+        console.log(`\n[dry-run] Would migrate ${toMigrate.length} database(s)`);
+        return;
+      }
+
+      // Confirm before migrating
+      if (!options.force) {
+        console.log(`\nThis will migrate ${toMigrate.length} database(s).`);
+        console.log("Use --force to confirm, or --dry-run to preview.");
+        process.exit(1);
+      }
+
+      // Perform migration
+      console.log("\nMigrating...\n");
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const dbInfo of toMigrate) {
+        const db = new Database(dbInfo.path);
+
+        try {
+          const start = Date.now();
+
+          // Migrate: wrap plain text labels in JSON array
+          const result = db
+            .prepare(
+              "UPDATE nodes SET label = json_array(label) WHERE json_valid(label) = 0"
+            )
+            .run();
+
+          const duration = Date.now() - start;
+          console.log(
+            `  ${dbInfo.project}.db: ${result.changes} node(s) migrated (${duration}ms)`
+          );
+          successCount++;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`  ${dbInfo.project}.db: FAILED - ${message}`);
+          failCount++;
+        } finally {
+          db.close();
+        }
+      }
+
+      console.log(`\nMigration complete: ${successCount} database(s) updated`);
+      if (failCount > 0) {
+        console.log(`  ${failCount} database(s) failed`);
+        process.exit(1);
       }
     }
-
-    if (toMigrate.length === 0) {
-      console.log("\nAll databases are already migrated.");
-      return;
-    }
-
-    // Dry run - just show what would be done
-    if (options.dryRun) {
-      console.log(`\n[dry-run] Would migrate ${toMigrate.length} database(s)`);
-      return;
-    }
-
-    // Confirm before migrating
-    if (!options.force) {
-      console.log(`\nThis will migrate ${toMigrate.length} database(s).`);
-      console.log("Use --force to confirm, or --dry-run to preview.");
-      process.exit(1);
-    }
-
-    // Perform migration
-    console.log("\nMigrating...\n");
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const dbInfo of toMigrate) {
-      const db = new Database(dbInfo.path);
-      
-      try {
-        const start = Date.now();
-        
-        // Migrate: wrap plain text labels in JSON array
-        const result = db.prepare(
-          "UPDATE nodes SET label = json_array(label) WHERE json_valid(label) = 0"
-        ).run();
-
-        const duration = Date.now() - start;
-        console.log(`  ${dbInfo.env}/${dbInfo.project}.db: ${result.changes} node(s) migrated (${duration}ms)`);
-        successCount++;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`  ${dbInfo.env}/${dbInfo.project}.db: FAILED - ${message}`);
-        failCount++;
-      } finally {
-        db.close();
-      }
-    }
-
-    console.log(`\nMigration complete: ${successCount} database(s) updated`);
-    if (failCount > 0) {
-      console.log(`  ${failCount} database(s) failed`);
-      process.exit(1);
-    }
-  });
+  );
 
 // ============================================================================
 // backup - Backup databases
@@ -550,103 +525,114 @@ program
 
 program
   .command("backup")
-  .description("Backup production databases")
+  .description("Backup databases")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .option("-o, --output <path>", "Backup output directory", "./backups")
   .option("-p, --project <name>", "Backup specific project only")
-  .option("--include-test", "Also backup test databases", false)
   .option("--keep <count>", "Number of backups to keep per project", "5")
   .option("--status", "Show backup status only", false)
-  .action(async (options: { data: string; output: string; project?: string; includeTest: boolean; keep: string; status: boolean }) => {
-    const dataPath = path.resolve(options.data);
-    const backupPath = path.resolve(options.output);
-    const keepCount = parseInt(options.keep, 10);
+  .action(
+    async (options: {
+      data: string;
+      output: string;
+      project?: string;
+      keep: string;
+      status: boolean;
+    }) => {
+      const dataPath = path.resolve(options.data);
+      const backupPath = path.resolve(options.output);
+      const keepCount = parseInt(options.keep, 10);
 
-    const manager = new BackupManager(backupPath);
+      const manager = new BackupManager(backupPath);
 
-    // Status only mode
-    if (options.status) {
-      const status = manager.getBackupStatus();
-      console.log("\nBackup Status:\n");
-      console.log(`  Total backups:  ${status.totalBackups}`);
-      console.log(`  Total size:     ${formatBytes(status.totalSizeBytes)}`);
-      console.log(`  Projects:       ${status.projects.join(", ") || "(none)"}`);
-      if (status.oldestBackup) {
-        console.log(`  Oldest backup:  ${status.oldestBackup}`);
+      // Status only mode
+      if (options.status) {
+        const status = manager.getBackupStatus();
+        console.log("\nBackup Status:\n");
+        console.log(`  Total backups:  ${status.totalBackups}`);
+        console.log(`  Total size:     ${formatBytes(status.totalSizeBytes)}`);
+        console.log(`  Projects:       ${status.projects.join(", ") || "(none)"}`);
+        if (status.oldestBackup) {
+          console.log(`  Oldest backup:  ${status.oldestBackup}`);
+        }
+        if (status.newestBackup) {
+          console.log(`  Newest backup:  ${status.newestBackup}`);
+        }
+        console.log("");
+        return;
       }
-      if (status.newestBackup) {
-        console.log(`  Newest backup:  ${status.newestBackup}`);
-      }
-      console.log("");
-      return;
-    }
 
-    // Check data directory exists
-    if (!fs.existsSync(dataPath)) {
-      console.error(`Data directory not found: ${dataPath}`);
-      process.exit(1);
-    }
-
-    // Single project backup
-    if (options.project) {
-      const sourcePath = path.join(dataPath, "production", `${options.project}.db`);
-      if (!fs.existsSync(sourcePath)) {
-        console.error(`Project not found: ${options.project}`);
+      // Check data directory exists
+      if (!fs.existsSync(dataPath)) {
+        console.error(`Data directory not found: ${dataPath}`);
         process.exit(1);
       }
 
-      console.log(`Backing up ${options.project}...`);
-      const result = await manager.backupDatabase(sourcePath, options.project);
-
-      if (result.success) {
-        console.log(`  [success] ${result.backupPath}`);
-        console.log(`  Size: ${formatBytes(result.sizeBytes || 0)}, Duration: ${result.durationMs}ms`);
-        
-        // Cleanup old backups
-        const deleted = manager.cleanOldBackups(options.project, keepCount);
-        if (deleted > 0) {
-          console.log(`  Cleaned up ${deleted} old backup(s)`);
+      // Single project backup
+      if (options.project) {
+        const sourcePath = path.join(dataPath, `${options.project}.db`);
+        if (!fs.existsSync(sourcePath)) {
+          console.error(`Project not found: ${options.project}`);
+          process.exit(1);
         }
-      } else {
-        console.error(`  [failed] ${result.error}`);
+
+        console.log(`Backing up ${options.project}...`);
+        const result = await manager.backupDatabase(sourcePath, options.project);
+
+        if (result.success) {
+          console.log(`  [success] ${result.backupPath}`);
+          console.log(
+            `  Size: ${formatBytes(result.sizeBytes || 0)}, Duration: ${result.durationMs}ms`
+          );
+
+          // Cleanup old backups
+          const deleted = manager.cleanOldBackups(options.project, keepCount);
+          if (deleted > 0) {
+            console.log(`  Cleaned up ${deleted} old backup(s)`);
+          }
+        } else {
+          console.error(`  [failed] ${result.error}`);
+          process.exit(1);
+        }
+        return;
+      }
+
+      // Backup all databases
+      console.log(`\nBacking up databases from ${dataPath}...\n`);
+      const results = await manager.backupAll(dataPath);
+
+      if (results.length === 0) {
+        console.log("No databases found to backup.");
+        return;
+      }
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const result of results) {
+        if (result.success) {
+          console.log(
+            `  [success] ${result.project} → ${path.basename(result.backupPath!)}`
+          );
+          successCount++;
+
+          // Cleanup old backups
+          const deleted = manager.cleanOldBackups(result.project, keepCount);
+          if (deleted > 0) {
+            console.log(`            Cleaned up ${deleted} old backup(s)`);
+          }
+        } else {
+          console.log(`  [failed]  ${result.project}: ${result.error}`);
+          failCount++;
+        }
+      }
+
+      console.log(`\nBackup complete: ${successCount} succeeded, ${failCount} failed`);
+      if (failCount > 0) {
         process.exit(1);
       }
-      return;
     }
-
-    // Backup all databases
-    console.log(`\nBacking up databases from ${dataPath}...\n`);
-    const results = await manager.backupAll(dataPath, { includeTest: options.includeTest });
-
-    if (results.length === 0) {
-      console.log("No databases found to backup.");
-      return;
-    }
-
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const result of results) {
-      if (result.success) {
-        console.log(`  [success] ${result.project} → ${path.basename(result.backupPath!)}`);
-        successCount++;
-
-        // Cleanup old backups
-        const deleted = manager.cleanOldBackups(result.project, keepCount);
-        if (deleted > 0) {
-          console.log(`            Cleaned up ${deleted} old backup(s)`);
-        }
-      } else {
-        console.log(`  [failed]  ${result.project}: ${result.error}`);
-        failCount++;
-      }
-    }
-
-    console.log(`\nBackup complete: ${successCount} succeeded, ${failCount} failed`);
-    if (failCount > 0) {
-      process.exit(1);
-    }
-  });
+  );
 
 // ============================================================================
 // apikey - API Key Management
@@ -660,9 +646,8 @@ apikey
   .command("add <project>")
   .description("Generate and add a new API key for a project")
   .option("-d, --data <path>", "Data directory", "/var/data/leangraph")
-  .option("-e, --env <env>", "Restrict to specific environment (production/test)")
-  .option("--admin", "Create an admin key (ignores project/env)", false)
-  .action((project: string, options: { data: string; env?: string; admin: boolean }) => {
+  .option("--admin", "Create an admin key (ignores project)", false)
+  .action((project: string, options: { data: string; admin: boolean }) => {
     const dataPath = path.resolve(options.data);
     const keys = loadApiKeys(dataPath);
 
@@ -675,13 +660,6 @@ apikey
       config.admin = true;
     } else {
       config.project = project;
-      if (options.env) {
-        if (options.env !== "production" && options.env !== "test") {
-          console.error(`Invalid environment: ${options.env}. Must be 'production' or 'test'.`);
-          process.exit(1);
-        }
-        config.env = options.env;
-      }
     }
 
     keys[newKey] = config;
@@ -692,7 +670,6 @@ apikey
       console.log(`Access:  admin (full access)`);
     } else {
       console.log(`Project: ${project}`);
-      console.log(`Env:     ${options.env || "all"}`);
     }
   });
 
@@ -719,9 +696,9 @@ apikey
       if (config.admin) {
         access = "admin";
       } else if (config.project) {
-        access = config.env ? `${config.project}/${config.env}` : `${config.project}/*`;
+        access = config.project;
       } else {
-        access = "*/*";
+        access = "*";
       }
       console.log(`  ${prefix.padEnd(12)}| ${access}`);
     }
@@ -762,7 +739,7 @@ apikey
     if (config.admin) {
       console.log(`Access: admin`);
     } else {
-      console.log(`Access: ${config.project || "*"}/${config.env || "*"}`);
+      console.log(`Access: ${config.project || "*"}`);
     }
   });
 

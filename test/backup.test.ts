@@ -112,16 +112,13 @@ describe("BackupManager", () => {
 
   describe("backupAll", () => {
     it("should backup all databases in a data directory", async () => {
-      // Create multiple databases
-      const prodDir = path.join(sourceDir, "production");
-      fs.mkdirSync(prodDir, { recursive: true });
-
-      const db1 = new GraphDatabase(path.join(prodDir, "project1.db"));
+      // Create multiple databases in flat directory structure
+      const db1 = new GraphDatabase(path.join(sourceDir, "project1.db"));
       db1.initialize();
       db1.insertNode("n1", "Test", {});
       db1.close();
 
-      const db2 = new GraphDatabase(path.join(prodDir, "project2.db"));
+      const db2 = new GraphDatabase(path.join(sourceDir, "project2.db"));
       db2.initialize();
       db2.insertNode("n2", "Test", {});
       db2.close();
@@ -134,47 +131,38 @@ describe("BackupManager", () => {
       expect(results.every(r => r.success)).toBe(true);
     });
 
-    it("should only backup production databases by default", async () => {
-      // Create prod and test databases
-      const prodDir = path.join(sourceDir, "production");
-      const testDirPath = path.join(sourceDir, "test");
-      fs.mkdirSync(prodDir, { recursive: true });
-      fs.mkdirSync(testDirPath, { recursive: true });
+    it("should backup all database files in directory", async () => {
+      // Create databases in flat directory structure
+      const db1 = new GraphDatabase(path.join(sourceDir, "project-prod.db"));
+      db1.initialize();
+      db1.close();
 
-      const prodDb = new GraphDatabase(path.join(prodDir, "project.db"));
-      prodDb.initialize();
-      prodDb.close();
+      const db2 = new GraphDatabase(path.join(sourceDir, "project-test.db"));
+      db2.initialize();
+      db2.close();
 
-      const testDb = new GraphDatabase(path.join(testDirPath, "project.db"));
-      testDb.initialize();
-      testDb.close();
+      // Backup all (should backup all .db files)
+      const manager = new BackupManager(backupDir);
+      const results = await manager.backupAll(sourceDir);
 
-      // Backup all (should only backup production)
+      expect(results.length).toBe(2);
+      expect(results.every(r => r.success)).toBe(true);
+    });
+
+    it("should ignore non-db files", async () => {
+      // Create a database and a non-db file
+      const db = new GraphDatabase(path.join(sourceDir, "project.db"));
+      db.initialize();
+      db.close();
+
+      fs.writeFileSync(path.join(sourceDir, "readme.txt"), "test");
+      fs.writeFileSync(path.join(sourceDir, "config.json"), "{}");
+
       const manager = new BackupManager(backupDir);
       const results = await manager.backupAll(sourceDir);
 
       expect(results.length).toBe(1);
       expect(results[0].project).toBe("project");
-    });
-
-    it("should optionally backup test databases too", async () => {
-      const prodDir = path.join(sourceDir, "production");
-      const testDirPath = path.join(sourceDir, "test");
-      fs.mkdirSync(prodDir, { recursive: true });
-      fs.mkdirSync(testDirPath, { recursive: true });
-
-      const prodDb = new GraphDatabase(path.join(prodDir, "project.db"));
-      prodDb.initialize();
-      prodDb.close();
-
-      const testDb = new GraphDatabase(path.join(testDirPath, "project.db"));
-      testDb.initialize();
-      testDb.close();
-
-      const manager = new BackupManager(backupDir);
-      const results = await manager.backupAll(sourceDir, { includeTest: true });
-
-      expect(results.length).toBe(2);
     });
   });
 

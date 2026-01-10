@@ -10,7 +10,7 @@ A lightweight, embeddable graph database with **full Cypher query support**, pow
 
 ## Installation
 
-### Remote Mode (Production)
+### Remote Mode
 
 For connecting to a remote LeanGraph server, no native dependencies are needed:
 
@@ -18,9 +18,9 @@ For connecting to a remote LeanGraph server, no native dependencies are needed:
 npm install leangraph
 ```
 
-### Local Mode (Development)
+### Local Mode
 
-For local embedded mode with SQLite, also install `better-sqlite3`:
+For local/test mode with embedded SQLite, also install `better-sqlite3`:
 
 ```bash
 npm install leangraph better-sqlite3
@@ -45,62 +45,57 @@ console.log(users); // [{ name: 'Alice' }, { name: 'Bob' }]
 db.close();
 ```
 
-## Development vs Production Mode
+## Modes
 
-LeanGraph automatically adapts based on the `NODE_ENV` environment variable:
+| Mode | `LEANGRAPH_MODE` | Behavior |
+|------|------------------|----------|
+| **Local** | unset or `local` | Embedded SQLite at `./data/{project}.db` |
+| **Remote** | `remote` | HTTP connection to LeanGraph server |
+| **Test** | `test` | In-memory SQLite (resets on restart) |
 
-| Mode | `NODE_ENV` | Behavior |
-|------|-----------|----------|
-| **Development** | unset or `development` | Uses local SQLite database. `url` and `apiKey` are ignored. |
-| **Production** | `production` | Connects to remote server via HTTP. |
+### Local Mode (default)
 
-### Development Mode (default)
+Uses an embedded SQLite database. No server required.
 
-By default, LeanGraph uses a local SQLite database:
-- No server setup required
-- Data persists at `./data/development/{project}.db`
-
-### Production Mode
-
-Set `NODE_ENV=production` to connect to a remote server:
-
-```bash
-NODE_ENV=production LEANGRAPH_API_KEY=xxx node app.js
-```
-
-## Configuration Options
-
-| Option | Type | Required | Default | Description |
-|--------|------|----------|---------|-------------|
-| `url` | `string` | No | `LEANGRAPH_URL` or `https://leangraph.io` | Base URL of the LeanGraph server (production only) |
-| `project` | `string` | Yes | `LEANGRAPH_PROJECT` | Project name |
-| `apiKey` | `string` | No | `LEANGRAPH_API_KEY` | API key for authentication (production only) |
-| `env` | `string` | No | `NODE_ENV` or `development` | Environment (determines database isolation) |
-| `dataPath` | `string` | No | `LEANGRAPH_DATA_PATH` or `./data` | Path for local data storage (development only). Use `':memory:'` for in-memory database |
-
-### Examples
-
-**Development** (default):
 ```typescript
 const db = await LeanGraph({ project: 'myapp' });
+// Data persists at ./data/myapp.db
 ```
 
-**Production** (NODE_ENV=production):
+### Remote Mode
+
+Connects to a LeanGraph server via HTTP.
+
+```bash
+LEANGRAPH_MODE=remote LEANGRAPH_API_KEY=lg_xxx node app.js
+```
+
 ```typescript
 const db = await LeanGraph({
+  mode: 'remote',
   project: 'myapp',
   apiKey: 'lg_xxx',
   url: 'https://my-server',
 });
 ```
 
-**Testing** (in-memory):
+### Test Mode
+
+Uses an in-memory SQLite database that resets when the process exits.
+
 ```typescript
-const db = await LeanGraph({
-  project: 'test',
-  dataPath: ':memory:',
-});
+const db = await LeanGraph({ mode: 'test', project: 'myapp' });
 ```
+
+## Configuration Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `mode` | `string` | No | `LEANGRAPH_MODE` or `local` | Connection mode: `local`, `remote`, or `test` |
+| `project` | `string` | Yes | `LEANGRAPH_PROJECT` | Project name (used as database filename in local mode) |
+| `url` | `string` | No | `LEANGRAPH_URL` or `https://leangraph.io` | Server URL (remote mode only) |
+| `apiKey` | `string` | No | `LEANGRAPH_API_KEY` | API key (remote mode only) |
+| `dataPath` | `string` | No | `LEANGRAPH_DATA_PATH` or `./data` | Data directory (local mode only) |
 
 ## API Reference
 

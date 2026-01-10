@@ -773,22 +773,21 @@ export class DatabaseManager {
   }
 
   /**
-   * Get or create a database for a project/environment
+   * Get or create a database for a project
    */
-  getDatabase(project: string, env: string = "production"): GraphDatabase {
-    const key = `${env}/${project}`;
+  getDatabase(project: string): GraphDatabase {
+    if (!this.databases.has(project)) {
+      const path =
+        this.basePath === ":memory:"
+          ? ":memory:"
+          : `${this.basePath}/${project}.db`;
 
-    if (!this.databases.has(key)) {
-      const path = this.basePath === ":memory:" 
-        ? ":memory:" 
-        : `${this.basePath}/${env}/${project}.db`;
-      
       const db = new GraphDatabase(path);
       db.initialize();
-      this.databases.set(key, db);
+      this.databases.set(project, db);
     }
 
-    return this.databases.get(key)!;
+    return this.databases.get(project)!;
   }
 
   /**

@@ -7,22 +7,19 @@ import { Context, Next } from "hono";
 // ============================================================================
 
 export interface ApiKeyConfig {
-  project?: string;  // Restrict to specific project (undefined = all projects)
-  env?: string;      // Restrict to specific environment (undefined = all envs)
-  admin?: boolean;   // Full admin access
+  project?: string; // Restrict to specific project (undefined = all projects)
+  admin?: boolean; // Full admin access
 }
 
 export interface ValidationResult {
   valid: boolean;
   project?: string;
-  env?: string;
   admin?: boolean;
 }
 
 export interface KeyInfo {
   prefix: string;
   project?: string;
-  env?: string;
   admin?: boolean;
 }
 
@@ -52,7 +49,7 @@ export class ApiKeyStore {
    */
   validate(key: string): ValidationResult {
     const config = this.keys.get(key);
-    
+
     if (!config) {
       return { valid: false };
     }
@@ -60,7 +57,6 @@ export class ApiKeyStore {
     return {
       valid: true,
       project: config.project,
-      env: config.env,
       admin: config.admin,
     };
   }
@@ -70,12 +66,11 @@ export class ApiKeyStore {
    */
   listKeys(): KeyInfo[] {
     const result: KeyInfo[] = [];
-    
+
     for (const [key, config] of this.keys) {
       result.push({
         prefix: key.slice(0, 4) + "...",
         project: config.project,
-        env: config.env,
         admin: config.admin,
       });
     }
@@ -106,10 +101,10 @@ export class ApiKeyStore {
 
 /**
  * Hono middleware for API key authentication.
- * 
+ *
  * - Skips authentication for /health endpoint
  * - Requires Bearer token in Authorization header
- * - Checks project/env restrictions for /query endpoints
+ * - Checks project restrictions for /query endpoints
  * - Requires admin flag for /admin endpoints
  */
 export function authMiddleware(store: ApiKeyStore) {
@@ -123,7 +118,7 @@ export function authMiddleware(store: ApiKeyStore) {
 
     // Get authorization header
     const authHeader = c.req.header("Authorization");
-    
+
     if (!authHeader) {
       return c.json(
         {
@@ -169,11 +164,10 @@ export function authMiddleware(store: ApiKeyStore) {
       );
     }
 
-    // Check project/env restrictions for query endpoints
+    // Check project restrictions for query endpoints
     if (path.startsWith("/query/")) {
       const parts = path.split("/");
-      const env = parts[2];
-      const project = parts[3];
+      const project = parts[2];
 
       // Check project restriction
       if (validation.project && validation.project !== project) {
@@ -181,17 +175,6 @@ export function authMiddleware(store: ApiKeyStore) {
           {
             success: false,
             error: { message: `Access denied for project: ${project}` },
-          },
-          403
-        );
-      }
-
-      // Check environment restriction
-      if (validation.env && validation.env !== env) {
-        return c.json(
-          {
-            success: false,
-            error: { message: `Access denied for environment: ${env}` },
           },
           403
         );

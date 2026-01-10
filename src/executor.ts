@@ -4171,7 +4171,56 @@ export class Executor {
     const withAggregateValues: Map<string, unknown[]> = new Map();
     
     this.db.transaction(() => {
-      for (const combination of combinations) {
+      // Collect all node inserts for batching
+      const nodeInserts: {id: string, labelJson: string, propsJson: string, variable?: string, combinationIndex: number}[] = [];
+      
+      for (let comboIndex = 0; comboIndex < combinations.length; comboIndex++) {
+        const combination = combinations[comboIndex];
+        // Build a map of unwind variable -> current value
+        const unwindContext: Record<string, unknown> = {};
+        for (let i = 0; i < unwindClauses.length; i++) {
+          unwindContext[unwindClauses[i].alias] = combination[i];
+        }
+        
+        for (const createClause of createClauses) {
+          for (const pattern of createClause.patterns) {
+            if (this.isRelationshipPattern(pattern)) {
+              // Relationships are handled individually (they may reference nodes created in the same combination)
+              const createdIds: Map<string, string> = new Map();
+              this.executeCreateRelationshipPatternWithUnwind(pattern, createdIds, params, unwindContext);
+            } else {
+              const id = crypto.randomUUID();
+              const labelJson = this.normalizeLabelToJson(pattern.label);
+              const props = this.resolvePropertiesWithUnwind(pattern.properties || {}, params, unwindContext);
+              
+              nodeInserts.push({
+                id,
+                labelJson,
+                propsJson: JSON.stringify(props),
+                variable: pattern.variable,
+                combinationIndex: comboIndex
+              });
+            }
+          }
+        }
+      }
+      
+      // Batch insert nodes (cap at 500 rows per statement)
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < nodeInserts.length; i += BATCH_SIZE) {
+        const batch = nodeInserts.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?)').join(',');
+        const values = batch.flatMap(insert => [insert.id, insert.labelJson, insert.propsJson]);
+        
+        this.db.execute(
+          `INSERT INTO nodes (id, label, properties) VALUES ${placeholders}`,
+          values
+        );
+      }
+      
+      // Process each combination with batched inserts
+      for (let comboIndex = 0; comboIndex < combinations.length; comboIndex++) {
+        const combination = combinations[comboIndex];
         // Build a map of unwind variable -> current value
         const unwindContext: Record<string, unknown> = {};
         for (let i = 0; i < unwindClauses.length; i++) {
@@ -4180,23 +4229,19 @@ export class Executor {
         
         // Execute CREATE with the unwind context
         const createdIds: Map<string, string> = new Map();
+        
+        // Add nodes from batch insert to createdIds
+        for (const insert of nodeInserts) {
+          if (insert.combinationIndex === comboIndex && insert.variable) {
+            createdIds.set(insert.variable, insert.id);
+          }
+        }
+        
+        // Handle relationships (they may reference nodes created in this combination)
         for (const createClause of createClauses) {
           for (const pattern of createClause.patterns) {
             if (this.isRelationshipPattern(pattern)) {
               this.executeCreateRelationshipPatternWithUnwind(pattern, createdIds, params, unwindContext);
-            } else {
-              const id = crypto.randomUUID();
-              const labelJson = this.normalizeLabelToJson(pattern.label);
-              const props = this.resolvePropertiesWithUnwind(pattern.properties || {}, params, unwindContext);
-              
-              this.db.execute(
-                "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
-                [id, labelJson, JSON.stringify(props)]
-              );
-              
-              if (pattern.variable) {
-                createdIds.set(pattern.variable, id);
-              }
             }
           }
         }

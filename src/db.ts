@@ -545,6 +545,8 @@ function registerCypherFunctions(db: Database.Database): void {
 export class GraphDatabase {
   private db: Database.Database;
   private initialized: boolean = false;
+  private stmtCache: Map<string, Database.Statement> = new Map();
+  private readonly STMT_CACHE_MAX = 100;
 
   constructor(path: string = ":memory:") {
     this.db = new Database(path);
@@ -569,6 +571,23 @@ export class GraphDatabase {
   }
 
   /**
+   * Get a cached prepared statement, or create and cache a new one
+   */
+  private getCachedStatement(sql: string): Database.Statement {
+    let stmt = this.stmtCache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      if (this.stmtCache.size >= this.STMT_CACHE_MAX) {
+        // Evict oldest entry (FIFO)
+        const firstKey = this.stmtCache.keys().next().value;
+        if (firstKey) this.stmtCache.delete(firstKey);
+      }
+      this.stmtCache.set(sql, stmt);
+    }
+    return stmt;
+  }
+
+  /**
    * Execute a SQL statement and return results
    */
   execute(sql: string, params: unknown[] = []): QueryResult {
@@ -577,7 +596,7 @@ export class GraphDatabase {
     // Convert large integers to BigInt for proper SQLite INTEGER binding
     const convertedParams = convertParamsForSqlite(params);
 
-    const stmt = this.db.prepare(sql);
+    const stmt = this.getCachedStatement(sql);
     const trimmedSql = sql.trim().toUpperCase();
     // Check if it's a query (SELECT or WITH for CTEs)
     const isQuery = trimmedSql.startsWith("SELECT") || trimmedSql.startsWith("WITH");
@@ -747,6 +766,7 @@ export class GraphDatabase {
    * Close the database connection
    */
   close(): void {
+    this.stmtCache.clear();
     this.db.close();
   }
 

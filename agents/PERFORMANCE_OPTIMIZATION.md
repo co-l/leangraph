@@ -178,3 +178,13 @@ Before marking an optimization complete:
 | `full` | ~17M | ~30 min | Final validation |
 
 Start with `micro` for fast feedback, use `quick` to confirm gains.
+
+## Benchmark Expectations
+
+Not all optimizations show dramatic improvements in benchmarks:
+
+- **Statement caching**: Benefits repeated identical SQL strings. Benchmarks use varying parameters, so gains appear in production workloads more than benchmarks.
+- **Index changes**: Show up clearly in benchmarks since query patterns hit the indexes.
+- **Batching**: Large improvements visible when benchmark includes bulk operations.
+
+If the benchmark shows **no regression**, the optimization is still valid - it may benefit real-world usage patterns that benchmarks don't stress.

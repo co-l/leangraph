@@ -6,7 +6,7 @@ This document outlines actionable performance optimizations for LeanGraph, prior
 
 | Priority | Optimization | Speedup | Effort | Status |
 |----------|--------------|---------|--------|--------|
-| P0 | SQLite performance pragmas | 2-3x | Low | [ ] |
+| P0 | SQLite performance pragmas | 2-3x | Low | [x] |
 | P0 | Prepared statement cache | 2-5x | Low | [ ] |
 | P0 | Composite edge indexes | 5-20x | Low | [ ] |
 | P1 | Label index | 5-20x | Low | [ ] |

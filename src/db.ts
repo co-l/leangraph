@@ -550,6 +550,10 @@ export class GraphDatabase {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
+    this.db.pragma("synchronous = NORMAL"); // Safe with WAL, faster writes
+    this.db.pragma("cache_size = -64000"); // 64MB cache (default is 2MB)
+    this.db.pragma("temp_store = MEMORY"); // Temp tables in RAM
+    this.db.pragma("mmap_size = 268435456"); // 256MB memory-mapped I/O
     // Register custom Cypher functions
     registerCypherFunctions(this.db);
   }

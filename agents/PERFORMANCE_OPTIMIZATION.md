@@ -1,96 +1,53 @@
-# Performance Optimization Workflow
+# LeanGraph - Performance Optimization Guide
 
-Iterative TDD-style workflow for optimizing LeanGraph performance. Follow this workflow to systematically identify bottlenecks and improve query performance while keeping all tests green.
+The optimization plan is in `/OPTIMIZATION_PLAN.md`. This guide explains the workflow for implementing those optimizations.
 
-## Quick Start
+## Workflow
+
+Follow this workflow exactly:
+
+1. **Pick an optimization** from `OPTIMIZATION_PLAN.md` (start with P0)
+2. **Run baseline benchmark** - `npm run benchmark -- -s micro -d leangraph`
+3. **Implement the fix** - follow the code changes in the plan
+4. **Run tests** - `npm test` - must pass!
+5. **Re-benchmark** - `npm run benchmark -- -s micro -d leangraph`
+6. **Mark complete** - update checkbox in `OPTIMIZATION_PLAN.md`
+7. **Commit and push**
+
+### Example
+
+```markdown
+// In OPTIMIZATION_PLAN.md, change:
+| P0 | SQLite performance pragmas | 2-3x | Low | [ ] |
+
+// To:
+| P0 | SQLite performance pragmas | 2-3x | Low | [x] |
+```
+
+## Quick Commands
 
 ```bash
-# 1. Run baseline benchmark
-npm run benchmark -- -N 30K -d leangraph --name baseline
+# Run micro benchmark (fast, ~1 min)
+npm run benchmark -- -s micro -d leangraph
 
-# 2. Analyze results
-npm run benchmark:analyze baseline
+# Run quick benchmark (more accurate, ~5 min)
+npm run benchmark -- -s quick -d leangraph
 
-# 3. Investigate and optimize (see sections below)
-
-# 4. Run tests - must pass!
+# Run all tests
 npm test
 
-# 5. Re-benchmark
-npm run benchmark -- -N 30K -d leangraph --name iter-1
+# Show generated SQL for a query
+npm run tck 'Match3|1' -- --sql
 
-# 6. Compare
-npm run benchmark:compare baseline iter-1
-# or with analysis
-npm run benchmark:analyze baseline iter-1
-
-# 7. Log results
-# Update benchmark/OPTIMIZATION_LOG.md
-
-# 8. Repeat from step 2 until diminishing returns (<5% improvement)
+# Run specific TCK test with verbose output
+npm run tck 'Return6|11' -- -v
 ```
 
-## Workflow Diagram
+## Debugging SQL Performance
 
-```
-BASELINE ─────────────────────────────────────────────────────────────
-    │  npm run benchmark -- -N 30K -d leangraph --name baseline
-    ▼
-ANALYZE ──────────────────────────────────────────────────────────────
-    │  npm run benchmark:analyze baseline
-    │  → Identify top 3 slowest queries
-    │  → Note investigation hints
-    ▼
-INVESTIGATE ──────────────────────────────────────────────────────────
-    │  For the slowest query:
-    │  1. Get the generated SQL
-    │  2. Run EXPLAIN on it
-    │  3. Identify bottleneck (scan, join, sort?)
-    ▼
-OPTIMIZE ─────────────────────────────────────────────────────────────
-    │  Make targeted code changes
-    │  Files: src/translator.ts, src/executor.ts, src/db.ts
-    ▼
-VERIFY ───────────────────────────────────────────────────────────────
-    │  npm test  ← MUST PASS
-    ▼
-MEASURE ──────────────────────────────────────────────────────────────
-    │  npm run benchmark -- -N 30K -d leangraph --name iter-N
-    │  npm run benchmark:analyze baseline iter-N
-    ▼
-    │  Significant gains (>5%)?
-    │     YES → Log to OPTIMIZATION_LOG.md → Loop back to ANALYZE
-    │     NO  → DONE (diminishing returns)
-```
-
-## Commands Reference
-
-### Benchmarking
+### See Generated SQL
 
 ```bash
-# Run benchmark with custom node count
-npm run benchmark -- -N 30K -d leangraph --name <name>
-
-# List available benchmark results
-npm run benchmark:analyze --list
-
-# Analyze single run (shows slowest queries + hints)
-npm run benchmark:analyze <name>
-
-# Compare two runs (shows improvements/regressions)
-npm run benchmark:analyze <baseline> <target>
-
-# Detailed comparison with full table
-npm run benchmark:compare <baseline> <target>
-```
-
-### Debugging Queries
-
-```bash
-# Show generated SQL for a benchmark query
-# (Note: benchmark queries aren't in TCK, use debug script below)
-
-# Debug a specific Cypher query
 cd /home/conrad/dev/leangraph && tsx -e "
 const { Translator } = require('./src/translator.ts');
 const { parse } = require('./src/parser.ts');
@@ -101,12 +58,14 @@ const result = translator.translate(ast.query);
 console.log('SQL:', result.statements[0].sql);
 console.log('Params:', result.statements[0].params);
 "
+```
 
-# Run EXPLAIN on generated SQL
+### Run EXPLAIN QUERY PLAN
+
+```bash
 cd /home/conrad/dev/leangraph && tsx -e "
 const Database = require('better-sqlite3');
 const db = new Database(':memory:');
-// Create schema
 db.exec(\`
   CREATE TABLE nodes (id TEXT PRIMARY KEY, label JSON, properties JSON);
   CREATE TABLE edges (id TEXT PRIMARY KEY, type TEXT, source_id TEXT, target_id TEXT, properties JSON);
@@ -114,14 +73,15 @@ db.exec(\`
   CREATE INDEX idx_edges_source ON edges(source_id);
   CREATE INDEX idx_edges_target ON edges(target_id);
 \`);
-// Your SQL here
-const sql = \`SELECT * FROM nodes WHERE json_extract(properties, '$.id') = ?\`;
-console.log('EXPLAIN:');
+const sql = \`SELECT * FROM nodes n0
+  JOIN edges e0 ON e0.source_id = n0.id
+  JOIN nodes n1 ON n1.id = e0.target_id
+  WHERE json_extract(n0.properties, '$.id') = ?\`;
 console.log(db.prepare('EXPLAIN QUERY PLAN ' + sql).all('u1'));
 "
 ```
 
-### Full Query Execution Debug
+### Time a Query
 
 ```bash
 cd /home/conrad/dev/leangraph && tsx -e "
@@ -129,174 +89,92 @@ cd /home/conrad/dev/leangraph && tsx -e "
   const { LeanGraph } = require('./src/index.ts');
   const db = await LeanGraph({ dataPath: ':memory:' });
   
-  // Setup test data
-  await db.execute('CREATE (u:User {id: \"u1\", name: \"Alice\"})');
-  await db.execute('CREATE (i:Item {id: \"i1\", category: \"books\"})');
-  await db.execute('MATCH (u:User {id: \"u1\"}), (i:Item {id: \"i1\"}) CREATE (u)-[:OWNS]->(i)');
+  // Setup
+  for (let i = 0; i < 1000; i++) {
+    await db.execute(\`CREATE (u:User {id: 'u\${i}', name: 'User \${i}'})\`);
+  }
   
-  // Time the query
+  // Time query
   const start = performance.now();
-  const result = await db.query('MATCH (u:User {id: \$id})-[:OWNS]->(i:Item) RETURN i', { id: 'u1' });
+  const result = await db.query('MATCH (u:User {id: \$id}) RETURN u', { id: 'u500' });
   console.log('Time:', (performance.now() - start).toFixed(2), 'ms');
-  console.log('Result:', result);
+  console.log('Results:', result.length);
   
   db.close();
 })();
 "
 ```
 
-## Common Optimization Patterns
+## Key Files
 
-### 1. Property Filter Without Index
+| File | What to Optimize |
+|------|------------------|
+| `src/db.ts:549-555` | SQLite pragmas, indexes |
+| `src/db.ts:47-67` | Schema, index definitions |
+| `src/db.ts:570-592` | Statement execution (add caching) |
+| `src/executor.ts` | Query execution, batching, context cloning |
+| `src/translator.ts` | SQL generation, join order |
+| `src/parser.ts` | Tokenizer string allocation |
 
-**Symptom:** Slow `MATCH (n:Label {prop: $val})` queries  
-**Cause:** Full table scan with JSON extraction for every row  
-**Detection:** EXPLAIN shows `SCAN TABLE nodes`
+## EXPLAIN Output Guide
 
-**Current Schema:**
-```sql
-CREATE TABLE nodes (id TEXT PRIMARY KEY, label JSON, properties JSON);
--- No index on properties!
+```
+SCAN TABLE nodes          -- Bad: full table scan
+SEARCH nodes USING INDEX  -- Good: using index
+USE TEMP B-TREE           -- OK for small sorts, bad for large
+CORRELATED SUBQUERY       -- Often slow, try to flatten
 ```
 
-**Fix Options:**
+## Common Patterns
 
-A. **Computed column + index** (for hot properties like `id`):
-```sql
-ALTER TABLE nodes ADD COLUMN prop_id TEXT 
-  GENERATED ALWAYS AS (json_extract(properties, '$.id'));
-CREATE INDEX idx_nodes_prop_id ON nodes(prop_id);
+### Adding a SQLite Index
+
+```typescript
+// In src/db.ts SCHEMA constant:
+CREATE INDEX IF NOT EXISTS idx_edges_source_type ON edges(source_id, type);
 ```
 
-B. **Separate property table** (for general indexing):
-```sql
-CREATE TABLE node_properties (
-  node_id TEXT, key TEXT, value TEXT,
-  PRIMARY KEY (node_id, key)
-);
-CREATE INDEX idx_node_props_value ON node_properties(key, value);
+### Adding Statement Caching
+
+```typescript
+// In src/db.ts GraphDatabase class:
+private stmtCache = new Map<string, Database.Statement>();
+
+private getCachedStatement(sql: string): Database.Statement {
+  let stmt = this.stmtCache.get(sql);
+  if (!stmt) {
+    stmt = this.db.prepare(sql);
+    this.stmtCache.set(sql, stmt);
+  }
+  return stmt;
+}
 ```
 
-C. **Translator optimization** - filter by label first:
-```sql
--- Before: scans all nodes
-SELECT * FROM nodes WHERE json_extract(properties, '$.id') = ?
+### Adding SQLite Pragmas
 
--- After: filter by label first (if label indexed)
-SELECT * FROM nodes 
-WHERE json_extract(label, '$[0]') = 'User'
-  AND json_extract(properties, '$.id') = ?
+```typescript
+// In src/db.ts constructor:
+this.db.pragma("synchronous = NORMAL");
+this.db.pragma("cache_size = -64000");
+this.db.pragma("temp_store = MEMORY");
+this.db.pragma("mmap_size = 268435456");
 ```
 
-### 2. Variable-Length Path Explosion
+## Verification Checklist
 
-**Symptom:** Slow `*1..N` traversals, especially depth 3+  
-**Cause:** Exponential path expansion in recursive CTE  
-**Detection:** Query time grows exponentially with depth
+Before marking an optimization complete:
 
-**Current Implementation:**
-```sql
-WITH RECURSIVE paths AS (
-  SELECT ... FROM edges WHERE source_id = ?
-  UNION ALL
-  SELECT ... FROM edges JOIN paths ON ...
-)
-SELECT DISTINCT * FROM paths LIMIT 50;
-```
+- [ ] `npm test` passes
+- [ ] Benchmark shows improvement (or no regression)
+- [ ] No new memory leaks (for caching changes)
+- [ ] Code is readable and maintainable
 
-**Fix Options:**
+## Benchmark Scales
 
-A. **LIMIT pushdown** - stop recursion early:
-```sql
-WITH RECURSIVE paths AS (
-  SELECT ..., 1 as depth, 1 as row_num FROM edges WHERE source_id = ?
-  UNION ALL
-  SELECT ..., depth + 1, row_num + 1 
-  FROM edges JOIN paths 
-  WHERE depth < 3 AND row_num < 50  -- Early termination
-)
-SELECT DISTINCT * FROM paths LIMIT 50;
-```
+| Scale | Nodes | Time | When to Use |
+|-------|-------|------|-------------|
+| `micro` | ~8K | ~1 min | Quick iteration |
+| `quick` | ~170K | ~5 min | Verify improvement |
+| `full` | ~17M | ~30 min | Final validation |
 
-B. **Bidirectional search** - for point-to-point paths
-
-C. **Path deduplication** - track visited nodes in CTE
-
-### 3. Aggregation Over Large Sets
-
-**Symptom:** Slow `COUNT`, `AVG`, `GROUP BY` queries  
-**Cause:** Full table scan + in-memory aggregation  
-**Detection:** EXPLAIN shows `SCAN` + `USE TEMP B-TREE`
-
-**Fix Options:**
-
-A. **Partial aggregation** in subquery
-B. **Covering index** for aggregated columns
-C. **Materialized view** for common aggregates (advanced)
-
-### 4. Inefficient Join Order
-
-**Symptom:** Slow multi-pattern matches  
-**Cause:** Starting from large table instead of filtered one  
-**Detection:** EXPLAIN shows large intermediate results
-
-**Fix:**
-Translator should emit joins in selectivity order:
-1. Most selective filter first (e.g., `{id: $val}`)
-2. Then edges from that node
-3. Then connected nodes
-
-## Key Source Files
-
-| File | Purpose | Optimization Targets |
-|------|---------|---------------------|
-| `src/db.ts` | Schema, indexes | Add indexes, computed columns |
-| `src/translator.ts` | Cypher → SQL | Query structure, join order |
-| `src/executor.ts` | Query execution | Caching, batching |
-| `src/parser.ts` | Cypher parsing | Usually not a bottleneck |
-
-### Translator Hot Paths
-
-- `translateMatch()` - Pattern matching → JOINs
-- `translateVarLengthPath()` - `*1..N` → Recursive CTE
-- `translateWhere()` - Conditions → WHERE clause
-- `translateReturn()` - Projections → SELECT
-
-### Executor Hot Paths
-
-- `executeQuery()` - Main entry point
-- `executePhase()` - Per-clause execution
-- `formatResult()` - Result formatting
-
-## Stop Conditions
-
-Stop optimizing when any of these apply:
-
-1. **Diminishing returns** - Last iteration showed <5% average improvement
-2. **Target met** - All queries under acceptable threshold (e.g., p50 < 50ms)
-3. **Schema changes required** - Would need breaking changes to data model
-4. **Complexity tradeoff** - Further optimization adds significant code complexity
-
-## Logging Results
-
-After each optimization iteration, update `benchmark/OPTIMIZATION_LOG.md`:
-
-```markdown
-## Iteration N - [Date]
-
-### Target
-- Query: `related_items_depth3`
-- Baseline p50: 142ms
-
-### Changes
-- Modified `translateVarLengthPath()` to add LIMIT pushdown
-- File: src/translator.ts lines 234-267
-
-### Results
-- New p50: 89ms (-37%)
-- All tests pass
-
-### Notes
-- Could go further with bidirectional search
-- Decided to stop here, good enough for now
-```
+Start with `micro` for fast feedback, use `quick` to confirm gains.

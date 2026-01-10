@@ -2,7 +2,7 @@
 
 import { parseArgs } from "util";
 import { fileURLToPath } from "url";
-import { SCALES, BENCHMARK_CONFIG, getTotalNodes, getTotalEdges } from "./config.js";
+import { SCALES, BENCHMARK_CONFIG, getTotalNodes, getTotalEdges, configFromNodes } from "./config.js";
 import { createQueries, getReadQueries, getWriteQueries } from "./queries.js";
 import { resetQueryRng } from "./generator.js";
 import { loadLeanGraph, LeanGraphRunner } from "./loaders/leangraph.js";
@@ -87,6 +87,7 @@ const BENCHMARK_DIR = path.resolve(__dirname, "..");
 const { values } = parseArgs({
   options: {
     scale: { type: "string", short: "s", default: "quick" },
+    nodes: { type: "string", short: "N" },
     databases: { type: "string", short: "d", default: "leangraph,neo4j,memgraph" },
     skipLoad: { type: "boolean", default: false },
     output: { type: "string", short: "o" },
@@ -103,6 +104,7 @@ Usage: npm run benchmark [options]
 
 Options:
   -s, --scale <scale>          Dataset scale: micro, quick, full (default: quick)
+  -N, --nodes <count>          Custom node count (e.g., 10000, 50K, 1M) - overrides scale
   -d, --databases <list>       Comma-separated databases (default: leangraph,neo4j,memgraph)
   -n, --name <tag>             Name this run for later comparison (e.g., baseline, optimized)
   --skipLoad                   Skip data loading (use existing data)
@@ -117,24 +119,50 @@ Scales:
 Examples:
   npm run benchmark -- -s micro                       # Fast test with all databases
   npm run benchmark -- -s micro -d leangraph          # Fast test, LeanGraph only
+  npm run benchmark -- -N 50K -d leangraph            # Custom 50K nodes
+  npm run benchmark -- -N 100000 -d leangraph         # Custom 100K nodes
   npm run benchmark -- -s micro --name baseline       # Save as 'baseline' for comparison
-  npm run benchmark -- -s full -o results.json        # Full benchmark
 `);
   process.exit(0);
 }
 
-const scale = (values.scale as Scale) || "quick";
+// Parse node count string like "50K", "1M", "100000"
+function parseNodeCount(str: string): number {
+  const match = str.toUpperCase().match(/^(\d+(?:\.\d+)?)\s*([KMB])?$/);
+  if (!match) {
+    throw new Error(`Invalid node count: ${str}. Use numbers like 10000, 50K, 1M`);
+  }
+  const num = parseFloat(match[1]);
+  const suffix = match[2];
+  const multipliers: Record<string, number> = { K: 1_000, M: 1_000_000, B: 1_000_000_000 };
+  return Math.round(num * (multipliers[suffix] || 1));
+}
+
 const databases = (values.databases as string).split(",").map((d) => d.trim()) as DatabaseType[];
 const skipLoad = values.skipLoad as boolean;
 const outputFile = values.output as string | undefined;
 
-const config: ScaleConfig = SCALES[scale];
+// Determine config: --nodes overrides --scale
+const nodesArg = values.nodes as string | undefined;
+let config: ScaleConfig;
+let scaleLabel: string;
+
+if (nodesArg) {
+  const nodeCount = parseNodeCount(nodesArg);
+  config = configFromNodes(nodeCount);
+  scaleLabel = `custom (${nodesArg})`;
+} else {
+  const scale = (values.scale as Scale) || "quick";
+  config = SCALES[scale];
+  scaleLabel = scale;
+}
+
 const queries = createQueries(config);
 
 console.log("=".repeat(60));
 console.log("LeanGraph Benchmark Suite");
 console.log("=".repeat(60));
-console.log(`Scale: ${scale}`);
+console.log(`Scale: ${scaleLabel}`);
 console.log(`Nodes: ${getTotalNodes(config).toLocaleString()}`);
 console.log(`Edges: ${getTotalEdges(config).toLocaleString()}`);
 console.log(`Databases: ${databases.join(", ")}`);
@@ -380,7 +408,7 @@ async function runBenchmark(): Promise<BenchmarkResult> {
 
   return {
     timestamp: new Date().toISOString(),
-    scale,
+    scale: scaleLabel,
     config,
     totalNodes: getTotalNodes(config),
     totalEdges: getTotalEdges(config),

@@ -58,7 +58,7 @@ export interface DatabaseResult {
 
 export interface BenchmarkResult {
   timestamp: string;
-  scale: Scale;
+  scale: Scale | string;  // Scale enum or custom string like "custom (50K)"
   config: ScaleConfig;
   totalNodes: number;
   totalEdges: number;

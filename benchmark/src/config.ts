@@ -86,3 +86,25 @@ export function getTotalNodes(config: ScaleConfig): number {
 export function getTotalEdges(config: ScaleConfig): number {
   return config.ownsEdges + config.triggeredEdges + config.relatedToEdges;
 }
+
+/**
+ * Generate a scale config from a target node count.
+ * Uses the same proportions as the predefined scales:
+ * - users: 1x, items: 2x, events: 5x (total 8x)
+ * - edges roughly match nodes
+ */
+export function configFromNodes(totalNodes: number): ScaleConfig {
+  // Total nodes = users + items + events = 1x + 2x + 5x = 8x
+  const users = Math.round(totalNodes / 8);
+  const items = users * 2;
+  const events = users * 5;
+  
+  return {
+    users,
+    items,
+    events,
+    ownsEdges: items,           // Each item owned by one user
+    triggeredEdges: events,     // Each event triggered by one user
+    relatedToEdges: users,      // Sparse item-to-item relationships
+  };
+}

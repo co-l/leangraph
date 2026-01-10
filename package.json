@@ -35,7 +35,8 @@
     "prepublishOnly": "npm run build",
     "benchmark": "node --import tsx benchmark/src/run.ts",
     "benchmark:report": "node --import tsx benchmark/src/report.ts",
-    "benchmark:compare": "node --import tsx benchmark/src/compare.ts"
+    "benchmark:compare": "node --import tsx benchmark/src/compare.ts",
+    "benchmark:analyze": "node --import tsx benchmark/src/analyze.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

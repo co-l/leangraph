@@ -4489,6 +4489,10 @@ export class Executor {
     this.db.transaction(() => {
       // Collect all node inserts for batching
       const nodeInserts: {id: string, labelJson: string, propsJson: string, variable?: string, combinationIndex: number}[] = [];
+      // Collect all edge inserts for batching
+      const edgeInserts: {id: string, type: string, sourceId: string, targetId: string, propsJson: string, variable?: string}[] = [];
+      // Cache edge info for RETURN lookups before batch insert
+      const pendingEdgeInfo: Map<string, {type: string, sourceId: string, targetId: string, properties: Record<string, unknown>}> = new Map();
       
       for (let comboIndex = 0; comboIndex < combinations.length; comboIndex++) {
         const combination = combinations[comboIndex];
@@ -4500,11 +4504,8 @@ export class Executor {
         
         for (const createClause of createClauses) {
           for (const pattern of createClause.patterns) {
-            if (this.isRelationshipPattern(pattern)) {
-              // Relationships are handled individually (they may reference nodes created in the same combination)
-              const createdIds: Map<string, string> = new Map();
-              this.executeCreateRelationshipPatternWithUnwind(pattern, createdIds, params, unwindContext);
-            } else {
+            if (!this.isRelationshipPattern(pattern)) {
+              // Only collect node patterns in this pass; relationships handled after nodes are inserted
               const id = crypto.randomUUID();
               const labelJson = this.normalizeLabelToJson(pattern.label);
               const props = this.resolvePropertiesWithUnwind(pattern.properties || {}, params, unwindContext);
@@ -4557,7 +4558,7 @@ export class Executor {
         for (const createClause of createClauses) {
           for (const pattern of createClause.patterns) {
             if (this.isRelationshipPattern(pattern)) {
-              this.executeCreateRelationshipPatternWithUnwind(pattern, createdIds, params, unwindContext);
+              this.executeCreateRelationshipPatternWithUnwind(pattern, createdIds, params, unwindContext, edgeInserts, pendingEdgeInfo);
             }
           }
         }
@@ -4583,30 +4584,41 @@ export class Executor {
                 
                 const id = createdIds.get(aggInfo.argVariable);
                 if (id) {
-                  let result = this.db.execute(
-                    "SELECT id, properties FROM nodes WHERE id = ?",
-                    [id]
-                  );
-                  let isNode = result.rows.length > 0;
-                  
-                  if (!isNode) {
-                    result = this.db.execute(
-                      "SELECT id, properties FROM edges WHERE id = ?",
-                      [id]
-                    );
-                  }
-                  
-                  if (result.rows.length > 0) {
-                    const props = isNode 
-                      ? this.getNodeProperties(result.rows[0].id as string, result.rows[0].properties as string | object)
-                      : this.getEdgeProperties(result.rows[0].id as string, result.rows[0].properties as string | object);
-                    
+                  // Check pendingEdgeInfo first (edges not yet batch-inserted)
+                  const pendingEdge = pendingEdgeInfo.get(id);
+                  if (pendingEdge) {
+                    const props = pendingEdge.properties;
                     if (aggInfo.argProperty) {
-                      // Collect property value
                       value = props[aggInfo.argProperty];
                     } else {
-                      // Collect the whole node object (for collect(n))
                       value = props;
+                    }
+                  } else {
+                    let result = this.db.execute(
+                      "SELECT id, properties FROM nodes WHERE id = ?",
+                      [id]
+                    );
+                    let isNode = result.rows.length > 0;
+                    
+                    if (!isNode) {
+                      result = this.db.execute(
+                        "SELECT id, properties FROM edges WHERE id = ?",
+                        [id]
+                      );
+                    }
+                    
+                    if (result.rows.length > 0) {
+                      const props = isNode 
+                        ? this.getNodeProperties(result.rows[0].id as string, result.rows[0].properties as string | object)
+                        : this.getEdgeProperties(result.rows[0].id as string, result.rows[0].properties as string | object);
+                      
+                      if (aggInfo.argProperty) {
+                        // Collect property value
+                        value = props[aggInfo.argProperty];
+                      } else {
+                        // Collect the whole node object (for collect(n))
+                        value = props;
+                      }
                     }
                   }
                 }
@@ -4639,26 +4651,32 @@ export class Executor {
                       const id = createdIds.get(variable);
                       
                       if (id) {
-                        // Try nodes first, then edges
-                        let result = this.db.execute(
-                          "SELECT id, properties FROM nodes WHERE id = ?",
-                          [id]
-                        );
-                        let isNode = result.rows.length > 0;
-                        
-                        if (!isNode) {
-                          // Try edges table
-                          result = this.db.execute(
-                            "SELECT id, properties FROM edges WHERE id = ?",
+                        // Check pendingEdgeInfo first (edges not yet batch-inserted)
+                        const pendingEdge = pendingEdgeInfo.get(id);
+                        if (pendingEdge) {
+                          value = pendingEdge.properties[property] as number;
+                        } else {
+                          // Try nodes first, then edges
+                          let result = this.db.execute(
+                            "SELECT id, properties FROM nodes WHERE id = ?",
                             [id]
                           );
-                        }
-                        
-                        if (result.rows.length > 0) {
-                          const props = isNode
-                            ? this.getNodeProperties(result.rows[0].id as string, result.rows[0].properties as string | object)
-                            : this.getEdgeProperties(result.rows[0].id as string, result.rows[0].properties as string | object);
-                          value = props[property] as number;
+                          let isNode = result.rows.length > 0;
+                          
+                          if (!isNode) {
+                            // Try edges table
+                            result = this.db.execute(
+                              "SELECT id, properties FROM edges WHERE id = ?",
+                              [id]
+                            );
+                          }
+                          
+                          if (result.rows.length > 0) {
+                            const props = isNode
+                              ? this.getNodeProperties(result.rows[0].id as string, result.rows[0].properties as string | object)
+                              : this.getEdgeProperties(result.rows[0].id as string, result.rows[0].properties as string | object);
+                            value = props[property] as number;
+                          }
                         }
                       }
                     }
@@ -4709,26 +4727,32 @@ export class Executor {
                 const id = createdIds.get(variable);
                 
                 if (id) {
-                  // Try nodes first, then edges
-                  let nodeResult = this.db.execute(
-                    "SELECT id, properties FROM nodes WHERE id = ?",
-                    [id]
-                  );
-                  let isNode = nodeResult.rows.length > 0;
-                  
-                  if (!isNode) {
-                    // Try edges table
-                    nodeResult = this.db.execute(
-                      "SELECT id, properties FROM edges WHERE id = ?",
+                  // Check pendingEdgeInfo first (edges not yet batch-inserted)
+                  const pendingEdge = pendingEdgeInfo.get(id);
+                  if (pendingEdge) {
+                    resultRow[alias] = pendingEdge.properties[property];
+                  } else {
+                    // Try nodes first, then edges
+                    let nodeResult = this.db.execute(
+                      "SELECT id, properties FROM nodes WHERE id = ?",
                       [id]
                     );
-                  }
-                  
-                  if (nodeResult.rows.length > 0) {
-                    const props = isNode
-                      ? this.getNodeProperties(nodeResult.rows[0].id as string, nodeResult.rows[0].properties as string | object)
-                      : this.getEdgeProperties(nodeResult.rows[0].id as string, nodeResult.rows[0].properties as string | object);
-                    resultRow[alias] = props[property];
+                    let isNode = nodeResult.rows.length > 0;
+                    
+                    if (!isNode) {
+                      // Try edges table
+                      nodeResult = this.db.execute(
+                        "SELECT id, properties FROM edges WHERE id = ?",
+                        [id]
+                      );
+                    }
+                    
+                    if (nodeResult.rows.length > 0) {
+                      const props = isNode
+                        ? this.getNodeProperties(nodeResult.rows[0].id as string, nodeResult.rows[0].properties as string | object)
+                        : this.getEdgeProperties(nodeResult.rows[0].id as string, nodeResult.rows[0].properties as string | object);
+                      resultRow[alias] = props[property];
+                    }
                   }
                 }
               }
@@ -4739,6 +4763,19 @@ export class Executor {
             }
           }
         }
+      }
+      
+      // Batch insert edges (cap at 500 rows per statement)
+      const EDGE_BATCH_SIZE = 500;
+      for (let i = 0; i < edgeInserts.length; i += EDGE_BATCH_SIZE) {
+        const batch = edgeInserts.slice(i, i + EDGE_BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?)').join(',');
+        const values = batch.flatMap(insert => [insert.id, insert.type, insert.sourceId, insert.targetId, insert.propsJson]);
+        
+        this.db.execute(
+          `INSERT INTO edges (id, type, source_id, target_id, properties) VALUES ${placeholders}`,
+          values
+        );
       }
     });
     
@@ -6184,7 +6221,9 @@ export class Executor {
     rel: RelationshipPattern,
     createdIds: Map<string, string>,
     params: Record<string, unknown>,
-    unwindContext: Record<string, unknown>
+    unwindContext: Record<string, unknown>,
+    edgeInserts?: {id: string, type: string, sourceId: string, targetId: string, propsJson: string, variable?: string}[],
+    pendingEdgeInfo?: Map<string, {type: string, sourceId: string, targetId: string, properties: Record<string, unknown>}>
   ): void {
     let sourceId: string;
     let targetId: string;
@@ -6236,10 +6275,32 @@ export class Executor {
     const edgeType = rel.edge.type || "";
     const edgeProps = this.resolvePropertiesWithUnwind(rel.edge.properties || {}, params, unwindContext);
     
-    this.db.execute(
-      "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
-      [edgeId, edgeType, actualSource, actualTarget, JSON.stringify(edgeProps)]
-    );
+    if (edgeInserts) {
+      // Collect for batch insert
+      edgeInserts.push({
+        id: edgeId,
+        type: edgeType,
+        sourceId: actualSource,
+        targetId: actualTarget,
+        propsJson: JSON.stringify(edgeProps),
+        variable: rel.edge.variable
+      });
+      // Cache for RETURN lookups before batch insert
+      if (pendingEdgeInfo) {
+        pendingEdgeInfo.set(edgeId, {
+          type: edgeType,
+          sourceId: actualSource,
+          targetId: actualTarget,
+          properties: edgeProps as Record<string, unknown>
+        });
+      }
+    } else {
+      // Direct insert (for non-batched callers)
+      this.db.execute(
+        "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
+        [edgeId, edgeType, actualSource, actualTarget, JSON.stringify(edgeProps)]
+      );
+    }
     
     if (rel.edge.variable) {
       createdIds.set(rel.edge.variable, edgeId);

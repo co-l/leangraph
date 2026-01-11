@@ -2,9 +2,9 @@
 
 This document outlines actionable performance optimizations for LeanGraph, prioritized by impact and effort.
 
-## Phase 2: Current Optimizations
+## Phase 2: Current Optimizations (Complete)
 
-These optimizations address gaps and improvements identified in Phase 1 implementations.
+These optimizations addressed gaps and improvements identified in Phase 1 implementations. All items are now complete.
 
 | Priority | Optimization | Speedup | Effort | Status |
 |----------|--------------|---------|--------|--------|
@@ -278,12 +278,273 @@ npm run benchmark:compare <baseline> <target>
 
 ---
 
+---
+
+# Phase 3: Future Optimizations
+
+These are potential optimizations identified for future implementation. They require more investigation or have higher complexity.
+
+| Priority | Optimization | Speedup | Effort | Status |
+|----------|--------------|---------|--------|--------|
+| P0 | Query plan caching | 2-5x | Medium | [ ] |
+| P0 | Parser result caching | 20-50% | Low | [ ] |
+| P1 | Property value indexes | 10-100x | Medium | [ ] |
+| P1 | Batch DELETE statements | 5-10x | Low | [ ] |
+| P1 | MERGE UPSERT optimization | 2-5x | Medium | [ ] |
+| P2 | Push-down aggregations | 2-10x | Medium | [ ] |
+| P2 | Connection pooling / statement pre-warming | ~50% cold | Low | [ ] |
+| P3 | Parallel subquery execution | 2-4x | High | [ ] |
+
+---
+
+## P0: Critical
+
+### 1. Query Plan Caching
+
+**File:** `src/executor.ts`, new `src/plan-cache.ts`  
+**Effort:** Medium  
+**Impact:** 2-5x for repeated queries
+
+**Problem:** Each query execution re-parses and re-translates the Cypher query to SQL, even for identical queries with different parameters.
+
+**Solution:**
+1. Create a query plan cache keyed by normalized Cypher (with parameters replaced by placeholders)
+2. Cache the translated SQL and parameter mapping
+3. On cache hit, skip parsing and translation, directly execute cached SQL
+4. Use LRU eviction with configurable cache size
+
+**Implementation:**
+```typescript
+interface CachedPlan {
+  sql: string;
+  parameterMapping: Map<string, number>; // param name -> SQL placeholder index
+  returnColumns: string[];
+}
+
+class PlanCache {
+  private cache = new Map<string, CachedPlan>();
+  private readonly maxSize = 100;
+  
+  get(normalizedCypher: string): CachedPlan | undefined;
+  set(normalizedCypher: string, plan: CachedPlan): void;
+}
+```
+
+---
+
+### 2. Parser Result Caching
+
+**File:** `src/parser.ts`  
+**Effort:** Low  
+**Impact:** 20-50% for repeated queries
+
+**Problem:** Parsing is done on every query execution, even for identical query strings.
+
+**Solution:**
+1. Add LRU cache for parsed ASTs keyed by query string
+2. Return cached AST on cache hit
+3. Invalidate on schema changes (if any)
+
+**Implementation:**
+```typescript
+const parseCache = new Map<string, ParseResult>();
+const PARSE_CACHE_MAX = 100;
+
+export function parse(cypher: string): ParseResult {
+  const cached = parseCache.get(cypher);
+  if (cached) {
+    // LRU: move to end
+    parseCache.delete(cypher);
+    parseCache.set(cypher, cached);
+    return cached;
+  }
+  
+  const result = parseInternal(cypher);
+  // Add to cache with LRU eviction...
+  return result;
+}
+```
+
+---
+
+## P1: High Priority
+
+### 3. Property Value Indexes
+
+**File:** `src/db.ts`, `src/translator.ts`  
+**Effort:** Medium  
+**Impact:** 10-100x for indexed property lookups
+
+**Problem:** Property lookups use `json_extract()` which requires full table scans.
+
+**Solution:**
+1. Allow users to create indexes on specific properties: `CREATE INDEX ON :Label(property)`
+2. Store index metadata in a system table
+3. Translator checks for available indexes and uses them in WHERE clauses
+4. Maintain indexes on INSERT/UPDATE/DELETE
+
+**Schema:**
+```sql
+CREATE TABLE _indexes (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  property TEXT NOT NULL,
+  index_name TEXT NOT NULL,
+  UNIQUE(label, property)
+);
+
+-- Generated index example:
+CREATE INDEX idx_User_email ON nodes(json_extract(properties, '$.email'))
+  WHERE json_extract(label, '$[0]') = 'User';
+```
+
+---
+
+### 4. Batch DELETE Statements
+
+**File:** `src/executor.ts`  
+**Effort:** Low  
+**Impact:** 5-10x for bulk deletes
+
+**Problem:** DELETE operations execute one statement per node/edge.
+
+**Solution:**
+1. Collect all IDs to delete in a single pass
+2. Use `DELETE FROM nodes WHERE id IN (...)` with batched IDs
+3. Same pattern for edges
+4. Handle cascading deletes (edges connected to deleted nodes)
+
+**Implementation:**
+```typescript
+// Before (one at a time):
+for (const nodeId of nodeIds) {
+  this.db.execute("DELETE FROM nodes WHERE id = ?", [nodeId]);
+}
+
+// After (batched):
+const BATCH_SIZE = 500;
+for (let i = 0; i < nodeIds.length; i += BATCH_SIZE) {
+  const batch = nodeIds.slice(i, i + BATCH_SIZE);
+  const placeholders = batch.map(() => '?').join(',');
+  this.db.execute(`DELETE FROM nodes WHERE id IN (${placeholders})`, batch);
+}
+```
+
+---
+
+### 5. MERGE UPSERT Optimization
+
+**File:** `src/executor.ts`  
+**Effort:** Medium  
+**Impact:** 2-5x for MERGE operations
+
+**Problem:** MERGE does separate SELECT + INSERT/UPDATE, which is slower than SQLite's UPSERT.
+
+**Solution:**
+1. Detect simple MERGE patterns that can use `INSERT ... ON CONFLICT`
+2. Generate UPSERT SQL for supported patterns
+3. Fall back to current implementation for complex MERGE
+
+**Pattern:**
+```sql
+-- Simple MERGE (n:Label {key: value}) can become:
+INSERT INTO nodes (id, label, properties) 
+VALUES (?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET properties = excluded.properties;
+```
+
+---
+
+## P2: Medium Priority
+
+### 6. Push-down Aggregations
+
+**File:** `src/translator.ts`, `src/executor.ts`  
+**Effort:** Medium  
+**Impact:** 2-10x for aggregate queries
+
+**Problem:** Aggregations like `count()`, `sum()`, `avg()` are often computed in JavaScript after fetching all rows.
+
+**Solution:**
+1. Detect when aggregations can be computed in SQL
+2. Generate `SELECT COUNT(*), SUM(...)` etc. directly
+3. Avoid fetching full result sets for pure aggregation queries
+
+**Example:**
+```cypher
+MATCH (n:User) RETURN count(n)
+```
+```sql
+-- Current: SELECT * FROM nodes WHERE ... (then count in JS)
+-- Optimized: SELECT COUNT(*) FROM nodes WHERE ...
+```
+
+---
+
+### 7. Connection Pooling / Statement Pre-warming
+
+**File:** `src/db.ts`, `src/local.ts`  
+**Effort:** Low  
+**Impact:** ~50% faster cold starts
+
+**Problem:** First queries are slower due to SQLite connection setup and statement compilation.
+
+**Solution:**
+1. Pre-compile common statements on database open
+2. Keep statements warm in cache
+3. For server mode: implement connection pooling
+
+**Common statements to pre-warm:**
+```typescript
+const WARMUP_STATEMENTS = [
+  "SELECT * FROM nodes WHERE id = ?",
+  "SELECT * FROM edges WHERE id = ?",
+  "SELECT * FROM nodes WHERE json_extract(label, '$[0]') = ?",
+  "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
+  "INSERT INTO edges (id, type, source_id, target_id, properties) VALUES (?, ?, ?, ?, ?)",
+];
+```
+
+---
+
+## P3: Lower Priority
+
+### 8. Parallel Subquery Execution
+
+**File:** `src/executor.ts`  
+**Effort:** High  
+**Impact:** 2-4x for complex queries with independent subqueries
+
+**Problem:** Complex queries with multiple independent MATCH clauses execute sequentially.
+
+**Solution:**
+1. Analyze query for independent subqueries
+2. Execute independent parts in parallel using worker threads
+3. Merge results for dependent operations
+
+**Challenges:**
+- SQLite connections are not thread-safe
+- Need separate connections per worker
+- Complex dependency analysis
+- May not benefit small queries (overhead)
+
+**Candidate patterns:**
+```cypher
+-- Independent MATCHes that could run in parallel:
+MATCH (a:User {id: 1})
+MATCH (b:Item {id: 2})
+RETURN a, b
+```
+
+---
+
 ## Notes
 
 - Always run full test suite after changes: `npm test`
 - Use TCK tool for regression testing: `npm run tck '<pattern>'`
 - Document performance gains in commit messages
 - Mark items complete with `[x]` as they're finished
+- Phase 3 items require profiling to validate impact before implementation
 
 ---
 

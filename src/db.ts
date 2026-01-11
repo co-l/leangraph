@@ -690,9 +690,10 @@ export class GraphDatabase {
    * Get all nodes with a given label
    */
   getNodesByLabel(label: string): Node[] {
+    // Use index for primary label, fallback for secondary labels
     const result = this.execute(
-      "SELECT * FROM nodes WHERE EXISTS (SELECT 1 FROM json_each(label) WHERE value = ?)",
-      [label]
+      `SELECT * FROM nodes WHERE json_extract(label, '$[0]') = ? OR EXISTS (SELECT 1 FROM json_each(label) WHERE value = ? AND json_extract(label, '$[0]') != ?)`,
+      [label, label, label]
     );
     return result.rows.map((row) => {
       const r = row as unknown as NodeRow;

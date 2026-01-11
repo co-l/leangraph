@@ -1981,12 +1981,12 @@ export class Executor {
     const conditions: string[] = [];
     const conditionParams: unknown[] = [];
     
-    // Label condition
+    // Label condition (uses primary label index with fallback for secondary labels)
     if (pattern.label) {
       const labels = Array.isArray(pattern.label) ? pattern.label : [pattern.label];
       for (const label of labels) {
-        conditions.push(`EXISTS (SELECT 1 FROM json_each(label) WHERE value = ?)`);
-        conditionParams.push(label);
+        conditions.push(`(json_extract(label, '$[0]') = ? OR EXISTS (SELECT 1 FROM json_each(label) WHERE value = ? AND json_extract(label, '$[0]') != ?))`);
+        conditionParams.push(label, label, label);
       }
     }
     
@@ -5127,8 +5127,9 @@ export class Executor {
             let whereParams: unknown[] = [];
             
             if (nodePattern.label) {
-              whereConditions.push("EXISTS (SELECT 1 FROM json_each(label) WHERE value = ?)");
-              whereParams.push(nodePattern.label);
+              // Use primary label index with fallback for secondary labels
+              whereConditions.push("(json_extract(label, '$[0]') = ? OR EXISTS (SELECT 1 FROM json_each(label) WHERE value = ? AND json_extract(label, '$[0]') != ?))");
+              whereParams.push(nodePattern.label, nodePattern.label, nodePattern.label);
             }
             
             for (const [key, value] of Object.entries(props)) {
@@ -10440,21 +10441,26 @@ export class Executor {
   /**
    * Generate SQL condition for label matching
    * Supports both single and multiple labels
+   * Uses primary label index with fallback for secondary labels
    */
   private generateLabelCondition(label: string | string[]): { sql: string; params: unknown[] } {
     const labels = Array.isArray(label) ? label : [label];
     
     if (labels.length === 1) {
       return {
-        sql: `EXISTS (SELECT 1 FROM json_each(label) WHERE value = ?)`,
-        params: [labels[0]]
+        sql: `(json_extract(label, '$[0]') = ? OR EXISTS (SELECT 1 FROM json_each(label) WHERE value = ? AND json_extract(label, '$[0]') != ?))`,
+        params: [labels[0], labels[0], labels[0]]
       };
     } else {
-      // Multiple labels: all must exist
-      const conditions = labels.map(() => `EXISTS (SELECT 1 FROM json_each(label) WHERE value = ?)`);
+      // Multiple labels: all must exist (each uses indexed primary label check with fallback)
+      const conditions = labels.map(() => `(json_extract(label, '$[0]') = ? OR EXISTS (SELECT 1 FROM json_each(label) WHERE value = ? AND json_extract(label, '$[0]') != ?))`);
+      const params: unknown[] = [];
+      for (const l of labels) {
+        params.push(l, l, l);
+      }
       return {
         sql: conditions.join(" AND "),
-        params: labels
+        params
       };
     }
   }

@@ -3943,100 +3943,100 @@ export class Translator {
           if (isUndirected2) {
             // Undirected: traverse in both directions
             if (edgeType2) {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT id, id, 0, json_array() FROM nodes
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT id, id, 0, json_array(), ROW_NUMBER() OVER () FROM nodes
   UNION ALL
-  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
-  WHERE p.depth < ? AND e.type = ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+  WHERE p.depth < ? AND e.type = ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id) AND p.row_num < ?
 )`;
-              allParams.push(maxHops2, edgeType2);
+              allParams.push(maxHops2, edgeType2, earlyTerminationLimit);
             } else {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT id, id, 0, json_array() FROM nodes
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT id, id, 0, json_array(), ROW_NUMBER() OVER () FROM nodes
   UNION ALL
-  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
-  WHERE p.depth < ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+  WHERE p.depth < ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id) AND p.row_num < ?
 )`;
-              allParams.push(maxHops2);
+              allParams.push(maxHops2, earlyTerminationLimit);
             }
           } else {
             // Directed
             if (edgeType2) {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT id, id, 0, json_array() FROM nodes
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT id, id, 0, json_array(), ROW_NUMBER() OVER () FROM nodes
   UNION ALL
-  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON p.end_id = e.source_id
-  WHERE p.depth < ? AND e.type = ?
+  WHERE p.depth < ? AND e.type = ? AND p.row_num < ?
 )`;
-              allParams.push(maxHops2, edgeType2);
+              allParams.push(maxHops2, edgeType2, earlyTerminationLimit);
             } else {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT id, id, 0, json_array() FROM nodes
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT id, id, 0, json_array(), ROW_NUMBER() OVER () FROM nodes
   UNION ALL
-  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON p.end_id = e.source_id
-  WHERE p.depth < ?
+  WHERE p.depth < ? AND p.row_num < ?
 )`;
-              allParams.push(maxHops2);
+              allParams.push(maxHops2, earlyTerminationLimit);
             }
           }
         } else {
           if (isUndirected2) {
             // Undirected: traverse in both directions
             if (edgeType2) {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges WHERE type = ?
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))), ROW_NUMBER() OVER () FROM edges WHERE type = ?
   UNION ALL
-  SELECT target_id, source_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges WHERE type = ?
+  SELECT target_id, source_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))), ROW_NUMBER() OVER () FROM edges WHERE type = ?
   UNION ALL
-  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
-  WHERE p.depth < ? AND e.type = ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+  WHERE p.depth < ? AND e.type = ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id) AND p.row_num < ?
 )`;
-              allParams.push(edgeType2, edgeType2, maxHops2, edgeType2);
+              allParams.push(edgeType2, edgeType2, maxHops2, edgeType2, earlyTerminationLimit);
             } else {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))), ROW_NUMBER() OVER () FROM edges
   UNION ALL
-  SELECT target_id, source_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges
+  SELECT target_id, source_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))), ROW_NUMBER() OVER () FROM edges
   UNION ALL
-  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, CASE WHEN p.end_id = e.source_id THEN e.target_id ELSE e.source_id END, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON (p.end_id = e.source_id OR p.end_id = e.target_id)
-  WHERE p.depth < ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id)
+  WHERE p.depth < ? AND NOT EXISTS (SELECT 1 FROM json_each(p.edge_ids) WHERE json_extract(value, '$.id') = e.id) AND p.row_num < ?
 )`;
-              allParams.push(maxHops2);
+              allParams.push(maxHops2, earlyTerminationLimit);
             }
           } else {
             // Directed
             if (edgeType2) {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges WHERE type = ?
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))), ROW_NUMBER() OVER () FROM edges WHERE type = ?
   UNION ALL
-  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON p.end_id = e.source_id
-  WHERE p.depth < ? AND e.type = ?
+  WHERE p.depth < ? AND e.type = ? AND p.row_num < ?
 )`;
-              allParams.push(edgeType2, maxHops2, edgeType2);
+              allParams.push(edgeType2, maxHops2, edgeType2, earlyTerminationLimit);
             } else {
-              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids) AS (
-  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))) FROM edges
+              cte2 = `, ${pathCteName2}(start_id, end_id, depth, edge_ids, row_num) AS (
+  SELECT source_id, target_id, 1, json_array(json_object('id', id, 'type', type, 'source_id', source_id, 'target_id', target_id, 'properties', json(properties))), ROW_NUMBER() OVER () FROM edges
   UNION ALL
-  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties)))
+  SELECT p.start_id, e.target_id, p.depth + 1, json_insert(p.edge_ids, '$[#]', json_object('id', e.id, 'type', e.type, 'source_id', e.source_id, 'target_id', e.target_id, 'properties', json(e.properties))), p.row_num + 1
   FROM ${pathCteName2} p
   JOIN edges e ON p.end_id = e.source_id
-  WHERE p.depth < ?
+  WHERE p.depth < ? AND p.row_num < ?
 )`;
-              allParams.push(maxHops2);
+              allParams.push(maxHops2, earlyTerminationLimit);
             }
           }
         }

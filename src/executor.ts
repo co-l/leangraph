@@ -119,12 +119,16 @@ function createEmptyContext(): PhaseContext {
 /**
  * Clone a phase context
  */
-function cloneContext(ctx: PhaseContext): PhaseContext {
+/**
+ * Clone a phase context with optimized row cloning
+ * For read-only operations, we can avoid the expensive row cloning
+ */
+function cloneContext(ctx: PhaseContext, cloneRows: boolean = true): PhaseContext {
   return {
     nodeIds: new Map(ctx.nodeIds),
     edgeIds: new Map(ctx.edgeIds),
     values: new Map(ctx.values),
-    rows: ctx.rows.map(row => new Map(row)),
+    rows: cloneRows ? ctx.rows.map(row => new Map(row)) : ctx.rows,
   };
 }
 
@@ -1439,7 +1443,9 @@ export class Executor {
     params: Record<string, unknown>,
     isLastPhase: boolean
   ): PhaseContext {
-    let context = cloneContext(inputContext);
+    // Check if this phase contains only read-only clauses
+    const hasWriteClauses = clauses.some(clause => !this.isReadOnlyClause(clause));
+    let context = cloneContext(inputContext, hasWriteClauses);
     
     for (const clause of clauses) {
       context = this.executeClause(clause, context, params);
@@ -1451,29 +1457,38 @@ export class Executor {
   /**
    * Execute a single clause and update context
    */
+  private isReadOnlyClause(clause: Clause): boolean {
+    // These clauses are read-only and don't modify the context structure
+    return clause.type === "MATCH" || clause.type === "OPTIONAL_MATCH" || clause.type === "RETURN";
+  }
+
   private executeClause(
     clause: Clause,
     context: PhaseContext,
     params: Record<string, unknown>
   ): PhaseContext {
+    // For read-only clauses, avoid the expensive row cloning operation
+    const cloneRows = !this.isReadOnlyClause(clause);
+    const newContext = cloneContext(context, cloneRows);
+    
     switch (clause.type) {
       case "CREATE":
-        return this.executeCreateClause(clause, context, params);
+        return this.executeCreateClause(clause, newContext, params);
       case "MERGE":
-        return this.executeMergeClause(clause, context, params);
+        return this.executeMergeClause(clause, newContext, params);
       case "WITH":
-        return this.executeWithClause(clause, context, params);
+        return this.executeWithClause(clause, newContext, params);
       case "UNWIND":
-        return this.executeUnwindClause(clause, context, params);
+        return this.executeUnwindClause(clause, newContext, params);
       case "MATCH":
       case "OPTIONAL_MATCH":
-        return this.executeMatchClause(clause, context, params);
+        return this.executeMatchClause(clause, newContext, params);
       case "RETURN":
-        return this.executeReturnClause(clause, context, params);
+        return this.executeReturnClause(clause, newContext, params);
       case "SET":
-        return this.executeSetClause(clause, context, params);
+        return this.executeSetClause(clause, newContext, params);
       case "DELETE":
-        return this.executeDeleteClause(clause, context, params);
+        return this.executeDeleteClause(clause, newContext, params);
       default:
         // For unsupported clause types, return context unchanged
         return context;

@@ -276,6 +276,12 @@ export class Executor {
       // 2. Classify query with single-pass and dispatch to appropriate handler
       const { pattern } = this.classifyQuery(parseResult.query);
       
+      // 3. Run semantic validations (these were previously inside tryPhasedExecution
+      //    but must run for ALL query patterns to detect undefined variables)
+      this.validateMergeVariables(parseResult.query);
+      this.validateSetClauseValueVariables(parseResult.query, params);
+      this.validateOrderByVariables(parseResult.query, params);
+      
       // Helper to return successful result
       const makeResult = (data: Record<string, unknown>[]): QueryResponse => {
         const endTime = performance.now();
@@ -643,14 +649,8 @@ export class Executor {
   ): Record<string, unknown>[] | null {
     const phases = this.detectPhases(query);
     
-    // Semantic validation: Check if MERGE tries to use a variable already bound by MATCH
-    this.validateMergeVariables(query);
-
-    // Semantic validation: SET expressions cannot reference undefined variables
-    this.validateSetClauseValueVariables(query, params);
-
-    // Semantic validation: ORDER BY expressions cannot reference undefined or out-of-scope variables
-    this.validateOrderByVariables(query, params);
+    // Note: Semantic validations (validateMergeVariables, validateSetClauseValueVariables,
+    // validateOrderByVariables) are now called in execute() before classification
     
     // Check if we need phased execution for MATCH + MERGE combinations
     // These need special handling for proper Cartesian product semantics

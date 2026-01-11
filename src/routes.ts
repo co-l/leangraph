@@ -44,6 +44,10 @@ export function createApp(
     return c.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  app.get("/api/health", (c) => {
+    return c.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // ============================================================================
   // Query Endpoint
   // ============================================================================

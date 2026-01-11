@@ -111,8 +111,8 @@ export function authMiddleware(store: ApiKeyStore) {
   return async (c: Context, next: Next) => {
     const path = c.req.path;
 
-    // Skip auth for health endpoint
-    if (path === "/health") {
+    // Skip auth for health endpoints
+    if (path === "/health" || path === "/api/health") {
       return next();
     }
 

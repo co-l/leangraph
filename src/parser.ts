@@ -654,53 +654,60 @@ class Tokenizer {
   private readString(quote: string, startPos: number, startLine: number, startColumn: number): Token {
     this.pos++;
     this.column++;
-    let value = "";
+    const segments: string[] = [];
+    let segmentStart = this.pos;
 
     while (this.pos < this.input.length) {
       const char = this.input[this.pos];
       if (char === quote) {
+        if (segmentStart < this.pos) {
+          segments.push(this.input.slice(segmentStart, this.pos));
+        }
         this.pos++;
         this.column++;
-        return { type: "STRING", value, position: startPos, line: startLine, column: startColumn };
+        return { type: "STRING", value: segments.join(""), position: startPos, line: startLine, column: startColumn };
       }
       if (char === "\\") {
+        // Add segment before escape
+        if (segmentStart < this.pos) {
+          segments.push(this.input.slice(segmentStart, this.pos));
+        }
         this.pos++;
         this.column++;
         const escaped = this.input[this.pos];
-        if (escaped === "n") { value += "\n"; this.pos++; this.column++; }
-        else if (escaped === "t") { value += "\t"; this.pos++; this.column++; }
-        else if (escaped === "r") { value += "\r"; this.pos++; this.column++; }
-        else if (escaped === "b") { value += "\b"; this.pos++; this.column++; }
-        else if (escaped === "f") { value += "\f"; this.pos++; this.column++; }
-        else if (escaped === "\\") { value += "\\"; this.pos++; this.column++; }
-        else if (escaped === quote) { value += quote; this.pos++; this.column++; }
+        if (escaped === "n") { segments.push("\n"); this.pos++; this.column++; }
+        else if (escaped === "t") { segments.push("\t"); this.pos++; this.column++; }
+        else if (escaped === "r") { segments.push("\r"); this.pos++; this.column++; }
+        else if (escaped === "b") { segments.push("\b"); this.pos++; this.column++; }
+        else if (escaped === "f") { segments.push("\f"); this.pos++; this.column++; }
+        else if (escaped === "\\") { segments.push("\\"); this.pos++; this.column++; }
+        else if (escaped === quote) { segments.push(quote); this.pos++; this.column++; }
         else if (escaped === "u") {
           // Unicode escape: \uXXXX (4 hex digits required)
           this.pos++;
           this.column++;
           const hexStart = this.pos;
-          let hex = "";
+          const hex = this.input.slice(this.pos, this.pos + 4);
           for (let i = 0; i < 4; i++) {
             if (this.pos >= this.input.length) {
               throw new SyntaxError(`Invalid unicode escape sequence: incomplete \\u escape at position ${hexStart - 2}`);
             }
             const c = this.input[this.pos];
             if (!/[0-9a-fA-F]/.test(c)) {
-              throw new SyntaxError(`Invalid unicode escape sequence: \\u${hex}${c}`);
+              throw new SyntaxError(`Invalid unicode escape sequence: \\u${this.input.slice(hexStart, this.pos)}${c}`);
             }
-            hex += c;
             this.pos++;
             this.column++;
           }
-          value += String.fromCharCode(parseInt(hex, 16));
+          segments.push(String.fromCharCode(parseInt(hex, 16)));
         }
         else {
-          value += escaped;
+          segments.push(escaped);
           this.pos++;
           this.column++;
         }
+        segmentStart = this.pos;
       } else {
-        value += char;
         this.pos++;
         this.column++;
       }
@@ -710,50 +717,56 @@ class Tokenizer {
   }
 
   private readNumber(startPos: number, startLine: number, startColumn: number): Token {
-    let value = "";
+    const segments: string[] = [];
 
     if (this.input[this.pos] === "-") {
-      value += "-";
+      segments.push("-");
       this.pos++;
       this.column++;
     }
 
     // Handle numbers starting with . like .5
     if (this.input[this.pos] === ".") {
-      value += "0.";
+      segments.push("0.");
       this.pos++;
       this.column++;
+      const digitStart = this.pos;
       while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
-        value += this.input[this.pos];
         this.pos++;
         this.column++;
+      }
+      if (digitStart < this.pos) {
+        segments.push(this.input.slice(digitStart, this.pos));
       }
       // Handle scientific notation for numbers starting with . (e.g., .5e10)
       if (this.input[this.pos] === "e" || this.input[this.pos] === "E") {
         const nextChar = this.input[this.pos + 1];
         if (this.isDigit(nextChar) || 
             ((nextChar === "+" || nextChar === "-") && this.isDigit(this.input[this.pos + 2]))) {
-          value += this.input[this.pos]; // 'e' or 'E'
+          segments.push(this.input[this.pos]); // 'e' or 'E'
           this.pos++;
           this.column++;
           if (this.input[this.pos] === "+" || this.input[this.pos] === "-") {
-            value += this.input[this.pos];
+            segments.push(this.input[this.pos]);
             this.pos++;
             this.column++;
           }
+          const expStart = this.pos;
           while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
-            value += this.input[this.pos];
             this.pos++;
             this.column++;
+          }
+          if (expStart < this.pos) {
+            segments.push(this.input.slice(expStart, this.pos));
           }
         }
       }
-      return { type: "NUMBER", value, position: startPos, line: startLine, column: startColumn };
+      return { type: "NUMBER", value: segments.join(""), position: startPos, line: startLine, column: startColumn };
     }
 
     // Check for hexadecimal: 0x or 0X
     if (this.input[this.pos] === "0" && (this.input[this.pos + 1] === "x" || this.input[this.pos + 1] === "X")) {
-      value += "0x";
+      segments.push("0x");
       this.pos += 2;
       this.column += 2;
       
@@ -763,36 +776,43 @@ class Tokenizer {
       }
       
       // Read hex digits
+      const hexStart = this.pos;
       while (this.pos < this.input.length && this.isHexDigit(this.input[this.pos])) {
-        value += this.input[this.pos];
         this.pos++;
         this.column++;
       }
+      segments.push(this.input.slice(hexStart, this.pos));
       
       // Check for invalid characters immediately following (e.g., 0x1g)
       if (this.pos < this.input.length && this.isIdentifierChar(this.input[this.pos])) {
         throw new SyntaxError(`Invalid hexadecimal integer: invalid character '${this.input[this.pos]}'`);
       }
       
-      return { type: "NUMBER", value, position: startPos, line: startLine, column: startColumn };
+      return { type: "NUMBER", value: segments.join(""), position: startPos, line: startLine, column: startColumn };
     }
 
+    const intStart = this.pos;
     while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
-      value += this.input[this.pos];
       this.pos++;
       this.column++;
+    }
+    if (intStart < this.pos) {
+      segments.push(this.input.slice(intStart, this.pos));
     }
 
     // Only read decimal part if . is followed by a digit (not another .)
     // This prevents "1..2" from being tokenized as "1." + "." + "2"
     if (this.input[this.pos] === "." && this.isDigit(this.input[this.pos + 1])) {
-      value += ".";
+      segments.push(".");
       this.pos++;
       this.column++;
+      const fracStart = this.pos;
       while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
-        value += this.input[this.pos];
         this.pos++;
         this.column++;
+      }
+      if (fracStart < this.pos) {
+        segments.push(this.input.slice(fracStart, this.pos));
       }
     }
 
@@ -802,25 +822,28 @@ class Tokenizer {
       // Check if followed by digit, + digit, or - digit
       if (this.isDigit(nextChar) || 
           ((nextChar === "+" || nextChar === "-") && this.isDigit(this.input[this.pos + 2]))) {
-        value += this.input[this.pos]; // 'e' or 'E'
+        segments.push(this.input[this.pos]); // 'e' or 'E'
         this.pos++;
         this.column++;
         // Handle optional sign
         if (this.input[this.pos] === "+" || this.input[this.pos] === "-") {
-          value += this.input[this.pos];
+          segments.push(this.input[this.pos]);
           this.pos++;
           this.column++;
         }
         // Read exponent digits
+        const expStart = this.pos;
         while (this.pos < this.input.length && this.isDigit(this.input[this.pos])) {
-          value += this.input[this.pos];
           this.pos++;
           this.column++;
+        }
+        if (expStart < this.pos) {
+          segments.push(this.input.slice(expStart, this.pos));
         }
       }
     }
 
-    return { type: "NUMBER", value, position: startPos, line: startLine, column: startColumn };
+    return { type: "NUMBER", value: segments.join(""), position: startPos, line: startLine, column: startColumn };
   }
 
   private isHexDigit(char: string): boolean {
@@ -830,40 +853,47 @@ class Tokenizer {
   }
 
   private readIdentifier(): string {
-    let value = "";
+    const startPos = this.pos;
     while (this.pos < this.input.length && this.isIdentifierChar(this.input[this.pos])) {
-      value += this.input[this.pos];
       this.pos++;
       this.column++;
     }
-    return value;
+    return this.input.slice(startPos, this.pos);
   }
 
   private readBacktickIdentifier(startPos: number, startLine: number, startColumn: number): Token {
     this.pos++; // consume opening backtick
     this.column++;
-    let value = "";
+    const segments: string[] = [];
+    let segmentStart = this.pos;
 
     while (this.pos < this.input.length) {
       const char = this.input[this.pos];
       if (char === "`") {
         // Check for escaped backtick (double backtick)
         if (this.input[this.pos + 1] === "`") {
-          value += "`";
+          // Add segment before escape
+          if (segmentStart < this.pos) {
+            segments.push(this.input.slice(segmentStart, this.pos));
+          }
+          segments.push("`");
           this.pos += 2;
           this.column += 2;
+          segmentStart = this.pos;
           continue;
         }
         // End of identifier
+        if (segmentStart < this.pos) {
+          segments.push(this.input.slice(segmentStart, this.pos));
+        }
         this.pos++;
         this.column++;
-        return { type: "IDENTIFIER", value, position: startPos, line: startLine, column: startColumn };
+        return { type: "IDENTIFIER", value: segments.join(""), position: startPos, line: startLine, column: startColumn };
       }
       if (char === "\n") {
         this.line++;
         this.column = 0; // Will be incremented below
       }
-      value += char;
       this.pos++;
       this.column++;
     }

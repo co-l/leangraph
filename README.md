@@ -30,14 +30,11 @@ LeanGraph is ideal for:
 ## Installation
 
 ```bash
-npm install leangraph better-sqlite3
-```
-
-For remote-only usage (no native dependencies):
-
-```bash
 npm install leangraph
+npm install -D better-sqlite3
 ```
+
+`better-sqlite3` is only needed for local and test modes. Production deployments using remote mode don't require it, keeping your `node_modules` lean and avoiding native rebuilds.
 
 ## Quick Start
 
@@ -90,7 +87,11 @@ LEANGRAPH_API_KEY=lg_xxx
 const db = await LeanGraph({ project: 'myapp' });
 ```
 
-When `LEANGRAPH_MODE=remote` is set, LeanGraph automatically connects via HTTP instead of embedded LeanGraph. All options can also be passed explicitly:
+When `LEANGRAPH_MODE=remote` is set, LeanGraph automatically connects via HTTP instead of embedded LeanGraph.
+
+> **Tip:** Remote mode doesn't use `better-sqlite3`, so installing it as a dev dependency speeds up production deploys by skipping native module compilation.
+
+All options can also be passed explicitly:
 
 ```typescript
 const db = await LeanGraph({

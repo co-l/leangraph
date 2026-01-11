@@ -102,7 +102,7 @@ const db = await LeanGraph({ mode: 'test', project: 'myapp' });
 ## Configuration
 
 ```typescript
-interface GraphDBOptions {
+interface LeanGraphOptions {
   mode?: "local" | "remote" | "test";
   project?: string;
   url?: string;

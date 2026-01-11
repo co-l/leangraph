@@ -7,7 +7,7 @@ import { GraphDatabase } from "./db.js";
 import { Executor } from "./executor.js";
 import type {
   GraphDBClient,
-  GraphDBOptions,
+  LeanGraphOptions,
   QueryResponse,
   HealthResponse,
   NodeResult,
@@ -18,7 +18,7 @@ import { GraphDBError } from "./types.js";
  * Create a local embedded LeanGraph client.
  * This client uses SQLite directly without any HTTP layer.
  */
-export function createLocalClient(options: GraphDBOptions = {}): GraphDBClient {
+export function createLocalClient(options: LeanGraphOptions = {}): GraphDBClient {
   const mode = options.mode ?? "local";
   const project = options.project ?? process.env.LEANGRAPH_PROJECT;
 

@@ -3,7 +3,7 @@
 
 import type {
   GraphDBClient,
-  GraphDBOptions,
+  LeanGraphOptions,
   QueryResponse,
   HealthResponse,
   NodeResult,
@@ -13,7 +13,7 @@ import { GraphDBError } from "./types.js";
 /**
  * Create a remote LeanGraph client that connects via HTTP.
  */
-export function createRemoteClient(options: GraphDBOptions = {}): GraphDBClient {
+export function createRemoteClient(options: LeanGraphOptions = {}): GraphDBClient {
   const rawUrl = options.url ?? process.env.LEANGRAPH_URL ?? "https://leangraph.io";
   const project = options.project ?? process.env.LEANGRAPH_PROJECT;
   const apiKey = options.apiKey ?? process.env.LEANGRAPH_API_KEY;

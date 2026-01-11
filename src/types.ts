@@ -7,7 +7,7 @@
 /**
  * Options for creating a LeanGraph client.
  */
-export interface GraphDBOptions {
+export interface LeanGraphOptions {
   /**
    * Connection mode.
    * - local: Embedded SQLite, persisted to disk

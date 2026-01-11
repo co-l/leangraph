@@ -22,10 +22,10 @@ A lightweight, embeddable graph database with **full Cypher query support**, pow
 | **Cost** | Free, MIT license | Free tier limited |
 
 LeanGraph is ideal for:
-- Applications needing graph queries without ops overhead
-- Projects that outgrow JSON but don't need a full graph database
-- Self-hosted deployments where simplicity matters
-- Development and testing with instant local databases
+- Production graph workloads with zero infrastructure
+- Neo4j-level queries without Neo4j-level complexity
+- Self-hosted apps where simplicity is a feature
+- Instant local databases for development and testing
 
 ## Installation
 

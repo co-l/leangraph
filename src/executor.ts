@@ -229,6 +229,8 @@ export class Executor {
   private db: GraphDatabase;
   private propertyCache = new Map<string, Record<string, unknown>>();
   private edgePropertyCache = new Map<string, Record<string, unknown>>();
+  // Cache for full edge info (type, source_id, target_id) - populated by batchGetEdgeInfo
+  private edgeInfoCache = new Map<string, { type: string; source_id: string; target_id: string }>();
 
   constructor(db: GraphDatabase) {
     this.db = db;
@@ -299,25 +301,35 @@ export class Executor {
 
   /**
    * Batch fetch edge info for multiple edge IDs in a single query
-   * Returns a Map from edge ID to edge info (id, source_id, target_id)
+   * Returns a Map from edge ID to edge info (id, type, source_id, target_id, properties)
    */
-  private batchGetEdgeInfo(edgeIds: string[]): Map<string, { id: string; source_id: string; target_id: string }> {
-    const result = new Map<string, { id: string; source_id: string; target_id: string }>();
+  private batchGetEdgeInfo(edgeIds: string[]): Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }> {
+    const result = new Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>();
     if (edgeIds.length === 0) return result;
 
     // Batch query with IN clause
     const placeholders = edgeIds.map(() => '?').join(',');
     const queryResult = this.db.execute(
-      `SELECT id, source_id, target_id FROM edges WHERE id IN (${placeholders})`,
+      `SELECT id, type, source_id, target_id, properties FROM edges WHERE id IN (${placeholders})`,
       edgeIds
     );
 
     for (const row of queryResult.rows) {
-      result.set(row.id as string, {
-        id: row.id as string,
-        source_id: row.source_id as string,
-        target_id: row.target_id as string
+      const id = row.id as string;
+      const type = row.type as string;
+      const source_id = row.source_id as string;
+      const target_id = row.target_id as string;
+      
+      result.set(id, {
+        id,
+        type,
+        source_id,
+        target_id,
+        properties: this.getEdgeProperties(id, row.properties as string | object)
       });
+      
+      // Also populate edge info cache for type()/startNode()/endNode() lookups
+      this.edgeInfoCache.set(id, { type, source_id, target_id });
     }
 
     return result;
@@ -331,6 +343,7 @@ export class Executor {
     // Clear property caches at start of each query execution
     this.propertyCache.clear();
     this.edgePropertyCache.clear();
+    this.edgeInfoCache.clear();
 
     try {
       // 1. Parse the Cypher query
@@ -3850,7 +3863,13 @@ export class Executor {
         
         if (!edgeId) return null;
         
-        // Look up edge type from database
+        // Check edge info cache first (populated by batchGetEdgeInfo)
+        const cachedInfo = this.edgeInfoCache.get(edgeId);
+        if (cachedInfo) {
+          return cachedInfo.type;
+        }
+        
+        // Fall back to database lookup
         const result = this.db.execute(
           "SELECT type FROM edges WHERE id = ?",
           [edgeId]
@@ -3873,13 +3892,19 @@ export class Executor {
           if ("_nf_start" in edgeObj) {
             startNodeId = edgeObj._nf_start as string;
           } else if ("_nf_id" in edgeObj) {
-            // Look up edge from database to get source_id
-            const edgeResult = this.db.execute(
-              "SELECT source_id FROM edges WHERE id = ?",
-              [edgeObj._nf_id]
-            );
-            if (edgeResult.rows.length > 0) {
-              startNodeId = edgeResult.rows[0].source_id as string;
+            // Check edge info cache first (populated by batchGetEdgeInfo)
+            const cachedInfo = this.edgeInfoCache.get(edgeObj._nf_id as string);
+            if (cachedInfo) {
+              startNodeId = cachedInfo.source_id;
+            } else {
+              // Fall back to database lookup
+              const edgeResult = this.db.execute(
+                "SELECT source_id FROM edges WHERE id = ?",
+                [edgeObj._nf_id]
+              );
+              if (edgeResult.rows.length > 0) {
+                startNodeId = edgeResult.rows[0].source_id as string;
+              }
             }
           }
         }
@@ -3910,13 +3935,19 @@ export class Executor {
           if ("_nf_end" in edgeObj) {
             endNodeId = edgeObj._nf_end as string;
           } else if ("_nf_id" in edgeObj) {
-            // Look up edge from database to get target_id
-            const edgeResult = this.db.execute(
-              "SELECT target_id FROM edges WHERE id = ?",
-              [edgeObj._nf_id]
-            );
-            if (edgeResult.rows.length > 0) {
-              endNodeId = edgeResult.rows[0].target_id as string;
+            // Check edge info cache first (populated by batchGetEdgeInfo)
+            const cachedInfo = this.edgeInfoCache.get(edgeObj._nf_id as string);
+            if (cachedInfo) {
+              endNodeId = cachedInfo.target_id;
+            } else {
+              // Fall back to database lookup
+              const edgeResult = this.db.execute(
+                "SELECT target_id FROM edges WHERE id = ?",
+                [edgeObj._nf_id]
+              );
+              if (edgeResult.rows.length > 0) {
+                endNodeId = edgeResult.rows[0].target_id as string;
+              }
             }
           }
         }

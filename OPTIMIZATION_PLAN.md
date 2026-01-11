@@ -13,7 +13,7 @@ These optimizations address gaps and improvements identified in Phase 1 implemen
 | P1 | Batch edge INSERTs | 5-10x | Medium | [x] |
 | P1 | Statement cache LRU eviction | ~20% | Low | [x] |
 | P2 | Secondary CTE early termination | 10-100x | Medium | [x] |
-| P2 | Expand batch edge lookups | 2-5x | Medium | [~] (see notes) |
+| P2 | Expand batch edge lookups | 2-5x | Medium | [x] (partial) |
 
 ---
 
@@ -236,43 +236,25 @@ private getCachedStatement(sql: string): Database.Statement {
 **File:** `src/executor.ts`  
 **Effort:** Medium  
 **Impact:** 2-5x for edge-heavy queries  
-**Status:** Deferred - code pattern mismatch
+**Status:** Partially implemented
 
 **Problem:** `batchGetEdgeInfo()` exists but is only used in 2 places. 21 other locations still do individual `SELECT * FROM edges WHERE id = ?` queries.
 
-**Investigation Notes:**
-After reviewing the 21 edge lookup locations, the actual patterns don't match the expected optimization target:
+**Implemented:**
+1. Enhanced `batchGetEdgeInfo()` to return full edge info (type, properties, source_id, target_id)
+2. Added `edgeInfoCache` to cache edge info across function calls
+3. Updated `type()`, `startNode()`, `endNode()` functions to check cache first
+4. Cache is populated by `batchGetEdgeInfo()` calls during path query processing
+
+**Remaining (for future):**
+After reviewing the 21 edge lookup locations, many don't match the batching pattern:
 - Most are **one-off lookups** after MERGE/CREATE (not in loops)
 - Many are **fallback queries** (try nodes first, then edges)
 - Some are in **SQL generation** (translator, not executor)
-- The edge property cache (P0 optimization) already reduces repeated lookup impact
 
-The existing `batchGetEdgeInfo()` already covers the main hot path (path query processing at lines 3191, 6696). Additional batching would require significant restructuring with limited benchmark impact.
+The existing `batchGetEdgeInfo()` already covers the main hot path (path query processing). Additional batching would require significant restructuring with limited benchmark impact.
 
 **Future consideration:** Profile production workloads to identify if specific edge-heavy query patterns emerge that would benefit from targeted batching.
-
-**Original solution (for reference):**
-
-1. **In expression evaluation:** When evaluating path expressions, collect all edge IDs first, then batch fetch
-2. **In type checking:** Batch edge type lookups when checking multiple relationships
-3. **In property extraction:** Use the edge property cache (from optimization #1) to avoid refetching
-
-**Pattern to replace:**
-```typescript
-for (const edgeId of edgeIds) {
-  const result = this.db.execute("SELECT * FROM edges WHERE id = ?", [edgeId]);
-  // use result
-}
-```
-
-**Replace with:**
-```typescript
-const edgeMap = this.batchGetEdgeInfo(edgeIds);
-for (const edgeId of edgeIds) {
-  const edge = edgeMap.get(edgeId);
-  // use edge
-}
-```
 
 ---
 

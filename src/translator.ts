@@ -13222,6 +13222,15 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return this.translateExistsCondition(condition);
       }
 
+      case "propertyExists": {
+        // exists(n.property) - checks if property is not NULL
+        const expr = this.translateWhereExpression(condition.expression!);
+        return {
+          sql: `${expr.sql} IS NOT NULL`,
+          params: expr.params,
+        };
+      }
+
       case "in": {
         return this.translateInCondition(condition);
       }

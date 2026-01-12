@@ -4769,5 +4769,18 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["n.id"]).toBe("cnt1");
       });
     });
+
+    describe("exists(n.property) syntax", () => {
+      it("filters by property existence using exists()", async () => {
+        // Setup: pc1 has optional property, pc2 does not
+        await exec("CREATE (:T6PC {id: 'pc1', optional: 'yes'})");
+        await exec("CREATE (:T6PC {id: 'pc2'})");
+
+        const result = await exec("MATCH (n:T6PC) WHERE exists(n.optional) RETURN n.id");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["n.id"]).toBe("pc1");
+      });
+    });
   });
 });

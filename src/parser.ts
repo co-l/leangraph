@@ -2454,13 +2454,20 @@ export class Parser {
     this.expect("KEYWORD", "EXISTS");
     this.expect("LPAREN"); // outer (
 
-    // Parse the pattern inside EXISTS((pattern))
-    const patterns = this.parsePatternChain();
-    const pattern = patterns.length === 1 ? patterns[0] : patterns[0]; // Use first pattern for now
-
-    this.expect("RPAREN"); // outer )
-
-    return { type: "exists", pattern };
+    // Check if this is property existence (e.g., exists(n.property))
+    // or pattern existence (e.g., exists((n)-[:REL]->()))
+    if (this.check("LPAREN")) {
+      // Pattern existence: EXISTS((pattern))
+      const patterns = this.parsePatternChain();
+      const pattern = patterns.length === 1 ? patterns[0] : patterns[0]; // Use first pattern for now
+      this.expect("RPAREN"); // outer )
+      return { type: "exists", pattern };
+    } else {
+      // Property existence: EXISTS(n.property)
+      const expr = this.parseExpression();
+      this.expect("RPAREN"); // outer )
+      return { type: "propertyExists", expression: expr };
+    }
   }
 
   private parseComparisonCondition(): WhereCondition {

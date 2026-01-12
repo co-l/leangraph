@@ -14216,6 +14216,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return { sql: result.sql, params: result.params };
       }
 
+      case "sizePattern": {
+        // size((n)-[:REL]->()) pattern in WHERE clause
+        const result = this.translateSizePattern(expr);
+        return { sql: result.sql, params: result.params };
+      }
+
       default:
         throw new Error(`Unknown expression type in WHERE: ${expr.type}`);
     }

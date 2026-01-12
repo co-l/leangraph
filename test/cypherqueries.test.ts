@@ -4755,5 +4755,19 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].match).toBe(true);
       });
     });
+
+    describe("size() on pattern in WHERE", () => {
+      it("filters by relationship count using size()", async () => {
+        // Setup: cnt1 has 2 HAS relationships, cnt2 has 1
+        await exec("CREATE (a:T5Cnt {id: 'cnt1'})-[:HAS]->(:T5Child {})");
+        await exec("MATCH (a:T5Cnt {id: 'cnt1'}) CREATE (a)-[:HAS]->(:T5Child {})");
+        await exec("CREATE (:T5Cnt {id: 'cnt2'})-[:HAS]->(:T5Child {})");
+
+        const result = await exec("MATCH (n:T5Cnt) WHERE size((n)-[:HAS]->()) > 1 RETURN n.id");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["n.id"]).toBe("cnt1");
+      });
+    });
   });
 });

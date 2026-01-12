@@ -4839,5 +4839,29 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].d).toBe(5);
       });
     });
+
+    describe("Nested collect (collect of maps)", () => {
+      it("supports nested collect with maps", async () => {
+        // Setup
+        await exec("CREATE (:T8NC {g:'A', v:1})");
+        await exec("CREATE (:T8NC {g:'A', v:2})");
+        await exec("CREATE (:T8NC {g:'B', v:3})");
+
+        const result = await exec(
+          "MATCH (n:T8NC) WITH n.g as grp, collect(n.v) as vals RETURN collect({g: grp, v: vals}) as all"
+        );
+
+        expect(result.data).toHaveLength(1);
+        const all = result.data[0].all as Array<{ g: string; v: number[] }>;
+        expect(all).toHaveLength(2);
+        // Check both groups exist (order may vary)
+        const groupA = all.find((item) => item.g === "A");
+        const groupB = all.find((item) => item.g === "B");
+        expect(groupA).toBeDefined();
+        expect(groupB).toBeDefined();
+        expect(groupA!.v).toEqual(expect.arrayContaining([1, 2]));
+        expect(groupB!.v).toEqual([3]);
+      });
+    });
   });
 });

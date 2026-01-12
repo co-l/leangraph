@@ -4378,5 +4378,21 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].nested).toEqual([[10, 20], [20, 40], [30, 60]]);
       });
     });
+
+    describe("Path relationships() in list comprehension", () => {
+      it("supports iterating over relationships(p) in list comprehension with type(r)", async () => {
+        // Pattern: [r IN relationships(p) | type(r)]
+        // The list comprehension variable r should be accessible in the mapping expression
+        await exec("CREATE (:T2Node {id: 'pr1'})-[:A]->(:T2Node {id: 'pr2'})-[:B]->(:T2Node {id: 'pr3'})");
+
+        const result = await exec(`
+          MATCH p = (:T2Node {id: 'pr1'})-[*]->(:T2Node {id: 'pr3'})
+          RETURN [r IN relationships(p) | type(r)] as types
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].types).toEqual(["A", "B"]);
+      });
+    });
   });
 });

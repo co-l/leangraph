@@ -11974,6 +11974,15 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           // SQLite's RANDOM() returns integer, convert to 0-1 range
           return { sql: `((RANDOM() + 9223372036854775808) / 18446744073709551615.0)`, params };
         }
+        if (funcName === "TYPE") {
+          // type() on a relationship in list comprehension context (e.g., [r IN relationships(p) | type(r)])
+          // The relationship value is a JSON object containing "type" directly
+          const arg = funcArgs[0];
+          return { 
+            sql: `json_extract(${arg}, '$.type')`, 
+            params 
+          };
+        }
         
         // Fall back to regular translation for unknown functions
         const result = this.translateExpression(expr);

@@ -4531,5 +4531,21 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].val).toBe(1);
       });
     });
+
+    describe("Pattern expressions", () => {
+      it("supports size() on pattern expression", async () => {
+        // size((n)-[:R]->()) should count matching relationships
+        await exec("CREATE (a:T2Size {id: 'sz1'})-[:R]->(:T2Size {id: 'sz2'})");
+        await exec("MATCH (a:T2Size {id: 'sz1'}) CREATE (a)-[:R]->(:T2Size {id: 'sz3'})");
+
+        const result = await exec(`
+          MATCH (n:T2Size {id: 'sz1'})
+          RETURN size((n)-[:R]->()) as connections
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].connections).toBe(2);
+      });
+    });
   });
 });

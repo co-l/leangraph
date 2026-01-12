@@ -124,7 +124,7 @@ export interface MapProjectionItem {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "reduce" | "filter" | "extract" | "mapProjection";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "sizePattern" | "reduce" | "filter" | "extract" | "mapProjection";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -3058,6 +3058,16 @@ export class Parser {
             const patterns = this.parsePatternChain();
             this.expect("RPAREN");
             return { type: "existsPattern", patterns };
+          }
+        }
+        
+        // Check if this is SIZE with a pattern expression
+        if (functionName === "SIZE") {
+          // SIZE((pattern)) - count matching relationships
+          if (this.check("LPAREN") && this.isPatternStart()) {
+            const patterns = this.parsePatternChain();
+            this.expect("RPAREN");
+            return { type: "sizePattern", patterns };
           }
         }
         

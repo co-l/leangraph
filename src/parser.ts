@@ -80,7 +80,7 @@ export type PropertyValue =
   | PropertyValue[];
 
 export interface WhereCondition {
-  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate" | "patternMatch" | "expression";
+  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate" | "patternMatch" | "expression" | "regex";
   left?: Expression;
   right?: Expression;
   operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
@@ -324,6 +324,7 @@ type TokenType =
   | "GT"
   | "LTE"
   | "GTE"
+  | "REGEX_MATCH"
   | "STAR"
   | "PIPE"
   | "EOF";
@@ -578,6 +579,11 @@ class Tokenizer {
         this.pos += 2;
         this.column += 2;
         return { type: "GTE", value: ">=", position: startPos, line: startLine, column: startColumn };
+      }
+      if (twoChars === "=~") {
+        this.pos += 2;
+        this.column += 2;
+        return { type: "REGEX_MATCH", value: "=~", position: startPos, line: startLine, column: startColumn };
       }
     }
 
@@ -2387,6 +2393,13 @@ export class Parser {
       // IN can be followed by a list literal [...] or a parameter $param
       const listExpr = this.parseInListExpression();
       return { type: "in", left, list: listExpr };
+    }
+
+    // Check for regex operator =~
+    if (this.check("REGEX_MATCH")) {
+      this.advance();
+      const right = this.parseExpression();
+      return { type: "regex", left, right };
     }
 
     // Comparison operators - handle chained comparisons like 1 < n.num < 3

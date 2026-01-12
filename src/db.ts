@@ -570,6 +570,20 @@ function registerCypherFunctions(db: Database.Database): void {
     // For primitives (boolean, string), direct comparison
     return val1 === val2 ? 1 : 0;
   });
+
+  // cypher_regex: Regex matching for =~ operator
+  // Returns: 1 if pattern matches, 0 if not, null if either operand is null
+  db.function("cypher_regex", { deterministic: true }, (str: unknown, pattern: unknown) => {
+    if (str === null || str === undefined || pattern === null || pattern === undefined) return null;
+    if (typeof str !== "string" || typeof pattern !== "string") return 0;
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(str) ? 1 : 0;
+    } catch {
+      // Invalid regex pattern
+      return 0;
+    }
+  });
 }
 
 export class GraphDatabase {

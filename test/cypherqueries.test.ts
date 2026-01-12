@@ -4093,7 +4093,7 @@ describe("CypherQueries.json Patterns", () => {
     // PARSER / SYNTAX FEATURES
     // ============================================
     describe("Parser Features", () => {
-      it.skip("supports regex operator =~", async () => {
+      it("supports regex operator =~", async () => {
         // Current error: "Unexpected character '~' at position 35"
         await exec(`CREATE (p:TestPerson {name: 'Bob'})`);
 

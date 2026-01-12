@@ -12207,6 +12207,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         };
       }
 
+      case "regex": {
+        const left = this.translateWhereExpression(condition.left!);
+        const right = this.translateWhereExpression(condition.right!);
+        // Use cypher_regex custom function for regex matching
+        return {
+          sql: `cypher_regex(${left.sql}, ${right.sql})`,
+          params: [...left.params, ...right.params],
+        };
+      }
+
       case "isNull": {
         const left = this.translateWhereExpression(condition.left!);
         return {

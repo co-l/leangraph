@@ -252,7 +252,7 @@ When you complete a feature:
 | OPTIONAL MATCH + DELETE | Pending | - |
 | UNWIND + MATCH | Pending | - |
 | `duration()` | Done | 2026-01-12 |
-| Regex `=~` | Pending | - |
+| Regex `=~` | Done | 2026-01-12 |
 | `reduce()` | Pending | - |
 | `filter()` | Pending | - |
 | `extract()` | Pending | - |

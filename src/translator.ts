@@ -5262,8 +5262,8 @@ export class Translator {
                 tables,
                 params,
               };
-            } else if (arg.type === "function" || arg.type === "binary") {
-              // Handle aggregates on expressions like sum(n.x * n.y) or min(length(p))
+            } else if (arg.type === "function" || arg.type === "binary" || arg.type === "case") {
+              // Handle aggregates on expressions like sum(n.x * n.y), min(length(p)), or sum(CASE WHEN ... END)
               const argResult = this.translateFunctionArg(arg);
               tables.push(...argResult.tables);
               params.push(...argResult.params);
@@ -13654,8 +13654,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
       case "binary":
       case "unary":
-      case "literal": {
-        // For complex expressions (binary, literal, etc.), translate them
+      case "literal":
+      case "case": {
+        // For complex expressions (binary, literal, case, etc.), translate them
         // but substitute variables with column aliases when they are RETURN aliases
         return this.translateOrderByComplexExpression(expr, returnAliases);
       }

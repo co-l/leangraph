@@ -4482,6 +4482,54 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toHaveLength(1);
         expect(result.data[0].len).toBe(5);
       });
+
+      it("supports size() on empty string", async () => {
+        // size('') should return 0, empty string operations should work
+        const result = await exec("RETURN size('') as sz, '' + 'a' as concat, '' = '' as eq");
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].sz).toBe(0);
+        expect(result.data[0].concat).toBe("a");
+        expect(result.data[0].eq).toBe(true);
+      });
+    });
+
+    describe("CASE expressions", () => {
+      it("supports CASE in ORDER BY", async () => {
+        // ORDER BY CASE WHEN n = 2 THEN 0 ELSE n END should sort 2 first
+        const result = await exec("UNWIND [1,2,3] as n RETURN n ORDER BY CASE WHEN n = 2 THEN 0 ELSE n END");
+        expect(result.data).toHaveLength(3);
+        expect(result.data[0].n).toBe(2);  // 2 sorted first (CASE value = 0)
+        expect(result.data[1].n).toBe(1);  // 1 second (CASE value = 1)
+        expect(result.data[2].n).toBe(3);  // 3 third (CASE value = 3)
+      });
+
+      it("supports CASE inside aggregation sum()", async () => {
+        // sum(CASE WHEN n > 2 THEN n ELSE 0 END) should return 12 (3+4+5)
+        const result = await exec("UNWIND [1,2,3,4,5] as n RETURN sum(CASE WHEN n > 2 THEN n ELSE 0 END) as conditionalSum");
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].conditionalSum).toBe(12);
+      });
+    });
+
+    describe("Boolean handling", () => {
+      it("supports MERGE relationship with boolean properties", async () => {
+        // Setup nodes
+        await exec("CREATE (:T5MR {id: 'mr1'})");
+        await exec("CREATE (:T5MR {id: 'mr2'})");
+
+        // MERGE with boolean property
+        const result = await exec("MATCH (a:T5MR {id: 'mr1'}), (b:T5MR {id: 'mr2'}) MERGE (a)-[r:LINK {created: true}]->(b) RETURN r.created");
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["r.created"]).toBe(true);
+      });
+
+      it("supports boolean parameter binding", async () => {
+        // Boolean params should be bound as 1/0 in SQLite
+        const result = await exec("RETURN $flag as val", { flag: true });
+        expect(result.data).toHaveLength(1);
+        // SQLite returns 1 for true when bound as parameter
+        expect(result.data[0].val).toBe(1);
+      });
     });
   });
 });

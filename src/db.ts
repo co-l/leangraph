@@ -88,6 +88,10 @@ function convertParamForSqlite(value: unknown): unknown {
     // This ensures consistency with JSON.stringify() behavior
     return BigInt(String(value));
   }
+  // Convert booleans to 1/0 for SQLite
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
   return value;
 }
 

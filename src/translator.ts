@@ -112,6 +112,8 @@ export interface SqlStatement {
 export interface TranslationResult {
   statements: SqlStatement[];
   returnColumns?: string[];
+  explain?: boolean;
+  profile?: boolean;
 }
 
 export interface TranslationContext {
@@ -170,7 +172,7 @@ export class Translator {
       const params: unknown[] = [];
       let sql = `SELECT DISTINCT ${callClause.columnName} AS "${callClause.returnColumn}" FROM ${callClause.tableName}`;
       sql += ` WHERE ${callClause.columnName} IS NOT NULL AND ${callClause.columnName} <> ''`;
-      
+
       // Add WHERE from CALL...YIELD...WHERE
       if (callClause.where) {
         // Use columnName (actual SQL column) for WHERE clause translation
@@ -183,7 +185,18 @@ export class Translator {
       returnColumns = [callClause.returnColumn];
     }
 
-    return { statements, returnColumns };
+    // Handle EXPLAIN and PROFILE - prefix all SELECT statements with EXPLAIN QUERY PLAN
+    if (query.explain || query.profile) {
+      for (const stmt of statements) {
+        if (stmt.sql.trim().toUpperCase().startsWith("SELECT")) {
+          stmt.sql = `EXPLAIN QUERY PLAN ${stmt.sql}`;
+        }
+      }
+      // For explain/profile, the return columns are the plan columns
+      returnColumns = ["id", "parent", "notused", "detail"];
+    }
+
+    return { statements, returnColumns, explain: query.explain, profile: query.profile };
   }
 
   /**

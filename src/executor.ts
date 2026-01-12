@@ -391,8 +391,12 @@ export class Executor {
         };
       };
       
+      // EXPLAIN and PROFILE queries should go directly to SQL translation
+      // Skip special execution paths for these
+      const isExplainOrProfile = parseResult.query.explain || parseResult.query.profile;
+
       // Dispatch based on pattern (each try* method still validates and may return null)
-      switch (pattern) {
+      if (!isExplainOrProfile) switch (pattern) {
         case "PHASED": {
           const result = this.tryPhasedExecution(parseResult.query, params);
           if (result !== null) return makeResult(result);
@@ -458,8 +462,9 @@ export class Executor {
         for (const stmt of translation.statements) {
           const result = this.db.execute(stmt.sql, stmt.params);
 
-          // If this is a SELECT (RETURN clause), capture the results
-          if (result.rows.length > 0 || stmt.sql.trim().toUpperCase().startsWith("SELECT")) {
+          // If this is a SELECT or EXPLAIN (RETURN clause), capture the results
+          const sqlUpper = stmt.sql.trim().toUpperCase();
+          if (result.rows.length > 0 || sqlUpper.startsWith("SELECT") || sqlUpper.startsWith("EXPLAIN")) {
             rows = result.rows;
           }
         }

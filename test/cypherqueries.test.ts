@@ -4863,5 +4863,16 @@ describe("CypherQueries.json Patterns", () => {
         expect(groupB!.v).toEqual([3]);
       });
     });
+
+    describe("EXPLAIN query", () => {
+      it("returns query execution plan", async () => {
+        const result = await exec("EXPLAIN MATCH (n) RETURN n LIMIT 1");
+
+        // EXPLAIN should return plan information, not data
+        expect(result.data).toHaveLength(1);
+        // The plan should have some kind of plan information
+        expect(result.data[0]).toBeDefined();
+      });
+    });
   });
 });

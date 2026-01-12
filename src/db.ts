@@ -663,8 +663,8 @@ export class GraphDatabase {
 
     const stmt = this.getCachedStatement(sql);
     const trimmedSql = sql.trim().toUpperCase();
-    // Check if it's a query (SELECT or WITH for CTEs)
-    const isQuery = trimmedSql.startsWith("SELECT") || trimmedSql.startsWith("WITH");
+    // Check if it's a query (SELECT, WITH for CTEs, or EXPLAIN)
+    const isQuery = trimmedSql.startsWith("SELECT") || trimmedSql.startsWith("WITH") || trimmedSql.startsWith("EXPLAIN");
 
     if (isQuery) {
       const rows = stmt.all(...convertedParams) as Record<string, unknown>[];

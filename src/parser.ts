@@ -305,6 +305,8 @@ export type Clause =
 
 export interface Query {
   clauses: Clause[];
+  explain?: boolean;
+  profile?: boolean;
 }
 
 export interface ParseError {
@@ -415,6 +417,8 @@ const KEYWORDS = new Set([
   "YIELD",
   "REMOVE",
   "FOREACH",
+  "EXPLAIN",
+  "PROFILE",
 ]);
 
 class Tokenizer {
@@ -1037,6 +1041,18 @@ export class Parser {
   }
 
   private parseQuery(): Query {
+    // Check for EXPLAIN or PROFILE prefix
+    let explain = false;
+    let profile = false;
+
+    if (this.checkKeyword("EXPLAIN")) {
+      this.advance();
+      explain = true;
+    } else if (this.checkKeyword("PROFILE")) {
+      this.advance();
+      profile = true;
+    }
+
     // Parse clauses until we hit UNION or end
     const clauses: Clause[] = [];
 
@@ -1050,7 +1066,7 @@ export class Parser {
     // Check for UNION
     if (this.checkKeyword("UNION")) {
       this.advance(); // consume UNION
-      
+
       // Check for ALL
       const all = this.checkKeyword("ALL");
       if (all) {
@@ -1078,10 +1094,10 @@ export class Parser {
         right: rightQuery,
       };
 
-      return { clauses: [unionClause] };
+      return { clauses: [unionClause], explain, profile };
     }
 
-    return { clauses };
+    return { clauses, explain, profile };
   }
 
   private error(message: string): ParseResult {

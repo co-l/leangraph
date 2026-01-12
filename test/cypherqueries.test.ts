@@ -4142,7 +4142,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ len: 2 }]);
       });
 
-      it.skip("supports FOREACH clause", async () => {
+      it("supports FOREACH clause", async () => {
         // Current error: "Unexpected token 'FOREACH', expected a clause keyword"
         const result = await exec(
           `CREATE (n:TestCounter {val: 0}) WITH n FOREACH (i IN range(1,3) | SET n.val = n.val + 1) RETURN n.val`

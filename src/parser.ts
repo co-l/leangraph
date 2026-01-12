@@ -271,6 +271,13 @@ export interface CallClause {
   where?: WhereCondition; // Optional WHERE filter after YIELD
 }
 
+export interface ForeachClause {
+  type: "FOREACH";
+  variable: string; // The iteration variable
+  expression: Expression; // The list to iterate over
+  body: Clause[]; // The clauses to execute for each item
+}
+
 export type Clause =
   | CreateClause
   | MatchClause
@@ -282,7 +289,8 @@ export type Clause =
   | WithClause
   | UnwindClause
   | UnionClause
-  | CallClause;
+  | CallClause
+  | ForeachClause;
 
 export interface Query {
   clauses: Clause[];
@@ -395,6 +403,7 @@ const KEYWORDS = new Set([
   "CALL",
   "YIELD",
   "REMOVE",
+  "FOREACH",
 ]);
 
 class Tokenizer {
@@ -1103,6 +1112,8 @@ export class Parser {
         return this.parseUnwind();
       case "CALL":
         return this.parseCall();
+      case "FOREACH":
+        return this.parseForeach();
       default:
         throw new Error(`Unexpected keyword '${token.value}'`);
     }
@@ -1797,6 +1808,64 @@ export class Parser {
     }
 
     return { type: "CALL", procedure: procedureName, args, yields, where };
+  }
+
+  private parseForeach(): ForeachClause {
+    this.expect("KEYWORD", "FOREACH");
+    this.expect("LPAREN");
+
+    // Parse iteration variable
+    const variable = this.expectIdentifier();
+
+    // Expect IN keyword
+    this.expect("KEYWORD", "IN");
+
+    // Parse the list expression
+    const expression = this.parseExpression();
+
+    // Expect PIPE separator
+    this.expect("PIPE");
+
+    // Parse body clauses until we hit the closing paren
+    const body: Clause[] = [];
+    while (!this.check("RPAREN")) {
+      const clause = this.parseForeachBodyClause();
+      if (clause) {
+        body.push(clause);
+      }
+    }
+
+    this.expect("RPAREN");
+
+    return { type: "FOREACH", variable, expression, body };
+  }
+
+  private parseForeachBodyClause(): Clause | null {
+    const token = this.peek();
+
+    if (token.type === "RPAREN" || token.type === "EOF") return null;
+
+    if (token.type !== "KEYWORD") {
+      throw new Error(`Unexpected token '${token.value}' in FOREACH body, expected SET, CREATE, DELETE, MERGE, or FOREACH`);
+    }
+
+    switch (token.value) {
+      case "SET":
+        return this.parseSet();
+      case "CREATE":
+        return this.parseCreate();
+      case "DELETE":
+      case "DETACH":
+        return this.parseDelete();
+      case "MERGE":
+        return this.parseMerge();
+      case "REMOVE":
+        return this.parseRemove();
+      case "FOREACH":
+        return this.parseForeach();
+      default:
+        throw new Error(`Unsupported clause '${token.value}' in FOREACH body. Only SET, CREATE, DELETE, MERGE, REMOVE, and FOREACH are allowed.`);
+    }
   }
 
   /**

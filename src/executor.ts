@@ -13,6 +13,7 @@ import {
   ReturnClause,
   WithClause,
   UnwindClause,
+  ForeachClause,
   NodePattern,
   RelationshipPattern,
   PathExpression,
@@ -170,6 +171,7 @@ type QueryPattern =
   | "BOUND_REL_LIST"   // MATCH + WITH + MATCH with bound list pattern
   | "MERGE"            // MERGE with special handling
   | "MULTI_PHASE"      // MATCH + mutations (CREATE/SET/DELETE)
+  | "FOREACH"          // FOREACH clause for iterating and mutating
   | "STANDARD";        // Standard SQL translation
 
 /**
@@ -186,6 +188,7 @@ interface QueryFlags {
   hasUnwind: boolean;
   hasWith: boolean;
   hasReturn: boolean;
+  hasForeach: boolean;
   
   // Detailed flags
   mergeHasSetClauses: boolean;
@@ -435,6 +438,11 @@ export class Executor {
           if (result !== null) return makeResult(result);
           break;
         }
+        case "FOREACH": {
+          const result = this.tryForeachExecution(parseResult.query, params);
+          if (result !== null) return makeResult(result);
+          break;
+        }
         // STANDARD falls through to SQL translation below
       }
 
@@ -503,6 +511,7 @@ export class Executor {
       hasUnwind: false,
       hasWith: false,
       hasReturn: false,
+      hasForeach: false,
       
       // Detailed flags
       mergeHasSetClauses: false,
@@ -634,6 +643,10 @@ export class Executor {
           flags.hasReturn = true;
           flags.returnClause = clause;
           break;
+          
+        case "FOREACH":
+          flags.hasForeach = true;
+          break;
       }
     }
     
@@ -651,6 +664,11 @@ export class Executor {
    * Order matters - patterns are checked in priority order
    */
   private determineQueryPattern(query: Query, flags: QueryFlags): QueryPattern {
+    // 0. FOREACH - Queries with FOREACH clause (checked first, high priority)
+    if (flags.hasForeach) {
+      return "FOREACH";
+    }
+    
     // 1. PHASED - Complex multi-phase queries with phase boundaries
     const phases = this.detectPhases(query);
     const needsMergePhasedExecution = (flags.hasMatch || flags.hasCreate) && 
@@ -713,7 +731,7 @@ export class Executor {
       }
     }
     
-    // 9. MULTI_PHASE - MATCH with mutations (CREATE/SET/DELETE)
+    // 10. MULTI_PHASE - MATCH with mutations (CREATE/SET/DELETE)
     if (flags.hasMatch && flags.hasMutations) {
       return "MULTI_PHASE";
     }
@@ -9036,6 +9054,299 @@ export class Executor {
       }
       default:
         return "expr";
+    }
+  }
+
+  /**
+   * Execute queries with FOREACH clause.
+   * FOREACH iterates over a list and executes mutation clauses for each item.
+   * Pattern: ... FOREACH (var IN list | SET/CREATE/DELETE...) ...
+   */
+  private tryForeachExecution(
+    query: Query,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] | null {
+    // Execute query with phased approach using PhaseContext
+    let context = createEmptyContext();
+
+    this.db.transaction(() => {
+      for (const clause of query.clauses) {
+
+        
+        if (clause.type === "FOREACH") {
+          // Execute FOREACH for the current context
+          this.executeForeachClause(clause as ForeachClause, context, params);
+        } else if (clause.type === "RETURN") {
+          // RETURN is handled after transaction
+        } else if (clause.type === "CREATE") {
+          context = this.executeCreateClause(clause as CreateClause, context, params);
+        } else if (clause.type === "WITH") {
+          context = this.executeWithClause(clause as WithClause, context, params);
+        } else if (clause.type === "SET") {
+          this.executeForeachSetClause(clause as SetClause, context, params);
+        }
+        // Other clauses could be added as needed
+      }
+    });
+
+    // Handle RETURN clause if present
+    const returnClause = query.clauses.find((c) => c.type === "RETURN") as ReturnClause | undefined;
+    if (returnClause) {
+      return this.executeForeachReturn(returnClause, context, params);
+    }
+
+    return [];
+  }
+
+  /**
+   * Execute a FOREACH clause within PhaseContext.
+   */
+  private executeForeachClause(
+    foreachClause: ForeachClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): void {
+    for (const row of context.rows) {
+      // Evaluate the list expression in the current row context
+      const listValue = this.evaluateExpressionInRow(
+        foreachClause.expression,
+        row,
+        params
+      );
+
+      if (!Array.isArray(listValue)) {
+        continue;
+      }
+
+      // For each item in the list, execute the body clauses
+      for (const item of listValue) {
+        // Create a row context with the iteration variable bound
+        const iterationRow = new Map(row);
+        iterationRow.set(foreachClause.variable, item);
+
+        // Execute each body clause
+        for (const bodyClause of foreachClause.body) {
+          this.executeForeachBodyClause(bodyClause, iterationRow, context, params);
+        }
+      }
+    }
+  }
+
+  /**
+   * Execute a single clause within FOREACH body.
+   */
+  private executeForeachBodyClause(
+    clause: Clause,
+    row: Map<string, unknown>,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): void {
+    switch (clause.type) {
+      case "SET":
+        this.executeForeachSetInRow(clause as SetClause, row, params);
+        break;
+      case "CREATE":
+        this.executeForeachCreateInRow(clause as CreateClause, row, params);
+        break;
+      case "DELETE":
+        this.executeForeachDeleteInRow(clause as DeleteClause, row);
+        break;
+      case "FOREACH":
+        // Nested FOREACH - create temporary context with single row
+        const tempContext: PhaseContext = {
+          nodeIds: new Map(context.nodeIds),
+          edgeIds: new Map(context.edgeIds),
+          values: new Map(context.values),
+          rows: [row],
+        };
+        this.executeForeachClause(clause as ForeachClause, tempContext, params);
+        break;
+      default:
+        throw new Error(`Unsupported clause type '${clause.type}' in FOREACH body`);
+    }
+  }
+
+  /**
+   * Execute SET within FOREACH context using Map-based row.
+   */
+  private executeForeachSetInRow(
+    clause: SetClause,
+    row: Map<string, unknown>,
+    params: Record<string, unknown>
+  ): void {
+    for (const assignment of clause.assignments) {
+      const targetVar = assignment.variable;
+      const targetObj = row.get(targetVar);
+
+      if (!targetObj || typeof targetObj !== "object") {
+        continue;
+      }
+
+      const target = targetObj as { _nf_id?: string; _id?: string };
+      // Support both _nf_id (node) and _id (edge)
+      const nodeId = target._nf_id || target._id;
+      if (!nodeId) {
+        continue;
+      }
+
+      // Determine if this is a node or edge based on which id field exists
+      const isNode = "_nf_id" in target;
+      const table = isNode ? "nodes" : "edges";
+
+      if (assignment.value) {
+        const newValue = this.evaluateExpressionInRow(assignment.value, row, params);
+
+        if (assignment.property) {
+          // SET n.prop = value
+          const propName = assignment.property;
+          const sql = `UPDATE ${table} SET properties = json_set(properties, '$.${propName}', json(?)) WHERE id = ?`;
+          this.db.execute(sql, [JSON.stringify(newValue), nodeId]);
+
+          // Update the row object so subsequent iterations see the new value
+          (target as Record<string, unknown>)[propName] = newValue;
+        } else if (assignment.mergeProps) {
+          // SET n += {...}
+          if (typeof newValue === "object" && newValue !== null) {
+            const propsJson = JSON.stringify(newValue);
+            const sql = `UPDATE ${table} SET properties = json_patch(properties, ?) WHERE id = ?`;
+            this.db.execute(sql, [propsJson, nodeId]);
+          }
+        } else if (assignment.replaceProps) {
+          // SET n = {...}
+          if (typeof newValue === "object" && newValue !== null) {
+            const propsJson = JSON.stringify(newValue);
+            const sql = `UPDATE ${table} SET properties = ? WHERE id = ?`;
+            this.db.execute(sql, [propsJson, nodeId]);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Execute CREATE within FOREACH context using Map-based row.
+   */
+  private executeForeachCreateInRow(
+    clause: CreateClause,
+    row: Map<string, unknown>,
+    _params: Record<string, unknown>
+  ): void {
+    for (const pattern of clause.patterns) {
+      if (this.isRelationshipPattern(pattern)) {
+        const relPattern = pattern as RelationshipPattern;
+        const sourceNode = row.get(relPattern.source.variable ?? "") as { _id: number } | undefined;
+        const targetNode = row.get(relPattern.target.variable ?? "") as { _id: number } | undefined;
+
+        if (sourceNode?._id && targetNode?._id && relPattern.edge.type) {
+          const props = relPattern.edge.properties || {};
+          const propsJson = JSON.stringify(props);
+          this.db.execute(
+            "INSERT INTO edges (source, target, type, properties) VALUES (?, ?, ?, ?)",
+            [sourceNode._id, targetNode._id, relPattern.edge.type, propsJson]
+          );
+        }
+      } else {
+        const nodePattern = pattern as NodePattern;
+        const label = nodePattern.label;
+        const labels = Array.isArray(label) ? label : (label ? [label] : []);
+        const props = nodePattern.properties || {};
+        const propsJson = JSON.stringify(props);
+        const labelsJson = JSON.stringify(labels);
+
+        const result = this.db.execute(
+          "INSERT INTO nodes (labels, properties) VALUES (?, ?)",
+          [labelsJson, propsJson]
+        );
+
+        if (nodePattern.variable && result.lastInsertRowid) {
+          row.set(nodePattern.variable, {
+            _id: result.lastInsertRowid,
+            _labels: labels,
+            ...props,
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Execute DELETE within FOREACH context using Map-based row.
+   */
+  private executeForeachDeleteInRow(
+    clause: DeleteClause,
+    row: Map<string, unknown>
+  ): void {
+    if (!clause.expressions) return;
+    
+    for (const expr of clause.expressions) {
+      if (expr.type === "variable" && expr.variable) {
+        const target = row.get(expr.variable) as { _id?: number; _labels?: string[] } | undefined;
+        if (target?._id !== undefined) {
+          const isNode = "_labels" in target;
+          if (isNode) {
+            if (clause.detach) {
+              this.db.execute("DELETE FROM edges WHERE source = ? OR target = ?", [target._id, target._id]);
+            }
+            this.db.execute("DELETE FROM nodes WHERE id = ?", [target._id]);
+          } else {
+            this.db.execute("DELETE FROM edges WHERE id = ?", [target._id]);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Execute SET clause within PhaseContext (not inside FOREACH iteration).
+   */
+  private executeForeachSetClause(
+    clause: SetClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): void {
+    for (const row of context.rows) {
+      this.executeForeachSetInRow(clause, row, params);
+    }
+  }
+
+  /**
+   * Execute RETURN clause for FOREACH execution path.
+   */
+  private executeForeachReturn(
+    clause: ReturnClause,
+    context: PhaseContext,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] {
+    const resultRows: Record<string, unknown>[] = [];
+
+    for (const row of context.rows) {
+      const resultRow: Record<string, unknown> = {};
+
+      for (const item of clause.items) {
+        const alias = item.alias || this.getForeachExpressionName(item.expression);
+        const value = this.evaluateExpressionInRow(item.expression, row, params);
+        resultRow[alias] = value;
+      }
+
+      resultRows.push(resultRow);
+    }
+
+    return resultRows;
+  }
+
+  /**
+   * Get expression name for FOREACH return aliases.
+   */
+  private getForeachExpressionName(expr: Expression): string {
+    switch (expr.type) {
+      case "variable":
+        return expr.variable || "value";
+      case "property":
+        return `${expr.variable}.${expr.property}`;
+      case "function":
+        return expr.functionName?.toLowerCase() || "value";
+      default:
+        return "value";
     }
   }
 

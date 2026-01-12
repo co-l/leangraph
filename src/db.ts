@@ -577,11 +577,21 @@ function registerCypherFunctions(db: Database.Database): void {
 
   // cypher_regex: Regex matching for =~ operator
   // Returns: 1 if pattern matches, 0 if not, null if either operand is null
+  // Supports inline modifiers like (?i) for case-insensitive matching
   db.function("cypher_regex", { deterministic: true }, (str: unknown, pattern: unknown) => {
     if (str === null || str === undefined || pattern === null || pattern === undefined) return null;
     if (typeof str !== "string" || typeof pattern !== "string") return 0;
     try {
-      const regex = new RegExp(pattern);
+      // Extract inline modifiers like (?i) (?m) (?s) from pattern start
+      // JavaScript doesn't support inline modifiers, so convert to flags
+      let flags = "";
+      let actualPattern = pattern;
+      const modifierMatch = pattern.match(/^\(\?([imsu]+)\)/);
+      if (modifierMatch) {
+        flags = modifierMatch[1];
+        actualPattern = pattern.slice(modifierMatch[0].length);
+      }
+      const regex = new RegExp(actualPattern, flags);
       return regex.test(str) ? 1 : 0;
     } catch {
       // Invalid regex pattern

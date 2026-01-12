@@ -4746,5 +4746,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].rx).toBe(true);
       });
     });
+
+    describe("Regex case insensitive in RETURN", () => {
+      it("evaluates case insensitive regex with (?i) flag", async () => {
+        const result = await exec("RETURN 'Hello' =~ '(?i)hello' as match");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].match).toBe(true);
+      });
+    });
   });
 });

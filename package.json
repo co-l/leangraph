@@ -36,7 +36,10 @@
     "benchmark": "node --import tsx benchmark/src/run.ts",
     "benchmark:report": "node --import tsx benchmark/src/report.ts",
     "benchmark:compare": "node --import tsx benchmark/src/compare.ts",
-    "benchmark:analyze": "node --import tsx benchmark/src/analyze.ts"
+    "benchmark:analyze": "node --import tsx benchmark/src/analyze.ts",
+    "fuzz:docker": "docker compose -f test/fuzzing/docker-compose.yml up -d",
+    "fuzz:run": "npx tsx test/fuzzing/runner.ts",
+    "fuzz:stop": "docker compose -f test/fuzzing/docker-compose.yml down"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
@@ -55,6 +58,8 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.0.16",
+    "better-sqlite3": "^12.6.0",
+    "neo4j-driver": "^6.0.1",
     "tsx": "^4.0.0",
     "typescript": "^5.3.0",
     "vitest": "^4.0.16"

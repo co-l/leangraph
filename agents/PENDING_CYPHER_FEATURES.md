@@ -4,7 +4,7 @@
 
 This guide covers Cypher features that work in Neo4j 3.5 but are not yet implemented in LeanGraph. These were discovered through integration testing in real-world projects.
 
-All pending tests are in `/home/conrad/tmp/leangraph-test/failures.json` where 'status'='failure'
+All pending tests are in `test/fuzzing/failures.json` where 'status'='fail'
 
 ## TDD Workflow
 
@@ -82,8 +82,7 @@ npm test
 
 ### 6. Update the JSON file
 
-Set the 'status' of the fixed test as 'resolved'
- in /home/conrad/tmp/leangraph-test/failures.json
+Set the 'status' of the fixed test to 'resolved' in `test/fuzzing/failures.json`
 
 ### 6. Commit & push
 

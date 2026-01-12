@@ -1,0 +1,16 @@
+services:
+  neo4j:
+    image: neo4j:3.5
+    container_name: leangraph-fuzz-neo4j
+    ports:
+      - "7689:7687"  # Bolt protocol (different port to avoid conflicts)
+      - "7475:7474"  # HTTP browser
+    environment:
+      NEO4J_AUTH: neo4j/fuzztest
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 512m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

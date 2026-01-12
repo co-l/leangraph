@@ -4805,5 +4805,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].hasB).toBe(false);
       });
     });
+
+    describe("Chained comparison (BETWEEN)", () => {
+      it("supports chained comparison 1 <= n <= 10", async () => {
+        const result = await exec("WITH 5 as n RETURN 1 <= n <= 10 as inRange");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].inRange).toBe(true);
+      });
+    });
   });
 });

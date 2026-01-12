@@ -2677,25 +2677,43 @@ export class Parser {
     return this.parseComparisonExpression();
   }
 
-  // Handle comparison operators
+  // Handle comparison operators (including chained comparisons like 1 <= n <= 10)
   private parseComparisonExpression(): Expression {
     let left = this.parseIsNullExpression();
 
     // Check for comparison operators
-    const opToken = this.peek();
-    let comparisonOperator: "=" | "<>" | "<" | ">" | "<=" | ">=" | undefined;
+    const getComparisonOperator = (): "=" | "<>" | "<" | ">" | "<=" | ">=" | undefined => {
+      const opToken = this.peek();
+      if (opToken.type === "EQUALS") return "=";
+      if (opToken.type === "NOT_EQUALS") return "<>";
+      if (opToken.type === "LT") return "<";
+      if (opToken.type === "GT") return ">";
+      if (opToken.type === "LTE") return "<=";
+      if (opToken.type === "GTE") return ">=";
+      return undefined;
+    };
 
-    if (opToken.type === "EQUALS") comparisonOperator = "=";
-    else if (opToken.type === "NOT_EQUALS") comparisonOperator = "<>";
-    else if (opToken.type === "LT") comparisonOperator = "<";
-    else if (opToken.type === "GT") comparisonOperator = ">";
-    else if (opToken.type === "LTE") comparisonOperator = "<=";
-    else if (opToken.type === "GTE") comparisonOperator = ">=";
+    let comparisonOperator = getComparisonOperator();
 
     if (comparisonOperator) {
       this.advance();
-      const right = this.parseIsNullExpression();
-      return { type: "comparison", comparisonOperator, left, right };
+      let middle = this.parseIsNullExpression();
+      let result: Expression = { type: "comparison", comparisonOperator, left, right: middle };
+
+      // Check for chained comparisons like 1 <= n <= 10
+      // This should be parsed as (1 <= n) AND (n <= 10)
+      let nextOp = getComparisonOperator();
+      while (nextOp) {
+        this.advance();
+        const right = this.parseIsNullExpression();
+        // Chain: (previous result) AND (middle op right)
+        const newComparison: Expression = { type: "comparison", comparisonOperator: nextOp, left: middle, right };
+        result = { type: "binary", operator: "AND", left: result, right: newComparison };
+        // For further chains, the 'right' becomes the new 'middle'
+        middle = right;
+        nextOp = getComparisonOperator();
+      }
+      return result;
     }
 
     return left;

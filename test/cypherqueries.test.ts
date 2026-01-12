@@ -4474,5 +4474,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].stddev).toBeCloseTo(1.4142, 3);
       });
     });
+
+    describe("String functions", () => {
+      it("supports size() on string", async () => {
+        // size('hello') should return 5 (string length)
+        const result = await exec("RETURN size('hello') as len");
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].len).toBe(5);
+      });
+    });
   });
 });

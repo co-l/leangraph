@@ -6304,13 +6304,18 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         // List functions
         // ============================================================================
 
-        // SIZE: get length of array
+        // SIZE: get length of array or string
         if (expr.functionName === "SIZE") {
           if (expr.args && expr.args.length > 0) {
             const argResult = this.translateFunctionArg(expr.args[0]);
             tables.push(...argResult.tables);
+            // Push params 4 times since the arg is referenced 4 times in the CASE expression
             params.push(...argResult.params);
-            return { sql: `json_array_length(${argResult.sql})`, tables, params };
+            params.push(...argResult.params);
+            params.push(...argResult.params);
+            params.push(...argResult.params);
+            // Handle both strings and arrays: use json_array_length for valid JSON arrays, length() otherwise
+            return { sql: `CASE WHEN json_valid(${argResult.sql}) AND json_type(${argResult.sql}) = 'array' THEN json_array_length(${argResult.sql}) ELSE length(${argResult.sql}) END`, tables, params };
           }
           throw new Error("size requires an argument");
         }

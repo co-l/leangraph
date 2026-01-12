@@ -4922,5 +4922,22 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].c).toBe(-1);
       });
     });
+
+    describe("CREATE with relationship variable in RETURN", () => {
+      it("returns relationship variable from CREATE pattern", async () => {
+        // CREATE (a)-[r]->(b) RETURN a, r, b should return all 3 variables
+        const result = await exec("CREATE (a:Company)-[r:KNOWS]->(b:Company) RETURN a, r, b");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].a).toBeDefined();
+        expect(result.data[0].r).toBeDefined();
+        expect(result.data[0].b).toBeDefined();
+
+        // Verify relationship has correct type
+        const rel = result.data[0].r as Record<string, unknown>;
+        expect(rel._type).toBe("relationship");
+        expect(rel.type).toBe("KNOWS");
+      });
+    });
   });
 });

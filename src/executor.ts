@@ -6776,7 +6776,7 @@ export class Executor {
         const id = createdIds.get(variable);
         
         if (id) {
-          // Query the node
+          // Try nodes first
           const nodeResult = this.db.execute(
             "SELECT id, label, properties FROM nodes WHERE id = ?",
             [id]
@@ -6786,6 +6786,25 @@ export class Executor {
             const row = nodeResult.rows[0];
             // Neo4j 3.5 format: return properties directly
             resultRow[alias] = this.getNodeProperties(row.id as string, row.properties as string | object);
+          } else {
+            // Try edges if not found in nodes (relationship variable)
+            const edgeResult = this.db.execute(
+              "SELECT id, type, properties FROM edges WHERE id = ?",
+              [id]
+            );
+            
+            if (edgeResult.rows.length > 0) {
+              const row = edgeResult.rows[0];
+              const props = typeof row.properties === "string" 
+                ? JSON.parse(row.properties) 
+                : row.properties || {};
+              // Return relationship in Neo4j format
+              resultRow[alias] = {
+                _type: "relationship",
+                type: row.type,
+                properties: props
+              };
+            }
           }
         }
       } else if (item.expression.type === "property") {

@@ -82,7 +82,7 @@
     "query": "CREATE (a:Company)-[r:KNOWS]->(b:Company) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -124,7 +124,7 @@
     "query": "CREATE (a:Person)-[r:FRIENDS_WITH]->(b:Person) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -166,7 +166,7 @@
     "query": "CREATE (a:Actor)-[r:WORKS_FOR]->(b:Actor) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -943,7 +943,7 @@
     "query": "CREATE (a:Company)-[r:WORKS_FOR]->(b:Company) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1016,7 +1016,7 @@
     "query": "CREATE (a:Company)-[r:FRIENDS_WITH]->(b:Company) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1104,7 +1104,7 @@
     "query": "CREATE (a:Movie)-[r:FRIENDS_WITH]->(b:Movie) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1146,7 +1146,7 @@
     "query": "CREATE (a:Actor)-[r:DIRECTED]->(b:Actor) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1234,7 +1234,7 @@
     "query": "CREATE (a:Person)-[r:DIRECTED]->(b:Person) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1276,7 +1276,7 @@
     "query": "CREATE (a:Person)-[r:WORKS_FOR]->(b:Person) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1318,7 +1318,7 @@
     "query": "CREATE (a:Person)-[r:ACTED_IN]->(b:Person) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1360,7 +1360,7 @@
     "query": "CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1430,7 +1430,7 @@
     "query": "CREATE (a:Movie)-[r:KNOWS]->(b:Movie) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1503,7 +1503,7 @@
     "query": "CREATE (a:Company)-[r:ACTED_IN]->(b:Company) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1545,7 +1545,7 @@
     "query": "CREATE (a:Director)-[r:DIRECTED]->(b:Director) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1641,7 +1641,7 @@
     "query": "CREATE (a:Director)-[r:ACTED_IN]->(b:Director) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1683,7 +1683,7 @@
     "query": "CREATE (a:Actor)-[r:FRIENDS_WITH]->(b:Actor) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2180,7 +2180,7 @@
     "query": "CREATE (a:Director)-[r:WORKS_FOR]->(b:Director) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2283,7 +2283,7 @@
     "query": "CREATE (a:Director)-[r:FRIENDS_WITH]->(b:Director) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

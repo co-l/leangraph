@@ -4078,4 +4078,182 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data[0].age).toBe(30);
     });
   });
+
+  /**
+   * Pending Cypher Features
+   * 
+   * These tests document Cypher features that work in Neo4j 3.5 but are not yet
+   * implemented in LeanGraph. Tests are skipped to keep CI green while tracking
+   * what needs to be implemented.
+   * 
+   * Source: External project integration testing against LeanGraph
+   */
+  describe("Pending Cypher Features", () => {
+    // ============================================
+    // PARSER / SYNTAX FEATURES
+    // ============================================
+    describe("Parser Features", () => {
+      it.skip("supports regex operator =~", async () => {
+        // Current error: "Unexpected character '~' at position 35"
+        await exec(`CREATE (p:TestPerson {name: 'Bob'})`);
+
+        const result = await exec(`MATCH (p:TestPerson) WHERE p.name =~ '.*ob' RETURN p.name`);
+
+        expect(result.data).toEqual([{ "p.name": "Bob" }]);
+      });
+
+      it.skip("supports reduce() function", async () => {
+        // Current error: "Expected RPAREN, got PIPE '|'"
+        const result = await exec(`RETURN reduce(acc = 0, x IN [1,2,3,4] | acc + x) as sum`);
+
+        expect(result.data).toEqual([{ sum: 10 }]);
+      });
+
+      it.skip("supports filter() function", async () => {
+        // Current error: "Expected RPAREN, got KEYWORD 'WHERE'"
+        const result = await exec(`RETURN filter(x IN [1,2,3,4,5] WHERE x > 2) as filtered`);
+
+        expect(result.data).toEqual([{ filtered: [3, 4, 5] }]);
+      });
+
+      it.skip("supports extract() function", async () => {
+        // Current error: "Expected RPAREN, got PIPE '|'"
+        await exec(`CREATE (p:TestPerson {name: 'Alice'})`);
+        await exec(`CREATE (p:TestPerson {name: 'Bob'})`);
+
+        const result = await exec(
+          `MATCH (p:TestPerson) WITH collect(p) as people RETURN extract(person IN people | person.name) as names`
+        );
+
+        expect(result.data[0].names).toContain("Alice");
+        expect(result.data[0].names).toContain("Bob");
+      });
+
+      it.skip("supports shortestPath() function", async () => {
+        // Current error: "Expected LPAREN, got IDENTIFIER 'shortestPath'"
+        await exec(
+          `CREATE (a:TestNode {name: 'A'})-[:LINK]->(:TestNode {name: 'B'})-[:LINK]->(:TestNode {name: 'C'})`
+        );
+
+        const result = await exec(
+          `MATCH p = shortestPath((a:TestNode {name: 'A'})-[:LINK*..5]->(c:TestNode {name: 'C'})) RETURN length(p) as len`
+        );
+
+        expect(result.data).toEqual([{ len: 2 }]);
+      });
+
+      it.skip("supports FOREACH clause", async () => {
+        // Current error: "Unexpected token 'FOREACH', expected a clause keyword"
+        const result = await exec(
+          `CREATE (n:TestCounter {val: 0}) WITH n FOREACH (i IN range(1,3) | SET n.val = n.val + 1) RETURN n.val`
+        );
+
+        expect(result.data).toEqual([{ "n.val": 3 }]);
+      });
+    });
+
+    // ============================================
+    // EXPRESSION CONTEXT FEATURES
+    // ============================================
+    describe("Expression Context", () => {
+      it.skip("handles CASE WHEN in WHERE clause", async () => {
+        // Current error: "Unknown expression type in WHERE: case"
+        await exec(`CREATE (p:TestPerson {name: 'Alice', age: 30})`);
+        await exec(`CREATE (p:TestPerson {name: 'Bob', age: 25})`);
+
+        const result = await exec(
+          `MATCH (p:TestPerson) WHERE CASE WHEN p.age > 28 THEN true ELSE false END = true RETURN p.name`
+        );
+
+        expect(result.data).toEqual([{ "p.name": "Alice" }]);
+      });
+
+      it.skip("handles CASE WHEN in SET clause", async () => {
+        // Current error: "Cannot evaluate expression of type case"
+        await exec(`CREATE (p:TestPerson {name: 'Alice', age: 30})`);
+
+        await exec(
+          `MATCH (p:TestPerson {name: 'Alice'}) SET p.category = CASE WHEN p.age > 25 THEN 'adult' ELSE 'young' END`
+        );
+
+        const result = await exec(`MATCH (p:TestPerson {name: 'Alice'}) RETURN p.category`);
+        expect(result.data).toEqual([{ "p.category": "adult" }]);
+      });
+
+      it.skip("handles exists() with pattern expression in RETURN", async () => {
+        // Current error: "Expected expression, got COLON ':'"
+        await exec(`CREATE (a:TestPerson {name: 'Alice'})-[:KNOWS]->(:TestPerson {name: 'Bob'})`);
+        await exec(`CREATE (c:TestPerson {name: 'Charlie'})`);
+
+        const result = await exec(
+          `MATCH (p:TestPerson) RETURN p.name, exists((p)-[:KNOWS]->()) as hasConnections ORDER BY p.name`
+        );
+
+        expect(result.data).toHaveLength(3);
+        // Alice has outgoing KNOWS
+        expect(result.data.find((r: any) => r["p.name"] === "Alice")?.hasConnections).toBe(true);
+        // Bob and Charlie have no outgoing KNOWS
+        expect(result.data.find((r: any) => r["p.name"] === "Bob")?.hasConnections).toBe(false);
+        expect(result.data.find((r: any) => r["p.name"] === "Charlie")?.hasConnections).toBe(false);
+      });
+    });
+
+    // ============================================
+    // RUNTIME / EXECUTION FEATURES
+    // ============================================
+    describe("Runtime Behaviors", () => {
+      it.skip("handles OPTIONAL MATCH + DELETE when optional has no match", async () => {
+        // Current error: "no such column: n0.id"
+        const result = await exec(
+          `CREATE (n:TestTemp {id: 'temp1'}) WITH n OPTIONAL MATCH (n)-[r:FAKE]->() DELETE n RETURN count(*) as deleted`
+        );
+
+        expect(result.data).toEqual([{ deleted: 1 }]);
+      });
+
+      it.skip("handles UNWIND combined with MATCH", async () => {
+        // Current error: "Too few parameter values were provided"
+        await exec(`CREATE (p:TestPerson {name: 'Alice', age: 30})`);
+        await exec(`CREATE (p:TestPerson {name: 'Bob', age: 25})`);
+
+        const result = await exec(
+          `UNWIND ['Alice', 'Bob'] as name MATCH (p:TestPerson {name: name}) RETURN p.age`
+        );
+
+        expect(result.data).toHaveLength(2);
+        expect(result.data).toContainEqual({ "p.age": 30 });
+        expect(result.data).toContainEqual({ "p.age": 25 });
+      });
+
+      it.skip("supports negative list indexing", async () => {
+        // Current error: "bad JSON path: '$[-1]'"
+        const result = await exec(`RETURN [1,2,3][0] as first, [1,2,3][-1] as last`);
+
+        expect(result.data).toEqual([{ first: 1, last: 3 }]);
+      });
+
+      it.skip("supports duration() function", async () => {
+        // Current error: "Too many parameter values were provided"
+        const result = await exec(`RETURN duration('P1D') as oneDay`);
+
+        expect(result.data).toHaveLength(1);
+        // Duration objects have a specific structure
+        expect(result.data[0].oneDay).toBeDefined();
+      });
+    });
+
+    // ============================================
+    // MISSING FUNCTIONS
+    // ============================================
+    describe("Missing Functions", () => {
+      it.skip("supports sign() function", async () => {
+        // Current error: "Unknown function: SIGN"
+        const result = await exec(
+          `RETURN abs(-5) as a, ceil(1.3) as c, floor(1.7) as f, round(1.5) as r, sign(-10) as s`
+        );
+
+        expect(result.data).toEqual([{ a: 5, c: 2, f: 1, r: 2, s: -1 }]);
+      });
+    });
+  });
 });

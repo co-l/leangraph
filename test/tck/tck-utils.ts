@@ -119,7 +119,8 @@ export function valuesMatch(expected: unknown, actual: unknown): boolean {
     return actual === null || actual === undefined;
   }
   
-  // Handle booleans - SQLite returns 1/0 for true/false
+  // Handle booleans - LeanGraph returns proper true/false booleans
+  // (fallback to 1/0 integer comparison for backwards compatibility)
   if (typeof expected === "boolean") {
     if (typeof actual === "boolean") {
       return expected === actual;

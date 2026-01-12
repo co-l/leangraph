@@ -4521,7 +4521,7 @@ export class Translator {
           return { sql: "?", params: [expr.value] };
         }
         if (typeof expr.value === "boolean") {
-          return { sql: expr.value ? "1" : "0", params };
+          return { sql: expr.value ? "json('true')" : "json('false')", params };
         }
         if (expr.value === null) {
           return { sql: "NULL", params };
@@ -9236,8 +9236,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (Array.isArray(expr.value)) {
           return this.translateArrayLiteral(expr.value);
         }
-        // Convert booleans to 1/0 for SQLite
-        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+        // Return JSON booleans to preserve boolean type in results
+        if (expr.value === true) {
+          return { sql: "json('true')", tables, params };
+        }
+        if (expr.value === false) {
+          return { sql: "json('false')", tables, params };
+        }
+        const value = expr.value;
         // Preserve float-literal formatting (e.g., 0.0, -0.0, 1.0) so SQLite treats them as REAL.
         if (typeof value === "number" && expr.numberLiteralKind === "float" && expr.raw) {
           return { sql: expr.raw, tables, params };
@@ -9286,7 +9292,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
 
       case "listPredicate": {
-        return this.translateListPredicate(expr);
+        // Wrap list predicate result with cypher_to_json_bool for proper boolean output in RETURN
+        // translateListPredicate returns 0/1 for SQLite WHERE compatibility
+        const result = this.translateListPredicate(expr);
+        return {
+          sql: `cypher_to_json_bool(${result.sql})`,
+          tables: result.tables,
+          params: result.params,
+        };
       }
 
       case "unary": {
@@ -9389,7 +9402,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (listExpr.type === "literal" && Array.isArray(listExpr.value)) {
           const values = listExpr.value as unknown[];
           if (values.length === 0) {
-            return { sql: "0", tables, params }; // false for empty list
+            return { sql: "json('false')", tables, params }; // false for empty list
           }
           
           // Check if RHS contains complex types (nested arrays/objects)
@@ -9421,24 +9434,24 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                   // Both LHS and RHS involve null - always NULL
                   return { sql: `NULL`, tables, params };
                 }
-                // If LHS contains null, finding a JSON match means comparing null=null → return NULL
-                params.push(rhsJson, lhsJson);
-                return {
-                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)) THEN NULL ELSE 0 END`,
-                  tables,
-                  params,
-                };
-              }
-              
-              if (rhsHasTopLevelNull) {
-                // If RHS has top-level null and no match, return NULL
-                params.push(rhsJson, lhsJson);
-                return {
-                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)) THEN 1 ELSE NULL END`,
-                  tables,
-                  params,
-                };
-              }
+              // If LHS contains null, finding a JSON match means comparing null=null → return NULL
+              params.push(rhsJson, lhsJson);
+              return {
+                sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)) THEN NULL ELSE json('false') END`,
+                tables,
+                params,
+              };
+            }
+            
+            if (rhsHasTopLevelNull) {
+              // If RHS has top-level null and no match, return NULL
+              params.push(rhsJson, lhsJson);
+              return {
+                sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)) THEN json('true') ELSE NULL END`,
+                tables,
+                params,
+              };
+            }
               
               // If RHS contains nested nulls (e.g., [[null, 2]]) we need element-wise comparison
               // to determine if the result should be null (potential match with null) or false (definite mismatch)
@@ -9451,7 +9464,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 params.push(lhsJson, rhsJson);
                 return {
                   sql: `(SELECT CASE 
-                    WHEN EXISTS(SELECT 1 FROM json_each(rhs_param.v) WHERE json(value) = json(lhs_param.v)) THEN 1
+                    WHEN EXISTS(SELECT 1 FROM json_each(rhs_param.v) WHERE json(value) = json(lhs_param.v)) THEN json('true')
                     WHEN EXISTS(
                       SELECT 1 FROM (
                         SELECT rhs.rowid,
@@ -9465,7 +9478,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                         GROUP BY rhs.rowid
                       ) WHERE mismatches = 0 AND nulls > 0
                     ) THEN NULL
-                    ELSE 0
+                    ELSE json('false')
                   END FROM (SELECT ? AS v) AS lhs_param, (SELECT ? AS v) AS rhs_param)`,
                   tables,
                   params,
@@ -9475,7 +9488,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               // No null semantics needed - simple JSON comparison
               params.push(rhsJson, lhsJson);
               return {
-                sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?))`,
+                sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)))`,
                 tables,
                 params,
               };
@@ -9490,21 +9503,21 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             params.push(rhsJson);
             params.push(...leftResult.params);
             
-            // When LHS is a scalar expression (like comparison result), don't use json() wrapper
-            // because SQLite UDF returns real type and json(0.0) != json(0) 
-            // Use direct value comparison which handles int/real equality correctly
+            // When LHS is a scalar expression (like comparison result), use cypher_bool_eq
+            // to handle type mismatches between JSON boolean strings ('true'/'false') and integers (1/0)
             const useDirectComparison = !leftIsComplex;
             
             if (rhsHasTopLevelNull) {
               if (useDirectComparison) {
+                // Check for exact match first, then check for null comparison
                 return {
-                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE value = ${leftResult.sql}) THEN 1 ELSE NULL END`,
+                  sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE cypher_bool_eq(value, ${leftResult.sql}) = 1) THEN json('true') WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE cypher_bool_eq(value, ${leftResult.sql}) IS NULL) THEN NULL ELSE json('false') END`,
                   tables,
-                  params,
+                  params: [...params, ...params],  // Duplicate for two json_each usages
                 };
               }
               return {
-                sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql})) THEN 1 ELSE NULL END`,
+                sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql})) THEN json('true') ELSE NULL END`,
                 tables,
                 params,
               };
@@ -9512,28 +9525,46 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             
             if (useDirectComparison) {
               return {
-                sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE value = ${leftResult.sql})`,
+                sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(?) WHERE cypher_bool_eq(value, ${leftResult.sql})))`,
                 tables,
                 params,
               };
             }
             return {
-              sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql}))`,
+              sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql})))`,
               tables,
               params,
             };
           }
           
-          // Simple scalar values - translate LHS and use SQL IN clause
+          // Simple scalar values - use json_each with cypher_bool_eq for type-safe comparison
+          // This handles cases where LHS is json('true') (string) and RHS values are integers (1, 0)
           const leftResult = this.translateExpression(leftExpr);
           tables.push(...leftResult.tables);
-          params.push(...leftResult.params);
-          const placeholders = values.map(() => "?").join(", ");
-          params.push(...toSqliteParams(values));
+          const rhsJson = JSON.stringify(values);
           // Wrap left side in extra parentheses to ensure correct precedence (e.g., NOT has lower precedence than IN in SQL)
           const leftSql = leftExpr.type === "unary" ? `(${leftResult.sql})` : leftResult.sql;
+          
+          // Cypher null semantics: if RHS has top-level null and no exact match is found, return null
+          // e.g., null IN [null] returns null (unknown), not false
+          // e.g., 1 IN [2, null] returns null (unknown) because null could be 1
+          if (hasTopLevelNull(values)) {
+            // IMPORTANT: params order must match SQL placeholder order
+            // SQL: json_each(?) ... ${leftSql} ... json_each(?) ... cypher_bool_eq(${leftSql}, value)
+            params.push(rhsJson, ...leftResult.params, rhsJson, ...leftResult.params);
+            return {
+              sql: `CASE WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE value = ${leftSql}) THEN json('true') WHEN EXISTS(SELECT 1 FROM json_each(?) WHERE cypher_bool_eq(${leftSql}, value) IS NULL) THEN NULL ELSE json('false') END`,
+              tables,
+              params,
+            };
+          }
+          
+          // IMPORTANT: params order must match SQL placeholder order
+          // SQL: json_each(?) ... cypher_bool_eq(${leftSql}, value)
+          // So rhsJson comes first (for json_each), then leftResult.params (for ${leftSql})
+          params.push(rhsJson, ...leftResult.params);
           return {
-            sql: `(${leftSql} IN (${placeholders}))`,
+            sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(?) WHERE cypher_bool_eq(${leftSql}, value)))`,
             tables,
             params,
           };
@@ -9543,7 +9574,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           const paramValue = this.ctx.paramValues[listExpr.name!];
           if (Array.isArray(paramValue)) {
             if (paramValue.length === 0) {
-              return { sql: "0", tables, params }; // false for empty list
+              return { sql: "json('false')", tables, params }; // false for empty list
             }
             
             // Check if RHS contains complex types
@@ -9559,7 +9590,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
                 const lhsJson = JSON.stringify(leftExpr.value);
                 params.push(rhsJson, lhsJson);
                 return {
-                  sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?))`,
+                  sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(?)))`,
                   tables,
                   params,
                 };
@@ -9570,7 +9601,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               params.push(...leftResult.params);
               params.push(rhsJson);
               return {
-                sql: `EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql}))`,
+                sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(?) WHERE json(value) = json(${leftResult.sql})))`,
                 tables,
                 params,
               };
@@ -9585,7 +9616,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // Wrap left side in extra parentheses to ensure correct precedence (e.g., NOT has lower precedence than IN in SQL)
             const leftSql = leftExpr.type === "unary" ? `(${leftResult.sql})` : leftResult.sql;
             return {
-              sql: `(${leftSql} IN (${placeholders}))`,
+              sql: `cypher_to_json_bool(${leftSql} IN (${placeholders}))`,
               tables,
               params,
             };
@@ -9604,7 +9635,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           params.push(...listResult.params);
           params.push(lhsJson);
           return {
-            sql: `EXISTS(SELECT 1 FROM json_each(${listResult.sql}) WHERE json(value) = json(?))`,
+            sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(${listResult.sql}) WHERE json(value) = json(?)))`,
             tables,
             params,
           };
@@ -9618,7 +9649,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           params.push(...listResult.params);
           params.push(...leftResult.params);
           return {
-            sql: `EXISTS(SELECT 1 FROM json_each(${listResult.sql}) WHERE json(value) = json(${leftResult.sql}))`,
+            sql: `cypher_to_json_bool(EXISTS(SELECT 1 FROM json_each(${listResult.sql}) WHERE json(value) = json(${leftResult.sql})))`,
             tables,
             params,
           };
@@ -9633,7 +9664,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Wrap left side in extra parentheses to ensure correct precedence (e.g., NOT has lower precedence than IN in SQL)
         const leftSql = leftExpr.type === "unary" ? `(${leftResult.sql})` : leftResult.sql;
         return {
-          sql: `(${leftSql} IN (SELECT value FROM json_each(${listResult.sql})))`,
+          sql: `cypher_to_json_bool(${leftSql} IN (SELECT value FROM json_each(${listResult.sql})))`,
           tables,
           params,
         };
@@ -9660,7 +9691,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (stringOp === "CONTAINS") {
           // INSTR returns position (1-based) if found, 0 if not found
           return {
-            sql: `CASE WHEN ${isString(leftResult.sql)} AND ${isString(rightResult.sql)} THEN INSTR(${leftResult.sql}, ${rightResult.sql}) > 0 ELSE NULL END`,
+            sql: `CASE WHEN ${isString(leftResult.sql)} AND ${isString(rightResult.sql)} THEN cypher_to_json_bool(INSTR(${leftResult.sql}, ${rightResult.sql}) > 0) ELSE NULL END`,
             tables,
             // leftResult.sql appears 3 times, rightResult.sql appears 3 times
             params: [...leftResult.params, ...leftResult.params, ...rightResult.params, ...rightResult.params, ...leftResult.params, ...rightResult.params],
@@ -9668,7 +9699,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         } else if (stringOp === "STARTS WITH") {
           // Use SUBSTR for case-sensitive prefix match
           return {
-            sql: `CASE WHEN ${isString(leftResult.sql)} AND ${isString(rightResult.sql)} THEN SUBSTR(${leftResult.sql}, 1, LENGTH(${rightResult.sql})) = ${rightResult.sql} ELSE NULL END`,
+            sql: `CASE WHEN ${isString(leftResult.sql)} AND ${isString(rightResult.sql)} THEN cypher_to_json_bool(SUBSTR(${leftResult.sql}, 1, LENGTH(${rightResult.sql})) = ${rightResult.sql}) ELSE NULL END`,
             tables,
             // leftResult.sql appears 3 times, rightResult.sql appears 5 times
             params: [...leftResult.params, ...leftResult.params, ...rightResult.params, ...rightResult.params, ...leftResult.params, ...rightResult.params, ...rightResult.params],
@@ -9677,7 +9708,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           // ENDS WITH
           // Use CASE to handle: 1) type check 2) empty suffix edge case, 3) case-sensitive suffix match
           return {
-            sql: `CASE WHEN NOT (${isString(leftResult.sql)} AND ${isString(rightResult.sql)}) THEN NULL WHEN LENGTH(${rightResult.sql}) = 0 THEN 1 ELSE SUBSTR(${leftResult.sql}, -LENGTH(${rightResult.sql})) = ${rightResult.sql} END`,
+            sql: `CASE WHEN NOT (${isString(leftResult.sql)} AND ${isString(rightResult.sql)}) THEN NULL WHEN LENGTH(${rightResult.sql}) = 0 THEN json('true') ELSE cypher_to_json_bool(SUBSTR(${leftResult.sql}, -LENGTH(${rightResult.sql})) = ${rightResult.sql}) END`,
             tables,
             // leftResult.sql appears 4 times, rightResult.sql appears 6 times
             params: [...leftResult.params, ...leftResult.params, ...rightResult.params, ...rightResult.params, ...rightResult.params, ...leftResult.params, ...rightResult.params, ...rightResult.params],
@@ -9935,7 +9966,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // Use custom cypher_and/cypher_or functions for proper JSON boolean handling
       const func = expr.operator === "AND" ? "cypher_and" : "cypher_or";
       return {
-        sql: `${func}(${leftResult.sql}, ${rightResult.sql})`,
+        sql: `cypher_to_json_bool(${func}(${leftResult.sql}, ${rightResult.sql}))`,
         tables,
         params,
       };
@@ -9950,13 +9981,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const leftSql = leftResult.sql;
       const rightSql = rightResult.sql;
       // XOR with NULL semantics: (a XOR b) = (a AND NOT b) OR (NOT a AND b)
-      // This naturally handles NULL: if a is NULL, (a AND NOT b) is NULL or FALSE, (NOT a AND b) is NULL or FALSE
-      // NULL OR NULL = NULL, NULL OR FALSE = NULL, so result is NULL when either input is NULL
+      // Use cypher_* functions to handle both JSON booleans and integers properly
       // Note: params are duplicated because the formula uses each operand twice:
-      // ((left AND NOT right) OR (NOT left AND right))
       const xorParams = [...leftResult.params, ...rightResult.params, ...leftResult.params, ...rightResult.params];
       return {
-        sql: `((${leftSql} AND NOT ${rightSql}) OR (NOT ${leftSql} AND ${rightSql}))`,
+        sql: `cypher_to_json_bool(cypher_or(cypher_and(${leftSql}, cypher_not(${rightSql})), cypher_and(cypher_not(${leftSql}), ${rightSql})))`,
         tables,
         params: xorParams,
       };
@@ -10646,8 +10675,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (Array.isArray(expr.value)) {
           return this.translateArrayLiteral(expr.value as PropertyValue[]);
         }
-        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
-        params.push(value);
+        if (expr.value === true) {
+          return { sql: "json('true')", params };
+        }
+        if (expr.value === false) {
+          return { sql: "json('false')", params };
+        }
+        params.push(expr.value);
         return { sql: "?", params };
 
       case "property": {
@@ -10795,21 +10829,22 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const op = expr.comparisonOperator!;
       
       // For = and <>, NaN semantics always apply (return false/true respectively)
+      // Note: The expression appears twice in the CASE, so we need to duplicate params
       if (op === "=") {
         // NaN = anything is false (including NaN = NaN)
-        // If the comparison returns NULL (because of NaN), return false (0)
+        // If the comparison returns NULL (because of NaN), return false
         return {
-          sql: `COALESCE((${leftSql} ${op} ${rightSql}), 0)`,
+          sql: `CASE WHEN (${leftSql} ${op} ${rightSql}) IS NULL THEN json('false') WHEN (${leftSql} ${op} ${rightSql}) THEN json('true') ELSE json('false') END`,
           tables,
-          params,
+          params: [...params, ...params],
         };
       } else if (op === "<>") {
         // NaN <> anything is true (including NaN <> NaN)
-        // If the comparison returns NULL (because of NaN), return true (1)
+        // If the comparison returns NULL (because of NaN), return true
         return {
-          sql: `COALESCE((${leftSql} ${op} ${rightSql}), 1)`,
+          sql: `CASE WHEN (${leftSql} ${op} ${rightSql}) IS NULL THEN json('true') WHEN (${leftSql} ${op} ${rightSql}) THEN json('true') ELSE json('false') END`,
           tables,
-          params,
+          params: [...params, ...params],
         };
       } else {
         // For <, <=, >, >=: check if comparing to a non-numeric type
@@ -10822,9 +10857,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         } else {
           // NaN compared to numeric via range operators returns false
           return {
-            sql: `COALESCE((${leftSql} ${op} ${rightSql}), 0)`,
+            sql: `CASE WHEN (${leftSql} ${op} ${rightSql}) IS NULL THEN json('false') WHEN (${leftSql} ${op} ${rightSql}) THEN json('true') ELSE json('false') END`,
             tables,
-            params,
+            params: [...params, ...params],
           };
         }
       }
@@ -10845,7 +10880,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const func = opToFunc[expr.comparisonOperator!];
       
       return {
-        sql: `${func}(${leftSql}, ${rightSql})`,
+        sql: `cypher_to_json_bool(${func}(${leftSql}, ${rightSql}))`,
         tables,
         params,
       };
@@ -10861,7 +10896,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     if ((expr.comparisonOperator === "=" || expr.comparisonOperator === "<>") && needsCypherEquals) {
       if (expr.comparisonOperator === "=") {
         return {
-          sql: `cypher_equals(${leftSql}, ${rightSql})`,
+          sql: `cypher_to_json_bool(cypher_equals(${leftSql}, ${rightSql}))`,
           tables,
           params,
         };
@@ -10869,15 +10904,33 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // <> is NOT equals: invert the result, but preserve null
         // We need to duplicate params because cypher_equals appears twice in the SQL
         return {
-          sql: `CASE WHEN cypher_equals(${leftSql}, ${rightSql}) IS NULL THEN NULL WHEN cypher_equals(${leftSql}, ${rightSql}) = 1 THEN 0 ELSE 1 END`,
+          sql: `CASE WHEN cypher_equals(${leftSql}, ${rightSql}) IS NULL THEN NULL WHEN cypher_equals(${leftSql}, ${rightSql}) = 1 THEN json('false') ELSE json('true') END`,
           tables,
           params: [...params, ...params],
         };
       }
     }
 
+    // For equality comparisons, use cypher_bool_eq to handle mixed boolean representations
+    // (JSON boolean strings 'true'/'false' vs SQLite integers 1/0)
+    if (expr.comparisonOperator === "=") {
+      return {
+        sql: `cypher_to_json_bool(cypher_bool_eq(${leftSql}, ${rightSql}))`,
+        tables,
+        params,
+      };
+    }
+    if (expr.comparisonOperator === "<>") {
+      // <> is NOT equals: use cypher_bool_eq and invert the result
+      return {
+        sql: `cypher_to_json_bool(CASE WHEN cypher_bool_eq(${leftSql}, ${rightSql}) IS NULL THEN NULL ELSE 1 - cypher_bool_eq(${leftSql}, ${rightSql}) END)`,
+        tables,
+        params: [...params, ...params],  // Duplicate params for the two uses
+      };
+    }
+    
     return {
-      sql: `(${leftSql} ${expr.comparisonOperator} ${rightSql})`,
+      sql: `cypher_to_json_bool(${leftSql} ${expr.comparisonOperator} ${rightSql})`,
       tables,
       params,
     };
@@ -11382,9 +11435,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (expr.value === null) {
           return { sql: "NULL", params };
         }
-        // Convert booleans to 1/0 for SQLite (SQLite can only bind numbers, strings, bigints, buffers, and null)
-        const literalValue = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
-        params.push(literalValue);
+        // Use 0/1 for booleans in list comprehension context (used in WHERE clauses)
+        if (expr.value === true) {
+          return { sql: "1", params };
+        }
+        if (expr.value === false) {
+          return { sql: "0", params };
+        }
+        params.push(expr.value);
         return { sql: "?", params };
         
       case "parameter": {
@@ -11530,10 +11588,34 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       case "expression": {
         // Handle bare expressions used as boolean conditions (e.g., all(x IN list WHERE x))
+        // Need to convert JSON boolean strings to integers for SQLite WHERE clause evaluation
+        // JSON booleans in collected arrays are stored as strings "true"/"false" which SQLite
+        // treats as falsy (value 0) since they're not integers
         const exprResult = this.translateListComprehensionExpr(condition.left!, compVar, tableAlias, scopes);
+        // Wrap with CASE to handle JSON boolean strings, integers, and regular values
+        // - JSON "true" string -> 1
+        // - JSON "false" string -> 0
+        // - JSON true literal (rarely occurs) -> 1
+        // - JSON false literal (rarely occurs) -> 0
+        // - Integer 1 -> 1 (already truthy)
+        // - Integer 0 -> 0 (already falsy)
+        // - NULL -> NULL
+        // - Other truthy values pass through
+        const wrappedSql = `(CASE WHEN ${exprResult.sql} = 'true' OR ${exprResult.sql} = 1 OR ${exprResult.sql} IS TRUE THEN 1 WHEN ${exprResult.sql} = 'false' OR ${exprResult.sql} = 0 OR ${exprResult.sql} IS FALSE THEN 0 WHEN ${exprResult.sql} IS NULL THEN NULL ELSE ${exprResult.sql} END)`;
+        // Need to duplicate params for each use of exprResult.sql (6 uses total)
+        const allParams = [
+          ...exprResult.params, // first condition check (= 'true')
+          ...exprResult.params, // second condition check (= 1)
+          ...exprResult.params, // third condition check (IS TRUE)
+          ...exprResult.params, // fourth condition check (= 'false')
+          ...exprResult.params, // fifth condition check (= 0)
+          ...exprResult.params, // sixth condition check (IS FALSE)
+          ...exprResult.params, // seventh condition check (IS NULL)
+          ...exprResult.params, // ELSE fallback
+        ];
         return {
-          sql: exprResult.sql,
-          params: exprResult.params,
+          sql: wrappedSql,
+          params: allParams,
         };
       }
       
@@ -12000,7 +12082,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       // Use custom cypher_not function that properly handles JSON booleans and integers
       return {
-        sql: `cypher_not(${operandResult.sql})`,
+        sql: `cypher_to_json_bool(cypher_not(${operandResult.sql}))`,
         tables,
         params,
       };
@@ -13112,7 +13194,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         };
       }
       case "literal": {
-        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+        // Return JSON booleans to preserve boolean type in results
+        if (expr.value === true) {
+          return { sql: "json('true')", tables, params };
+        }
+        if (expr.value === false) {
+          return { sql: "json('false')", tables, params };
+        }
+        const value = expr.value;
         if (typeof value === "number" && expr.numberLiteralKind === "float" && expr.raw) {
           return { sql: expr.raw, tables, params };
         }

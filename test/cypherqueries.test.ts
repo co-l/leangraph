@@ -3302,14 +3302,14 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN ALL(x IN [1, 2, 3, 4, 5] WHERE x > 0) AS allPositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].allPositive).toBe(1); // SQLite returns 1 for true
+        expect(result.data[0].allPositive).toBe(true);
       });
 
       it("returns false when some elements do not satisfy condition", async () => {
         const result = await exec("RETURN ALL(x IN [1, 2, 3, -1, 5] WHERE x > 0) AS allPositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].allPositive).toBe(0); // SQLite returns 0 for false
+        expect(result.data[0].allPositive).toBe(false);
       });
 
       it("returns true for empty list", async () => {
@@ -3317,7 +3317,7 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN ALL(x IN [] WHERE x > 0) AS allPositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].allPositive).toBe(1);
+        expect(result.data[0].allPositive).toBe(true);
       });
 
       it("works with property lists", async () => {
@@ -3329,7 +3329,7 @@ describe("CypherQueries.json Patterns", () => {
         `);
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].allAbove10).toBe(1);
+        expect(result.data[0].allAbove10).toBe(true);
       });
 
       it("can be used in WHERE clause", async () => {
@@ -3353,21 +3353,21 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN ANY(x IN [1, 2, 3, 4, 5] WHERE x > 4) AS anyLarge");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].anyLarge).toBe(1);
+        expect(result.data[0].anyLarge).toBe(true);
       });
 
       it("returns false when no elements satisfy condition", async () => {
         const result = await exec("RETURN ANY(x IN [1, 2, 3] WHERE x > 10) AS anyLarge");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].anyLarge).toBe(0);
+        expect(result.data[0].anyLarge).toBe(false);
       });
 
       it("returns false for empty list", async () => {
         const result = await exec("RETURN ANY(x IN [] WHERE x > 0) AS anyPositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].anyPositive).toBe(0);
+        expect(result.data[0].anyPositive).toBe(false);
       });
 
       it("works with property lists", async () => {
@@ -3379,7 +3379,7 @@ describe("CypherQueries.json Patterns", () => {
         `);
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].hasUrgent).toBe(1);
+        expect(result.data[0].hasUrgent).toBe(true);
       });
 
       it("can be used in WHERE clause", async () => {
@@ -3403,14 +3403,14 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN NONE(x IN [1, 2, 3] WHERE x > 10) AS noneAbove10");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].noneAbove10).toBe(1);
+        expect(result.data[0].noneAbove10).toBe(true);
       });
 
       it("returns false when some elements satisfy condition", async () => {
         const result = await exec("RETURN NONE(x IN [1, 2, 3, 15] WHERE x > 10) AS noneAbove10");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].noneAbove10).toBe(0);
+        expect(result.data[0].noneAbove10).toBe(false);
       });
 
       it("returns true for empty list", async () => {
@@ -3418,7 +3418,7 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN NONE(x IN [] WHERE x > 0) AS nonePositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].nonePositive).toBe(1);
+        expect(result.data[0].nonePositive).toBe(true);
       });
 
       it("works with property lists", async () => {
@@ -3430,7 +3430,7 @@ describe("CypherQueries.json Patterns", () => {
         `);
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].noneNegative).toBe(1);
+        expect(result.data[0].noneNegative).toBe(true);
       });
 
       it("can be used in WHERE clause", async () => {
@@ -3454,28 +3454,28 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN SINGLE(x IN [1, 2, 3, 4, 5] WHERE x > 4) AS exactlyOne");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].exactlyOne).toBe(1);
+        expect(result.data[0].exactlyOne).toBe(true);
       });
 
       it("returns false when more than one element satisfies condition", async () => {
         const result = await exec("RETURN SINGLE(x IN [1, 2, 3, 4, 5] WHERE x > 3) AS exactlyOne");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].exactlyOne).toBe(0); // 4 and 5 both satisfy
+        expect(result.data[0].exactlyOne).toBe(false); // 4 and 5 both satisfy
       });
 
       it("returns false when no elements satisfy condition", async () => {
         const result = await exec("RETURN SINGLE(x IN [1, 2, 3] WHERE x > 10) AS exactlyOne");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].exactlyOne).toBe(0);
+        expect(result.data[0].exactlyOne).toBe(false);
       });
 
       it("returns false for empty list", async () => {
         const result = await exec("RETURN SINGLE(x IN [] WHERE x > 0) AS exactlyOne");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].exactlyOne).toBe(0);
+        expect(result.data[0].exactlyOne).toBe(false);
       });
 
       it("works with property lists", async () => {
@@ -3487,7 +3487,7 @@ describe("CypherQueries.json Patterns", () => {
         `);
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].singleLarge).toBe(1);
+        expect(result.data[0].singleLarge).toBe(true);
       });
 
       it("can be used in WHERE clause", async () => {
@@ -3522,14 +3522,14 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN NOT ALL(x IN [1, 2, -3] WHERE x > 0) AS notAllPositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].notAllPositive).toBe(1);
+        expect(result.data[0].notAllPositive).toBe(true);
       });
 
       it("uses list predicate with range()", async () => {
         const result = await exec("RETURN ALL(x IN range(1, 5) WHERE x > 0) AS allPositive");
         
         expect(result.data).toHaveLength(1);
-        expect(result.data[0].allPositive).toBe(1);
+        expect(result.data[0].allPositive).toBe(true);
       });
     });
   });

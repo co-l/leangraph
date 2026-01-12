@@ -1191,15 +1191,15 @@ describe("Integration Tests", () => {
       // Neo4j uses literal values as column names
       expect(result.data[0]["1"]).toBe(1);
       expect(result.data[0]["'hello'"]).toBe("hello");
-      expect(result.data[0]["true"]).toBe(1); // SQLite stores booleans as 1/0
+      expect(result.data[0]["true"]).toBe(true); // Returns proper booleans
     });
 
     it("returns boolean literals", async () => {
       const result = expectSuccess(await client.execute("RETURN true AS t, false AS f"));
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].t).toBe(1); // SQLite stores booleans as 1/0
-      expect(result.data[0].f).toBe(0);
+      expect(result.data[0].t).toBe(true); // Returns proper booleans
+      expect(result.data[0].f).toBe(false);
     });
 
     it("returns null literal", async () => {

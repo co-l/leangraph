@@ -399,6 +399,33 @@ function registerCypherFunctions(db: Database.Database): void {
     return boolA || boolB ? 1 : 0;
   });
 
+  // cypher_to_json_bool: Convert 0/1/null to JSON boolean for RETURN results
+  // This preserves boolean type information through SQLite's JSON functions
+  db.function("cypher_to_json_bool", { deterministic: true }, (x: unknown) => {
+    const b = toBoolValue(x);
+    if (b === null) return null;
+    return b ? "true" : "false";  // Returns JSON boolean literal string
+  });
+
+  // cypher_bool_eq: Boolean-aware equality comparison
+  // Handles cases where one side is a JSON boolean string ('true'/'false') and the other is an integer (1/0)
+  // Returns: 1 if equal, 0 if not equal, null if either is null
+  db.function("cypher_bool_eq", { deterministic: true }, (a: unknown, b: unknown) => {
+    if (a === null || a === undefined || b === null || b === undefined) return null;
+    
+    // Try to normalize both to booleans if they look like boolean values
+    const boolA = toBoolValue(a);
+    const boolB = toBoolValue(b);
+    
+    // If both are recognized as booleans, compare them as booleans
+    if (boolA !== null && boolB !== null) {
+      return boolA === boolB ? 1 : 0;
+    }
+    
+    // Fall back to regular equality
+    return a === b ? 1 : 0;
+  });
+
   // cypher_compare: Type-aware comparison for ordering operators (<, <=, >, >=)
   // Returns: 1 if condition is true, 0 if false, null if types are incompatible
   db.function("cypher_lt", { deterministic: true }, (a: unknown, b: unknown) => {

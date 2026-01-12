@@ -938,7 +938,13 @@ class Tokenizer {
   }
 
   private isIdentifierStart(char: string): boolean {
-    return (char >= "a" && char <= "z") || (char >= "A" && char <= "Z") || char === "_";
+    // Support ASCII letters, underscore, and Unicode letters (for property names like "données")
+    if ((char >= "a" && char <= "z") || (char >= "A" && char <= "Z") || char === "_") {
+      return true;
+    }
+    // Use Unicode property escape for letter categories (Lu, Ll, Lt, Lm, Lo, Nl)
+    // This covers accented letters, Greek, Cyrillic, CJK, etc.
+    return /^\p{L}$/u.test(char);
   }
 
   private isIdentifierChar(char: string): boolean {

@@ -4652,5 +4652,18 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["n.id"]).toBe("chk");
       });
     });
+
+    describe("Unicode property name", () => {
+      it("supports non-ASCII characters in property names", async () => {
+        // Pattern: CREATE (n {données: 'test'}) - French word with accent
+        const result = await exec(`
+          CREATE (n:T4Unicode {données: 'test'})
+          RETURN n.données as val
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].val).toBe("test");
+      });
+    });
   });
 });

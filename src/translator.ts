@@ -11102,7 +11102,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
    * Translates to SQLite using json_each and json_group_array:
    * (SELECT json_group_array(value_or_mapped) FROM json_each(listExpr) WHERE filter)
    */
-  private translateListComprehension(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+  private translateListComprehension(
+    expr: Expression,
+    outerScopes?: Array<{ variable: string; tableAlias: string }>
+  ): { sql: string; tables: string[]; params: unknown[] } {
     const tables: string[] = [];
     const params: unknown[] = [];
     
@@ -11111,13 +11114,34 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const filterCondition = expr.filterCondition;
     const mapExpr = expr.mapExpr;
     
-    // Translate the source list expression
-    const listResult = this.translateExpression(listExpr);
+    // Generate a unique table alias for this comprehension to avoid conflicts in nested comprehensions
+    const tableAlias = outerScopes ? `__lc${outerScopes.length}__` : "__lc__";
+    
+    // Build the current scope chain
+    const currentScope = { variable, tableAlias };
+    const allScopes = outerScopes ? [...outerScopes, currentScope] : [currentScope];
+    
+    // Translate the source list expression, potentially referencing outer scope variables
+    let listResult;
+    if (outerScopes && outerScopes.length > 0) {
+      // Use translateListComprehensionExpr to handle references to outer variables
+      const lastOuterScope = outerScopes[outerScopes.length - 1];
+      listResult = this.translateListComprehensionExpr(
+        listExpr, 
+        lastOuterScope.variable, 
+        lastOuterScope.tableAlias, 
+        outerScopes.slice(0, -1)
+      );
+      // Wrap in an object to match expected structure
+      listResult = { sql: listResult.sql, tables: [], params: listResult.params };
+    } else {
+      listResult = this.translateExpression(listExpr);
+    }
     tables.push(...listResult.tables);
     
     // Wrap the source expression for json_each
     let sourceExpr = listResult.sql;
-    if (listExpr.type === "property") {
+    if (listExpr.type === "property" && !outerScopes) {
       // For property access, use json_extract 
       const varInfo = this.ctx.variables.get(listExpr.variable!);
       if (varInfo) {
@@ -11126,25 +11150,35 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     }
     
     // Determine what to select: the mapped expression or just the value
-    let selectExpr = `__lc__.value`;
+    let selectExpr = `${tableAlias}.value`;
     let mapParams: unknown[] = [];
     if (mapExpr) {
-      const mapResult = this.translateListComprehensionExpr(mapExpr, variable, "__lc__");
-      mapParams = mapResult.params;
-      selectExpr = mapResult.sql;
+      // Check if mapExpr is a nested list comprehension
+      if (mapExpr.type === "listComprehension") {
+        // Recursively translate nested list comprehension with current scope
+        const nestedResult = this.translateListComprehension(mapExpr, allScopes);
+        mapParams = nestedResult.params;
+        selectExpr = nestedResult.sql;
+        tables.push(...nestedResult.tables);
+      } else {
+        // Pass outerScopes (without current) so inner can access outer variables
+        const mapResult = this.translateListComprehensionExpr(mapExpr, variable, tableAlias, outerScopes);
+        mapParams = mapResult.params;
+        selectExpr = mapResult.sql;
+      }
     }
     
     // Build the WHERE clause if filter is present
     let whereClause = "";
     let filterParams: unknown[] = [];
     if (filterCondition) {
-      const filterResult = this.translateListComprehensionCondition(filterCondition, variable, "__lc__");
+      const filterResult = this.translateListComprehensionCondition(filterCondition, variable, tableAlias, outerScopes);
       filterParams = filterResult.params;
       whereClause = ` WHERE ${filterResult.sql}`;
     }
     
     // Build the final SQL using json_group_array
-    const sql = `(SELECT json_group_array(${selectExpr}) FROM json_each(${sourceExpr}) AS __lc__${whereClause})`;
+    const sql = `(SELECT json_group_array(${selectExpr}) FROM json_each(${sourceExpr}) AS ${tableAlias}${whereClause})`;
     
     // Params must match SQL order: selectExpr params, then source params, then filter params
     params.push(...mapParams, ...listResult.params, ...filterParams);
@@ -11876,6 +11910,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (expr.value === false) {
           return { sql: "0", params };
         }
+        // Handle array literals - need to serialize as JSON for json_each
+        if (Array.isArray(expr.value)) {
+          params.push(JSON.stringify(expr.value));
+          return { sql: "?", params };
+        }
         params.push(expr.value);
         return { sql: "?", params };
         
@@ -11887,6 +11926,15 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           params.push(paramValue);
         }
         return { sql: "?", params };
+      }
+        
+      case "listComprehension": {
+        // Handle nested list comprehensions - pass the current scope chain
+        const allScopes = scopes 
+          ? [...scopes, { variable: compVar, tableAlias }]
+          : [{ variable: compVar, tableAlias }];
+        const nestedResult = this.translateListComprehension(expr, allScopes);
+        return { sql: nestedResult.sql, params: nestedResult.params };
       }
         
       case "function": {

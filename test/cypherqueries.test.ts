@@ -4365,5 +4365,18 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].projection).toEqual({ name: "Alice", age: 30 });
       });
     });
+
+    describe("Nested List Comprehension", () => {
+      it("supports nested list comprehension with outer variable in inner expression", async () => {
+        // Pattern: [x IN list | [y IN list2 | x * y]]
+        // Inner comprehension should have access to outer variable x
+        const result = await exec(`
+          RETURN [x IN [1,2,3] | [y IN [10,20] | x * y]] as nested
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nested).toEqual([[10, 20], [20, 40], [30, 60]]);
+      });
+    });
   });
 });

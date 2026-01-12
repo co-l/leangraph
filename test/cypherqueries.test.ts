@@ -4618,5 +4618,22 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["end.id"]).toBe("p2");
       });
     });
+
+    describe("Duration component access", () => {
+      it("supports accessing duration components (years, months, days)", async () => {
+        // Pattern: d.years, d.months, d.days from a duration value
+        // Note: d.months returns TOTAL months (years*12 + months) per Neo4j semantics
+        // For P1Y2M3D: years=1, months=14 (1*12+2), days=3
+        const result = await exec(`
+          WITH duration('P1Y2M3D') as d
+          RETURN d.years as y, d.months as m, d.days as days
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].y).toBe(1);
+        expect(result.data[0].m).toBe(14); // Total months: 1*12 + 2 = 14
+        expect(result.data[0].days).toBe(3);
+      });
+    });
   });
 });

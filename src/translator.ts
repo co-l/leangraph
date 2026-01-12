@@ -4936,13 +4936,18 @@ export class Translator {
                 // This variable is a WITH alias - translate the underlying expression and access the property
                 const objectResult = this.translateExpression(originalExpr);
                 tables.push(...objectResult.tables);
-                params.push(...objectResult.params);
                 
                 // Check if this is a temporal property accessor (year, month, day, etc.)
-                const temporalSql = this.translateTemporalPropertyAccess(objectResult.sql, expr.property!);
-                if (temporalSql) {
-                  return { sql: temporalSql, tables, params };
+                const temporalResult = this.translateTemporalPropertyAccess(objectResult.sql, expr.property!);
+                if (temporalResult) {
+                  // Repeat the params for each occurrence of the base SQL in the temporal accessor
+                  for (let i = 0; i < temporalResult.paramMultiplier; i++) {
+                    params.push(...objectResult.params);
+                  }
+                  return { sql: temporalResult.sql, tables, params };
                 }
+                
+                params.push(...objectResult.params);
                 
                 // Access property from the result using json_extract
                 return {
@@ -4980,9 +4985,10 @@ export class Translator {
             const baseSql = `${unwindClause.alias}.value`;
             
             // Check if this is a temporal property accessor
-            const temporalSql = this.translateTemporalPropertyAccess(baseSql, expr.property!);
-            if (temporalSql) {
-              return { sql: temporalSql, tables, params };
+            const temporalResult = this.translateTemporalPropertyAccess(baseSql, expr.property!);
+            if (temporalResult) {
+              // baseSql is a column reference (no params), so no need to repeat params
+              return { sql: temporalResult.sql, tables, params };
             }
             
             // Access property from the unwound value using json_extract
@@ -14302,8 +14308,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
    * Check if a property name is a temporal accessor (like year, month, day, etc.)
    * and return the SQL expression to extract it from a temporal value.
    * Returns null if not a temporal accessor.
+   * Also returns a paramMultiplier indicating how many times the baseSql params need to be repeated.
    */
-  private translateTemporalPropertyAccess(baseSql: string, propertyName: string): string | null {
+  private translateTemporalPropertyAccess(baseSql: string, propertyName: string): { sql: string; paramMultiplier: number } | null {
     // If baseSql uses the -> operator, we need to use json_extract to get the actual value
     // (the -> operator preserves JSON formatting with quotes)
     let valueExpr = baseSql;
@@ -14413,7 +14420,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       "nanosecondsOfSecond": `CAST(COALESCE(NULLIF(substr(${valueExpr}, instr(${valueExpr}, '.') + 1, 9), ''), '0') AS INTEGER)`,
     };
 
-    return temporalAccessors[propertyName] ?? durationAccessors[propertyName] ?? null;
+    const sql = temporalAccessors[propertyName] ?? durationAccessors[propertyName] ?? null;
+    if (sql === null) {
+      return null;
+    }
+    
+    // Count how many times the valueExpr appears in the SQL to know how many times to repeat params
+    // We count occurrences of valueExpr in the template result
+    const paramMultiplier = (sql.split(valueExpr).length - 1);
+    
+    return { sql, paramMultiplier };
   }
 
   private isRelationshipPattern(pattern: NodePattern | RelationshipPattern): pattern is RelationshipPattern {

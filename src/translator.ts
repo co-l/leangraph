@@ -5030,6 +5030,37 @@ export class Translator {
                 params,
               };
             } else if (arg.type === "variable") {
+              // Check if this is an UNWIND variable first
+              const unwindClausesCount = (this.ctx as any).unwindClauses as Array<{
+                alias: string;
+                variable: string;
+                jsonExpr: string;
+                params: unknown[];
+              }> | undefined;
+              
+              if (unwindClausesCount) {
+                const unwindClause = unwindClausesCount.find(u => u.variable === arg.variable);
+                if (unwindClause) {
+                  // Check if UNWIND was consumed by MIN/MAX subquery
+                  const consumedUnwinds = (this.ctx as any).consumedUnwindClauses as Set<string> | undefined;
+                  if (consumedUnwinds?.has(unwindClause.alias)) {
+                    // UNWIND was consumed, use subquery
+                    const alias = unwindClause.alias;
+                    return {
+                      sql: `(SELECT COUNT(${distinctKeyword}${alias}.value) FROM json_each(${unwindClause.jsonExpr}) ${alias})`,
+                      tables: [],
+                      params: [...params, ...unwindClause.params],
+                    };
+                  }
+                  tables.push(unwindClause.alias);
+                  return {
+                    sql: `COUNT(${distinctKeyword}${unwindClause.alias}.value)`,
+                    tables,
+                    params,
+                  };
+                }
+              }
+              
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
                 throw new Error(`Unknown variable: ${arg.variable}`);
@@ -5258,7 +5289,17 @@ export class Translator {
                       };
                     }
                   }
-                  // For other aggregates (SUM, AVG), use standard aggregation
+                  // For other aggregates (SUM, AVG), check if UNWIND was consumed by subquery aggregate
+                  const consumedUnwinds = (this.ctx as any).consumedUnwindClauses as Set<string> | undefined;
+                  if (consumedUnwinds?.has(unwindClause.alias)) {
+                    // UNWIND was consumed by MIN/MAX subquery, use subquery for SUM/AVG too
+                    const alias = unwindClause.alias;
+                    return {
+                      sql: `(SELECT ${expr.functionName}(${distinctKeyword}${alias}.value) FROM json_each(${unwindClause.jsonExpr}) ${alias})`,
+                      tables: [], // Don't add to outer tables since we use subquery
+                      params: [...params, ...unwindClause.params],
+                    };
+                  }
                   // Check if this UNWIND variable was wrapped in a WITH subquery
                   const subqueryColName = (unwindClause as any).subqueryColumnName;
                   const valueRef = subqueryColName 

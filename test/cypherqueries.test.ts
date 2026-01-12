@@ -4582,6 +4582,24 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
 
+    describe("Multiple aggregations on UNWIND", () => {
+      it("supports multiple aggregations in one RETURN after UNWIND", async () => {
+        const result = await exec(`
+          UNWIND [1,2,3,4,5] as n
+          RETURN min(n) as mi, max(n) as ma, sum(n) as s, avg(n) as a, count(n) as c
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]).toEqual({
+          mi: 1,
+          ma: 5,
+          s: 15,
+          a: 3,
+          c: 5
+        });
+      });
+    });
+
     describe("Keyword as variable name", () => {
       it("supports 'end' as variable name with all() predicate on path nodes", async () => {
         // 'end' is a keyword (CASE...END) but should be usable as variable name

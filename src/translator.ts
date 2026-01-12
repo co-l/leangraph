@@ -9080,17 +9080,26 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             const listResult = this.translateExpression(listArg);
             const indexResult = this.translateExpression(indexArg);
             tables.push(...listResult.tables, ...indexResult.tables);
-            params.push(...listResult.params, ...indexResult.params);
             
             // For map access with string key, use json_extract with the key
             // For list access with integer index, use json_extract with array index
             if (isContainerMap || isStringExpression(resolvedIndexArg)) {
               // Map access: use key directly
+              params.push(...listResult.params, ...indexResult.params);
               return { sql: `json_extract(${listResult.sql}, '$.' || ${indexResult.sql})`, tables, params };
             }
             // Use -> operator with array index to preserve JSON types (booleans, etc.)
             // Cast index to integer to avoid "0.0" in JSON path
-            return { sql: `(${listResult.sql}) -> ('$[' || CAST(${indexResult.sql} AS INTEGER) || ']')`, tables, params };
+            // Handle negative indices by converting to positive using json_array_length
+            // Cypher: list[-1] gets last element, list[-2] gets second to last, etc.
+            const idxCast = `CAST(${indexResult.sql} AS INTEGER)`;
+            // SQL expression uses: list (for ->), idx (for CASE condition), list (for json_array_length), idx (for + in THEN), idx (for ELSE)
+            params.push(...listResult.params, ...indexResult.params, ...listResult.params, ...indexResult.params, ...indexResult.params);
+            return { 
+              sql: `(${listResult.sql}) -> ('$[' || (CASE WHEN ${idxCast} < 0 THEN json_array_length(${listResult.sql}) + ${idxCast} ELSE ${idxCast} END) || ']')`, 
+              tables, 
+              params 
+            };
           }
           throw new Error("INDEX requires list and index arguments");
         }

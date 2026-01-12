@@ -4225,7 +4225,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toContainEqual({ "p.age": 25 });
       });
 
-      it.skip("supports negative list indexing", async () => {
+      it("supports negative list indexing", async () => {
         // Current error: "bad JSON path: '$[-1]'"
         const result = await exec(`RETURN [1,2,3][0] as first, [1,2,3][-1] as last`);
 

@@ -4814,5 +4814,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].inRange).toBe(true);
       });
     });
+
+    describe("point() function", () => {
+      it("creates a point from x,y coordinates", async () => {
+        const result = await exec("RETURN point({x: 0, y: 0}) as p");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].p).toEqual({ x: 0, y: 0 });
+      });
+    });
   });
 });

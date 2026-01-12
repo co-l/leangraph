@@ -6217,6 +6217,62 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
         }
 
         // ============================================================================
+        // Spatial functions
+        // ============================================================================
+
+        // POINT: create a point from coordinates
+        // Supports: point({x: 0, y: 0}) for Cartesian
+        // and point({latitude: 48.8, longitude: 2.3}) for geographic
+        if (expr.functionName === "POINT") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            // The argument should be a map/object literal
+            if (arg.type === "object") {
+              // Build the point object from the map properties
+              const properties = arg.properties || [];
+              const pointProps: { key: string; sql: string }[] = [];
+              for (const prop of properties) {
+                const keyName = prop.key;
+                const valueResult = this.translateExpression(prop.value);
+                tables.push(...valueResult.tables);
+                params.push(...valueResult.params);
+                pointProps.push({ key: keyName, sql: valueResult.sql });
+              }
+              // Build a JSON object with the point properties
+              const jsonPairs = pointProps.map(p => `'${p.key}', ${p.sql}`).join(", ");
+              return { sql: `json_object(${jsonPairs})`, tables, params };
+            }
+            // For non-literal map, pass through as-is (variable or parameter)
+            const argResult = this.translateFunctionArg(arg);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: argResult.sql, tables, params };
+          }
+          throw new Error("point requires a map argument with coordinates");
+        }
+
+        // DISTANCE: calculate distance between two points
+        // For Cartesian: sqrt((x2-x1)^2 + (y2-y1)^2)
+        // For geographic: haversine formula
+        if (expr.functionName === "DISTANCE") {
+          if (expr.args && expr.args.length >= 2) {
+            const p1Result = this.translateFunctionArg(expr.args[0]);
+            const p2Result = this.translateFunctionArg(expr.args[1]);
+            tables.push(...p1Result.tables, ...p2Result.tables);
+            params.push(...p1Result.params, ...p2Result.params);
+            // Check if it's Cartesian (x,y) or geographic (latitude,longitude)
+            // For simplicity, use Cartesian distance formula
+            // Euclidean distance: sqrt((x2-x1)^2 + (y2-y1)^2)
+            const sql = `(SELECT SQRT(
+              POWER(COALESCE(json_extract(p2, '$.x'), json_extract(p2, '$.longitude')) - COALESCE(json_extract(p1, '$.x'), json_extract(p1, '$.longitude')), 2) +
+              POWER(COALESCE(json_extract(p2, '$.y'), json_extract(p2, '$.latitude')) - COALESCE(json_extract(p1, '$.y'), json_extract(p1, '$.latitude')), 2)
+            ) FROM (SELECT ${p1Result.sql} as p1, ${p2Result.sql} as p2))`;
+            return { sql, tables, params };
+          }
+          throw new Error("distance requires two point arguments");
+        }
+
+        // ============================================================================
         // Math functions
         // ============================================================================
 

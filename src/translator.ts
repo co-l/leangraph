@@ -2684,6 +2684,11 @@ export class Translator {
       if (whereParts.length > 0) {
         sql += ` WHERE ${whereParts.join(" AND ")}`;
       }
+    } else if (whereParts.length > 0) {
+      // If we have WHERE but no FROM or JOINs, we need a dummy FROM clause
+      // This happens with queries like: WITH [1,2,3] as nums WHERE all(x IN nums WHERE x > 0) RETURN nums
+      sql += ` FROM (SELECT 1) __dummy__`;
+      sql += ` WHERE ${whereParts.join(" AND ")}`;
     }
 
     // Add GROUP BY for aggregation (from WITH or RETURN clauses)

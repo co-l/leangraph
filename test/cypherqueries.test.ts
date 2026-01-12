@@ -4255,5 +4255,94 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ a: 5, c: 2, f: 1, r: 2, s: -1 }]);
       });
     });
+
+    // ============================================
+    // LIST PREDICATE FUNCTIONS WITH WITH CLAUSE
+    // ============================================
+    describe("List Predicate Functions with WITH clause", () => {
+      it("supports ALL(x IN list WHERE cond) with WITH-defined list", async () => {
+        // Current error: "Too many parameter values were provided"
+        const result = await exec(`
+          WITH [1,2,3] as nums WHERE all(x IN nums WHERE x > 0) RETURN nums
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nums).toEqual([1, 2, 3]);
+      });
+
+      it("supports ANY(x IN list WHERE cond) with WITH-defined list", async () => {
+        // Current error: "Too many parameter values were provided"
+        const result = await exec(`
+          WITH [1,2,3] as nums WHERE any(x IN nums WHERE x > 2) RETURN nums
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nums).toEqual([1, 2, 3]);
+      });
+
+      it("supports NONE(x IN list WHERE cond) with WITH-defined list", async () => {
+        // Current error: "Too many parameter values were provided"
+        const result = await exec(`
+          WITH [1,2,3] as nums WHERE none(x IN nums WHERE x > 10) RETURN nums
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nums).toEqual([1, 2, 3]);
+      });
+
+      it("supports SINGLE(x IN list WHERE cond) with WITH-defined list", async () => {
+        // Current error: "Too many parameter values were provided"
+        const result = await exec(`
+          WITH [1,2,3] as nums WHERE single(x IN nums WHERE x = 2) RETURN nums
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].nums).toEqual([1, 2, 3]);
+      });
+    });
+
+    describe("Aggregation with WITH clause (no MATCH)", () => {
+      it("supports GROUP BY with WITH-only query", async () => {
+        // WITH-only query with aggregation requiring GROUP BY
+        const result = await exec(`
+          WITH 1 as x RETURN x, count(*) as c
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].x).toBe(1);
+        expect(result.data[0].c).toBe(1);
+      });
+
+      it("supports multiple values with GROUP BY in WITH-only query", async () => {
+        // UNWIND creates multiple rows, then GROUP BY aggregates them
+        const result = await exec(`
+          WITH [1,1,2,2,2,3] as nums
+          UNWIND nums as n
+          RETURN n, count(*) as c
+          ORDER BY n
+        `);
+
+        expect(result.data).toHaveLength(3);
+        expect(result.data[0]).toEqual({ n: 1, c: 2 });
+        expect(result.data[1]).toEqual({ n: 2, c: 3 });
+        expect(result.data[2]).toEqual({ n: 3, c: 1 });
+      });
+
+      it("supports HAVING with WITH-only query", async () => {
+        // WITH-only query with HAVING clause
+        const result = await exec(`
+          WITH [1,1,2,2,2,3] as nums
+          UNWIND nums as n
+          WITH n, count(*) as c
+          WHERE c > 1
+          RETURN n, c
+          ORDER BY n
+        `);
+
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0]).toEqual({ n: 1, c: 2 });
+        expect(result.data[1]).toEqual({ n: 2, c: 3 });
+      });
+    });
   });
 });

@@ -4795,5 +4795,15 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].s).toBe(45);
       });
     });
+
+    describe("exists() on map property", () => {
+      it("checks if a map has a property", async () => {
+        const result = await exec("WITH {a:1} as m RETURN exists(m.a) as hasA, exists(m.b) as hasB");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].hasA).toBe(true);
+        expect(result.data[0].hasB).toBe(false);
+      });
+    });
   });
 });

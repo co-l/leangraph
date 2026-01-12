@@ -6169,6 +6169,53 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("coalesce requires at least one argument");
         }
 
+        // EXISTS: check if map property exists
+        // This handles exists(m.prop) in RETURN context where m is a map
+        if (expr.functionName === "EXISTS") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            if (arg.type === "property") {
+              const varName = arg.variable!;
+              const propName = arg.property!;
+
+              // Check if this is a node variable (has node info in variables)
+              const varInfo = this.ctx.variables.get(varName);
+              if (varInfo && (varInfo.type === "node" || varInfo.type === "edge")) {
+                // For nodes/edges, check if property is not null in properties JSON
+                const result = this.translateExpression(arg);
+                tables.push(...result.tables);
+                params.push(...result.params);
+                return {
+                  sql: `cypher_to_json_bool(${result.sql} IS NOT NULL)`,
+                  tables,
+                  params,
+                };
+              }
+
+              // For maps (WITH alias or other), check if key exists in JSON object
+              // json_type returns NULL if key doesn't exist, type name if it does
+              const argResult = this.translateExpression({ type: "variable", variable: varName });
+              tables.push(...argResult.tables);
+              params.push(...argResult.params);
+              return {
+                sql: `cypher_to_json_bool(json_type(${argResult.sql}, '$.${propName}') IS NOT NULL)`,
+                tables,
+                params,
+              };
+            }
+            // For other expressions passed to exists(), check IS NOT NULL
+            const argResult = this.translateFunctionArg(arg);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return {
+              sql: `cypher_to_json_bool(${argResult.sql} IS NOT NULL)`,
+              tables,
+              params,
+            };
+          }
+          throw new Error("exists requires an argument");
+        }
+
         // ============================================================================
         // Math functions
         // ============================================================================

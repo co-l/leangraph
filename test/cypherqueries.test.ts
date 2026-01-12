@@ -4232,7 +4232,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ first: 1, last: 3 }]);
       });
 
-      it.skip("supports duration() function", async () => {
+      it("supports duration() function", async () => {
         // Current error: "Too many parameter values were provided"
         const result = await exec(`RETURN duration('P1D') as oneDay`);
 

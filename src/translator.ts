@@ -8705,7 +8705,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // Strip JSON quotes if input is wrapped in "" (from toString() output)
             const argResult = this.translateExpression(arg);
             tables.push(...argResult.tables);
-            params.push(...argResult.params, ...argResult.params);
+            params.push(...argResult.params);
             return {
               sql: `(SELECT CASE WHEN _d IS NULL THEN NULL ELSE CASE
                 WHEN substr(_d, 1, 1) = '"' AND substr(_d, length(_d), 1) = '"'

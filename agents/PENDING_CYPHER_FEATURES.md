@@ -12,7 +12,7 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 |----------|-------|------------|-----------------|
 | Parser Features | 6 | High | `parser.ts` |
 | Expression Context | 3 | Medium | `translator.ts`, `executor.ts` |
-| Runtime Behaviors | 3 | Medium-High | `translator.ts`, `executor.ts` |
+| Runtime Behaviors | 2 | Medium-High | `translator.ts`, `executor.ts` |
 | Missing Functions | 1 | Low | `translator.ts` |
 
 ### Parser Features (6 tests)
@@ -34,13 +34,12 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 | CASE in SET | `SET n.cat = CASE WHEN ... END` | `Cannot evaluate expression of type case` |
 | `exists()` pattern | `RETURN exists((n)-[:REL]->())` | `Expected expression, got COLON` |
 
-### Runtime Behaviors (4 tests)
+### Runtime Behaviors (2 tests)
 
 | Feature | Query Example | Current Error |
 |---------|---------------|---------------|
 | OPTIONAL MATCH + DELETE | `OPTIONAL MATCH (n)-[r]->() DELETE n` | `no such column: n0.id` |
 | UNWIND + MATCH | `UNWIND list AS x MATCH (n {prop: x})` | `Too few parameter values` |
-| `duration()` | `duration('P1D')` | `Too many parameter values` |
 
 ### Missing Functions (1 test)
 
@@ -252,7 +251,7 @@ When you complete a feature:
 | `exists()` pattern | Pending | - |
 | OPTIONAL MATCH + DELETE | Pending | - |
 | UNWIND + MATCH | Pending | - |
-| `duration()` | Pending | - |
+| `duration()` | Done | 2026-01-12 |
 | Regex `=~` | Pending | - |
 | `reduce()` | Pending | - |
 | `filter()` | Pending | - |

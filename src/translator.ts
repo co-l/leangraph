@@ -11977,9 +11977,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         if (funcName === "TYPE") {
           // type() on a relationship in list comprehension context (e.g., [r IN relationships(p) | type(r)])
           // The relationship value is a JSON object containing "type" directly
+          // Validate that the argument is a relationship object with a type field
+          // If not, trigger an error (TCK requirement: type() on invalid arguments should fail)
           const arg = funcArgs[0];
           return { 
-            sql: `json_extract(${arg}, '$.type')`, 
+            sql: `CASE WHEN json_type(${arg}) = 'object' AND json_extract(${arg}, '$.type') IS NOT NULL THEN json_extract(${arg}, '$.type') ELSE json('type() requires a relationship argument') END`, 
             params 
           };
         }
@@ -13270,6 +13272,27 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           const aliasedExpr = returnAliasExpressions.get(targetVariable)!;
           if (aliasedExpr.type === "variable" && aliasedExpr.variable) {
             targetVariable = aliasedExpr.variable;
+          }
+        }
+        
+        // Check if this is a property access on an UNWIND variable
+        const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+          alias: string;
+          variable: string;
+          jsonExpr: string;
+          params: unknown[];
+        }> | undefined;
+        
+        if (unwindClauses) {
+          const unwindClause = unwindClauses.find(u => u.variable === targetVariable);
+          if (unwindClause) {
+            // UNWIND variables use the 'value' column from json_each
+            return {
+              sql: this.buildDateTimeWithOffsetOrderBy(
+                `json_extract(${unwindClause.alias}.value, '$.${expr.property}')`
+              ),
+              params: [],
+            };
           }
         }
         

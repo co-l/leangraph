@@ -4394,5 +4394,22 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].types).toEqual(["A", "B"]);
       });
     });
+
+    describe("ORDER BY multiple columns with UNWIND map", () => {
+      it("supports ORDER BY on UNWIND map properties", async () => {
+        // UNWIND with maps and ORDER BY multiple columns
+        const result = await exec(`
+          UNWIND [{a:1,b:2},{a:1,b:1},{a:2,b:1}] as x
+          RETURN x.a, x.b
+          ORDER BY x.a ASC, x.b DESC
+        `);
+
+        // Expected order: a=1,b=2 (first by a ASC), then a=1,b=1, then a=2,b=1
+        expect(result.data).toHaveLength(3);
+        expect(result.data[0]).toEqual({ "x.a": 1, "x.b": 2 });
+        expect(result.data[1]).toEqual({ "x.a": 1, "x.b": 1 });
+        expect(result.data[2]).toEqual({ "x.a": 2, "x.b": 1 });
+      });
+    });
   });
 });

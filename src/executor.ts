@@ -718,8 +718,101 @@ export class Executor {
       return "MULTI_PHASE";
     }
     
-    // 10. STANDARD - Default SQL translation
+    // 10. UNWIND + MATCH where MATCH references UNWIND variables
+    // This handles: UNWIND list AS x MATCH (n {prop: x}) RETURN n
+    // The MATCH property constraints reference UNWIND variables
+    if (flags.hasUnwind && flags.hasMatch) {
+      const unwindAliases = new Set<string>();
+      for (const clause of query.clauses) {
+        if (clause.type === "UNWIND") {
+          unwindAliases.add(clause.alias);
+        }
+      }
+      
+      // Check if any MATCH pattern references UNWIND variables
+      for (const clause of query.clauses) {
+        if (clause.type === "MATCH" || clause.type === "OPTIONAL_MATCH") {
+          for (const pattern of clause.patterns) {
+            if (this.patternReferencesVariables(pattern, unwindAliases)) {
+              return "PHASED";
+            }
+          }
+        }
+      }
+    }
+    
+    // 11. STANDARD - Default SQL translation
     return "STANDARD";
+  }
+  
+  /**
+   * Check if a pattern references any of the given variables
+   */
+  private patternReferencesVariables(
+    pattern: NodePattern | RelationshipPattern,
+    variables: Set<string>
+  ): boolean {
+    // Check if this is a relationship pattern
+    if ('source' in pattern && 'edge' in pattern && 'target' in pattern) {
+      const relPattern = pattern as RelationshipPattern;
+      return this.nodePropertiesReferenceVariables(relPattern.source, variables) ||
+             this.nodePropertiesReferenceVariables(relPattern.target, variables) ||
+             this.edgePropertiesReferenceVariables(relPattern.edge, variables);
+    } else {
+      return this.nodePropertiesReferenceVariables(pattern as NodePattern, variables);
+    }
+  }
+  
+  /**
+   * Check if node properties reference any of the given variables
+   */
+  private nodePropertiesReferenceVariables(
+    node: NodePattern,
+    variables: Set<string>
+  ): boolean {
+    if (!node.properties) return false;
+    
+    for (const value of Object.values(node.properties)) {
+      if (this.propertyValueReferencesVariables(value, variables)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  /**
+   * Check if edge properties reference any of the given variables
+   */
+  private edgePropertiesReferenceVariables(
+    edge: { properties?: Record<string, PropertyValue> },
+    variables: Set<string>
+  ): boolean {
+    if (!edge.properties) return false;
+    
+    for (const value of Object.values(edge.properties)) {
+      if (this.propertyValueReferencesVariables(value, variables)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  /**
+   * Check if a property value references any of the given variables
+   */
+  private propertyValueReferencesVariables(
+    value: PropertyValue,
+    variables: Set<string>
+  ): boolean {
+    if (value === null || typeof value !== 'object') return false;
+    
+    if ('type' in value) {
+      if (value.type === 'variable' && 'name' in value && typeof value.name === 'string') {
+        return variables.has(value.name);
+      }
+    }
+    
+    return false;
   }
 
   // ============================================================================
@@ -1274,6 +1367,32 @@ export class Executor {
           if (aggregateVariables.has(v)) {
             needsNewPhase = true;
             break;
+          }
+        }
+        // Track UNWIND alias as a known variable
+        knownVariables.add(clause.alias);
+      }
+      
+      // Check if MATCH pattern properties reference UNWIND variables - needs phase boundary
+      // This handles: UNWIND list AS x MATCH (n {prop: x}) RETURN n
+      // The MATCH needs to be executed for each UNWIND row, which requires phased execution
+      if ((clause.type === "MATCH" || clause.type === "OPTIONAL_MATCH") && i > 0) {
+        // Collect all UNWIND aliases from previous clauses
+        const unwindAliases = new Set<string>();
+        for (let j = 0; j < i; j++) {
+          const prevClause = clauses[j];
+          if (prevClause.type === "UNWIND") {
+            unwindAliases.add(prevClause.alias);
+          }
+        }
+        
+        // Check if MATCH pattern properties reference any UNWIND variables
+        if (unwindAliases.size > 0) {
+          for (const pattern of clause.patterns) {
+            if (this.patternReferencesVariables(pattern, unwindAliases)) {
+              needsNewPhase = true;
+              break;
+            }
           }
         }
       }
@@ -2678,7 +2797,12 @@ export class Executor {
     const whereReferencesContext = clause.where ? 
       this.whereReferencesContextVars(clause.where, contextVarNames, introducedVars) : false;
     
-    if (boundVars.size > 0 || whereReferencesContext) {
+    // Check if pattern properties reference context variables (e.g., MATCH (n {prop: x}) where x is from UNWIND)
+    const patternPropertiesReferenceContext = clause.patterns.some(pattern => 
+      this.patternReferencesVariables(pattern, contextVarNames)
+    );
+    
+    if (boundVars.size > 0 || whereReferencesContext || patternPropertiesReferenceContext) {
       // For complex patterns (multi-hop, anonymous nodes), use SQL translation with 
       // constraints for bound variables. This handles patterns like:
       // WITH me, you MATCH (me)-[r1:ATE]->()<-[r2:ATE]-(you) 
@@ -2982,17 +3106,20 @@ export class Executor {
    * Transform a MATCH clause to substitute context variable references with parameter references.
    * This converts WHERE conditions like `n.id = foo` (where foo is from context)
    * to `n.id = $_ctx_foo` so the translator can handle it.
+   * Also transforms pattern properties like {name: foo} to use context parameters.
    */
   private transformClauseForContext(
     clause: MatchClause,
     contextVars: Set<string>
   ): MatchClause {
-    if (!clause.where) {
-      return clause;
-    }
-    
     // Deep clone the clause
     const transformed: MatchClause = JSON.parse(JSON.stringify(clause));
+    
+    // Transform pattern properties to use parameter references for context variables
+    // This handles MATCH (n:Label {prop: contextVar}) from UNWIND
+    for (const pattern of transformed.patterns) {
+      this.transformPatternPropertiesForContext(pattern, contextVars);
+    }
     
     // Transform WHERE condition to use parameter references for context variables
     if (transformed.where) {
@@ -3000,6 +3127,58 @@ export class Executor {
     }
     
     return transformed;
+  }
+  
+  /**
+   * Transform pattern properties to use context parameter references
+   */
+  private transformPatternPropertiesForContext(
+    pattern: NodePattern | RelationshipPattern,
+    contextVars: Set<string>
+  ): void {
+    // Check if this is a relationship pattern with source/edge/target
+    if ('source' in pattern && 'edge' in pattern && 'target' in pattern) {
+      this.transformNodePropertiesForContext(pattern.source, contextVars);
+      this.transformNodePropertiesForContext(pattern.target, contextVars);
+      if (pattern.edge.properties) {
+        this.transformPropertiesMapForContext(pattern.edge.properties, contextVars);
+      }
+    } else {
+      // Simple node pattern
+      this.transformNodePropertiesForContext(pattern, contextVars);
+    }
+  }
+  
+  /**
+   * Transform node properties to use context parameter references
+   */
+  private transformNodePropertiesForContext(
+    node: NodePattern,
+    contextVars: Set<string>
+  ): void {
+    if (node.properties) {
+      this.transformPropertiesMapForContext(node.properties, contextVars);
+    }
+  }
+  
+  /**
+   * Transform a properties map to use context parameter references
+   */
+  private transformPropertiesMapForContext(
+    properties: Record<string, PropertyValue>,
+    contextVars: Set<string>
+  ): void {
+    for (const [key, value] of Object.entries(properties)) {
+      if (value && typeof value === 'object' && 'type' in value && 
+          value.type === "variable" && 'name' in value && 
+          typeof value.name === 'string' && contextVars.has(value.name)) {
+        // Replace with parameter reference
+        properties[key] = {
+          type: "parameter",
+          name: `_ctx_${value.name}`,
+        } as ParameterRef;
+      }
+    }
   }
 
   /**
@@ -8677,7 +8856,7 @@ export class Executor {
       case "variable":
         return expr.variable!;
       case "property":
-        return `${expr.variable}_${expr.property}`;
+        return `${expr.variable}.${expr.property}`;
       case "function": {
         // Build function expression like count(a) or count(*)
         const funcName = expr.functionName!.toLowerCase();

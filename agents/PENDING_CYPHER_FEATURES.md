@@ -250,7 +250,7 @@ When you complete a feature:
 | CASE in SET | Done | 2026-01-12 |
 | `exists()` pattern | Done | 2026-01-12 |
 | OPTIONAL MATCH + DELETE | Pending | - |
-| UNWIND + MATCH | Pending | - |
+| UNWIND + MATCH | Done | 2026-01-12 |
 | `duration()` | Done | 2026-01-12 |
 | Regex `=~` | Done | 2026-01-12 |
 | `reduce()` | Pending | - |

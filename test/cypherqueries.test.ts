@@ -4211,7 +4211,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ deleted: 1 }]);
       });
 
-      it.skip("handles UNWIND combined with MATCH", async () => {
+      it("handles UNWIND combined with MATCH", async () => {
         // Current error: "Too few parameter values were provided"
         await exec(`CREATE (p:TestPerson {name: 'Alice', age: 30})`);
         await exec(`CREATE (p:TestPerson {name: 'Bob', age: 25})`);

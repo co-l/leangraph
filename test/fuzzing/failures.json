@@ -25,7 +25,7 @@
     "query": "RETURN CASE WHEN null IS NULL THEN 'null' ELSE 'not null' END",
     "category": "expression",
     "feature": "case",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

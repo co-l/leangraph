@@ -4893,5 +4893,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].x).toEqual({ a: -55, b: false });
       });
     });
+
+    describe("CASE WHEN null IS NULL", () => {
+      it("evaluates null IS NULL as true in CASE WHEN", async () => {
+        const result = await exec("RETURN CASE WHEN null IS NULL THEN 'null' ELSE 'not null' END as result");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].result).toBe("null");
+      });
+    });
   });
 });

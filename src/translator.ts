@@ -10527,11 +10527,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       params.push(...condParams);
       
       // Translate the result expression
+      // Wrap string literals with json_quote() to preserve them as JSON strings
+      // This ensures 'null' string is returned as '"null"' not null
       const { sql: resultSql, tables: resultTables, params: resultParams } = this.translateExpression(when.result);
       tables.push(...resultTables);
       params.push(...resultParams);
       
-      sql += ` WHEN ${condSql} THEN ${resultSql}`;
+      const isStringLiteral = when.result.type === "literal" && typeof when.result.value === "string";
+      const wrappedResultSql = isStringLiteral ? `json_quote(${resultSql})` : resultSql;
+      
+      sql += ` WHEN ${condSql} THEN ${wrappedResultSql}`;
     }
     
     // Add ELSE clause if present
@@ -10539,7 +10544,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const { sql: elseSql, tables: elseTables, params: elseParams } = this.translateExpression(expr.elseExpr);
       tables.push(...elseTables);
       params.push(...elseParams);
-      sql += ` ELSE ${elseSql}`;
+      
+      const isStringLiteral = expr.elseExpr.type === "literal" && typeof expr.elseExpr.value === "string";
+      const wrappedElseSql = isStringLiteral ? `json_quote(${elseSql})` : elseSql;
+      sql += ` ELSE ${wrappedElseSql}`;
     }
     
     sql += " END";

@@ -4102,7 +4102,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ "p.name": "Bob" }]);
       });
 
-      it.skip("supports reduce() function", async () => {
+      it("supports reduce() function", async () => {
         // Current error: "Expected RPAREN, got PIPE '|'"
         const result = await exec(`RETURN reduce(acc = 0, x IN [1,2,3,4] | acc + x) as sum`);
 

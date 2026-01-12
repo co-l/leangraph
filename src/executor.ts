@@ -4053,6 +4053,31 @@ export class Executor {
         }
       }
       
+      case "reduce": {
+        // Evaluate reduce expression: reduce(acc = init, x IN list | expr)
+        const listValue = this.evaluateExpressionInRow(expr.listExpr!, row, params);
+        if (!Array.isArray(listValue)) return null;
+        
+        // Start with the initial value
+        let accumulator = this.evaluateExpressionInRow(expr.initialValue!, row, params);
+        
+        for (const item of listValue) {
+          // Create a new row with both the accumulator and loop variable
+          const itemRow = new Map(row);
+          if (expr.accumulator) {
+            itemRow.set(expr.accumulator, accumulator);
+          }
+          if (expr.variable) {
+            itemRow.set(expr.variable, item);
+          }
+          
+          // Evaluate the reduce expression to get the new accumulator value
+          accumulator = this.evaluateExpressionInRow(expr.reduceExpr!, itemRow, params);
+        }
+        
+        return accumulator;
+      }
+      
       case "comparison": {
         // Evaluate comparison expression: left op right
         const left = this.evaluateExpressionInRow(expr.left!, row, params);

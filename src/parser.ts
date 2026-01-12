@@ -116,7 +116,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "reduce";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -164,6 +164,12 @@ export interface Expression {
   list?: Expression;
   // String operation fields: CONTAINS, STARTS WITH, ENDS WITH
   stringOperator?: "CONTAINS" | "STARTS WITH" | "ENDS WITH";
+  // Reduce expression fields: reduce(acc = init, x IN list | expr)
+  accumulator?: string;
+  initialValue?: Expression;
+  // variable is reused for iterator variable
+  // listExpr is reused for list expression
+  reduceExpr?: Expression;
 }
 
 export interface ReturnItem {
@@ -2969,6 +2975,42 @@ export class Parser {
               this.pos = savedPos;
             }
           }
+        }
+        
+        // Check if this is a REDUCE expression: reduce(acc = init, x IN list | expr)
+        if (functionName === "REDUCE") {
+          // Parse accumulator = initialValue
+          const accumulatorToken = this.expect("IDENTIFIER");
+          this.expect("EQUALS");
+          const initialValue = this.parseExpression();
+          
+          // Expect COMMA
+          this.expect("COMMA");
+          
+          // Parse variable IN listExpr
+          const iteratorToken = this.expect("IDENTIFIER");
+          if (!this.checkKeyword("IN")) {
+            throw new Error("Expected IN keyword in reduce()");
+          }
+          this.advance(); // consume IN
+          const listExpr = this.parseExpression();
+          
+          // Expect PIPE
+          this.expect("PIPE");
+          
+          // Parse the reduce expression
+          const reduceExpr = this.parseExpression();
+          
+          this.expect("RPAREN");
+          
+          return {
+            type: "reduce",
+            accumulator: accumulatorToken.value,
+            initialValue,
+            variable: iteratorToken.value,
+            listExpr,
+            reduceExpr,
+          };
         }
         
         const args: Expression[] = [];

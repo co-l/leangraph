@@ -9326,6 +9326,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         };
       }
 
+      case "reduce": {
+        return this.translateReduceExpression(expr);
+      }
+
       case "unary": {
         return this.translateUnaryExpression(expr);
       }
@@ -11095,6 +11099,146 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     params.push(...mapParams, ...listResult.params, ...filterParams);
     
     return { sql, tables, params };
+  }
+
+  /**
+   * Translate a reduce expression.
+   * Syntax: reduce(acc = init, x IN list | expr)
+   * 
+   * Uses a recursive CTE to iterate through the list and accumulate a value.
+   * 
+   * Example: reduce(acc = 0, x IN [1,2,3,4] | acc + x) returns 10
+   */
+  private translateReduceExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    const accumulator = expr.accumulator!;
+    const initialValue = expr.initialValue!;
+    const variable = expr.variable!;
+    const listExpr = expr.listExpr!;
+    const reduceExpr = expr.reduceExpr!;
+    
+    // Translate the initial value
+    const initResult = this.translateExpression(initialValue);
+    tables.push(...initResult.tables);
+    
+    // Translate the source list expression
+    const listResult = this.translateExpression(listExpr);
+    tables.push(...listResult.tables);
+    
+    // Build the reduce expression with variable substitutions
+    // Replace accumulator with "__red__.acc" and variable with "__red_elem.value"
+    const reduceResult = this.translateReduceBodyExpr(reduceExpr, accumulator, variable, "__red__", "__red_elem");
+    
+    // Build recursive CTE:
+    // WITH RECURSIVE __red__(idx, acc) AS (
+    //   SELECT 0, <init>
+    //   UNION ALL
+    //   SELECT idx + 1, <reduceExpr>
+    //   FROM __red__, json_each(<list>) AS __red_elem__
+    //   WHERE __red__.idx = __red_elem__.key
+    // )
+    // SELECT acc FROM __red__ ORDER BY idx DESC LIMIT 1
+    
+    const sql = `(WITH RECURSIVE __red__(idx, acc) AS (
+      SELECT 0, ${initResult.sql}
+      UNION ALL
+      SELECT __red__.idx + 1, ${reduceResult.sql}
+      FROM __red__, json_each(${listResult.sql}) AS __red_elem
+      WHERE __red__.idx = __red_elem.key
+    )
+    SELECT acc FROM __red__ ORDER BY idx DESC LIMIT 1)`;
+    
+    // Params order: init params, then list params (once for each occurrence), then reduce params
+    params.push(...initResult.params, ...listResult.params, ...reduceResult.params);
+    
+    return { sql, tables, params };
+  }
+
+  /**
+   * Translate an expression within a reduce body, substituting variables.
+   */
+  private translateReduceBodyExpr(
+    expr: Expression,
+    accVar: string,
+    iterVar: string,
+    tableAlias: string,
+    elemAlias: string
+  ): { sql: string; params: unknown[] } {
+    const params: unknown[] = [];
+    
+    switch (expr.type) {
+      case "variable": {
+        if (expr.variable === accVar) {
+          return { sql: `${tableAlias}.acc`, params };
+        }
+        if (expr.variable === iterVar) {
+          return { sql: `${elemAlias}.value`, params };
+        }
+        // Other variables - use the standard translation
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (varInfo) {
+          return { sql: `${varInfo.alias}.${expr.property || "id"}`, params };
+        }
+        return { sql: expr.variable!, params };
+      }
+      
+      case "property": {
+        if (expr.variable === iterVar) {
+          // Property access on the iterator variable: x.name
+          return { sql: `json_extract(${elemAlias}.value, '$.${expr.property}')`, params };
+        }
+        if (expr.variable === accVar) {
+          // Property access on accumulator (if acc is an object)
+          return { sql: `json_extract(${tableAlias}.acc, '$.${expr.property}')`, params };
+        }
+        // Standard property translation
+        const varInfo = this.ctx.variables.get(expr.variable!);
+        if (varInfo) {
+          return { sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`, params };
+        }
+        return { sql: `json_extract(${expr.variable}, '$.${expr.property}')`, params };
+      }
+      
+      case "literal": {
+        if (expr.value === null) return { sql: "NULL", params };
+        if (typeof expr.value === "boolean") return { sql: expr.value ? "json('true')" : "json('false')", params };
+        if (typeof expr.value === "number") return { sql: String(expr.value), params };
+        if (typeof expr.value === "string") {
+          params.push(expr.value);
+          return { sql: "?", params };
+        }
+        if (Array.isArray(expr.value)) {
+          return { sql: `json('${JSON.stringify(expr.value)}')`, params };
+        }
+        return { sql: `json('${JSON.stringify(expr.value)}')`, params };
+      }
+      
+      case "binary": {
+        const left = this.translateReduceBodyExpr(expr.left!, accVar, iterVar, tableAlias, elemAlias);
+        const right = this.translateReduceBodyExpr(expr.right!, accVar, iterVar, tableAlias, elemAlias);
+        params.push(...left.params, ...right.params);
+        return { sql: `(${left.sql} ${expr.operator} ${right.sql})`, params };
+      }
+      
+      case "function": {
+        const funcName = expr.functionName!.toUpperCase();
+        const args = expr.args || [];
+        const argResults = args.map(arg => this.translateReduceBodyExpr(arg, accVar, iterVar, tableAlias, elemAlias));
+        for (const arg of argResults) {
+          params.push(...arg.params);
+        }
+        const argsSql = argResults.map(r => r.sql).join(", ");
+        return { sql: `${funcName}(${argsSql})`, params };
+      }
+      
+      default: {
+        // For other expression types, fall back to standard translation
+        const result = this.translateExpression(expr);
+        return { sql: result.sql, params: result.params };
+      }
+    }
   }
 
   /**

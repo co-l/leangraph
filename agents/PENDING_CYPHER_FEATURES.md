@@ -10,17 +10,17 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 
 | Category | Count | Complexity | Files to Modify |
 |----------|-------|------------|-----------------|
-| Parser Features | 6 | High | `parser.ts` |
+| Parser Features | 5 | High | `parser.ts` |
 | Expression Context | 0 | Medium | `translator.ts`, `executor.ts` |
 | Runtime Behaviors | 0 | Medium-High | `translator.ts`, `executor.ts` |
 | Missing Functions | 1 | Low | `translator.ts` |
 
 ### Parser Features (6 tests)
 
-| Feature | Query Example | Current Error |
-|---------|---------------|---------------|
-| Regex `=~` | `WHERE p.name =~ '.*ob'` | `Unexpected character '~'` |
-| `reduce()` | `reduce(acc = 0, x IN list \| acc + x)` | `Expected RPAREN, got PIPE` |
+| Feature | Query Example | Status |
+|---------|---------------|--------|
+| Regex `=~` | `WHERE p.name =~ '.*ob'` | Done |
+| `reduce()` | `reduce(acc = 0, x IN list \| acc + x)` | Done |
 | `filter()` | `filter(x IN list WHERE x > 2)` | `Expected RPAREN, got KEYWORD 'WHERE'` |
 | `extract()` | `extract(x IN list \| x.name)` | `Expected RPAREN, got PIPE` |
 | `shortestPath()` | `MATCH p = shortestPath((a)-[*]->(b))` | `Expected LPAREN, got IDENTIFIER` |
@@ -253,7 +253,7 @@ When you complete a feature:
 | UNWIND + MATCH | Done | 2026-01-12 |
 | `duration()` | Done | 2026-01-12 |
 | Regex `=~` | Done | 2026-01-12 |
-| `reduce()` | Pending | - |
+| `reduce()` | Done | 2026-01-12 |
 | `filter()` | Pending | - |
 | `extract()` | Pending | - |
 | `shortestPath()` | Pending | - |

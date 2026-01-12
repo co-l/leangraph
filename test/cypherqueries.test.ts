@@ -4830,5 +4830,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].paris).toEqual({ latitude: 48.8566, longitude: 2.3522 });
       });
     });
+
+    describe("distance() function", () => {
+      it("calculates euclidean distance between two points", async () => {
+        const result = await exec("RETURN distance(point({x:0,y:0}), point({x:3,y:4})) as d");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].d).toBe(5);
+      });
+    });
   });
 });

@@ -6055,6 +6055,17 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("sqrt requires an argument");
         }
 
+        // SIGN: returns -1, 0, or 1 based on the sign of the number
+        if (expr.functionName === "SIGN") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `SIGN(${argResult.sql})`, tables, params };
+          }
+          throw new Error("sign requires an argument");
+        }
+
         // RAND: random float between 0 and 1
         if (expr.functionName === "RAND") {
           // SQLite's RANDOM() returns integer between -9223372036854775808 and 9223372036854775807

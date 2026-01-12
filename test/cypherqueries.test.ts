@@ -4246,7 +4246,7 @@ describe("CypherQueries.json Patterns", () => {
     // MISSING FUNCTIONS
     // ============================================
     describe("Missing Functions", () => {
-      it.skip("supports sign() function", async () => {
+      it("supports sign() function", async () => {
         // Current error: "Unknown function: SIGN"
         const result = await exec(
           `RETURN abs(-5) as a, ceil(1.3) as c, floor(1.7) as f, round(1.5) as r, sign(-10) as s`

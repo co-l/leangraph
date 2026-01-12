@@ -148,17 +148,35 @@ git commit -m "feat: implement sign() function"
 
 ### Adding a New Function (e.g., `sign()`)
 
-1. **translator.ts** - Add to `translateExpression()` function handling:
+Functions may need changes in **both** `translator.ts` (SQL generation) and `executor.ts` (runtime evaluation). Check both files.
+
+1. **translator.ts** - Find the math functions section (~line 5990) and add a new `if` block:
 
 ```typescript
-case "function":
-  const funcName = expr.name.toUpperCase();
-  switch (funcName) {
-    // ... existing cases ...
-    case "SIGN":
-      return `SIGN(${translateFunctionArg(expr.args[0])})`;
+// SIGN: returns -1, 0, or 1 based on the sign of the number
+if (expr.functionName === "SIGN") {
+  if (expr.args && expr.args.length > 0) {
+    const argResult = this.translateFunctionArg(expr.args[0]);
+    tables.push(...argResult.tables);
+    params.push(...argResult.params);
+    return { sql: `SIGN(${argResult.sql})`, tables, params };
   }
+  throw new Error("sign requires an argument");
+}
 ```
+
+2. **executor.ts** - If the function needs runtime evaluation (e.g., in complex expressions), add to `evaluateFunction()` (~line 3970):
+
+```typescript
+case "SIGN": {
+  if (args.length === 0) return null;
+  const value = this.evaluateExpressionInRow(args[0], row, params);
+  if (typeof value !== "number") return null;
+  return Math.sign(value);
+}
+```
+
+**Tip:** Search for similar functions (e.g., `ABS`, `ROUND`) to find the exact locations.
 
 ### Adding a Parser Feature (e.g., `=~` regex)
 
@@ -228,7 +246,7 @@ When you complete a feature:
 
 | Feature | Status | Completed |
 |---------|--------|-----------|
-| `sign()` | Pending | - |
+| `sign()` | Done | 2026-01-12 |
 | Negative list index | Pending | - |
 | CASE in WHERE | Pending | - |
 | CASE in SET | Pending | - |

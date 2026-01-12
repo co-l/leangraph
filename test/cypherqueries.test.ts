@@ -4732,5 +4732,19 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["b.val"]).toBe(100);
       });
     });
+
+    describe("Regex =~ in RETURN expression", () => {
+      it("evaluates regex operator in RETURN", async () => {
+        const result = await exec(
+          "WITH 'hello' as s RETURN s STARTS WITH 'he' as sw, s ENDS WITH 'lo' as ew, s CONTAINS 'ell' as ct, s =~ 'h.*o' as rx"
+        );
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].sw).toBe(true);
+        expect(result.data[0].ew).toBe(true);
+        expect(result.data[0].ct).toBe(true);
+        expect(result.data[0].rx).toBe(true);
+      });
+    });
   });
 });

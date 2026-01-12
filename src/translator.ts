@@ -10129,6 +10129,17 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
       }
 
+      case "regexMatch": {
+        // Regex match operator: left =~ pattern
+        const leftResult = this.translateExpression(expr.left!);
+        const patternResult = this.translateExpression(expr.pattern!);
+        return {
+          sql: `cypher_to_json_bool(cypher_regex(${leftResult.sql}, ${patternResult.sql}))`,
+          tables: [...leftResult.tables, ...patternResult.tables],
+          params: [...leftResult.params, ...patternResult.params],
+        };
+      }
+
       default:
         throw new Error(`Unknown expression type: ${expr.type}`);
     }

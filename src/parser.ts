@@ -2757,6 +2757,13 @@ export class Parser {
       return { type: "stringOp", stringOperator: "ENDS WITH", left, right };
     }
 
+    // Handle regex operator: =~
+    if (this.check("REGEX_MATCH")) {
+      this.advance();
+      const right = this.parseAdditiveExpression();
+      return { type: "regexMatch", pattern: right, left };
+    }
+
     return left;
   }
 

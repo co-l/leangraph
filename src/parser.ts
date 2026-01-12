@@ -8,6 +8,7 @@ export interface NodePattern {
   variable?: string;
   label?: string | string[]; // Support both single label (backward compat) and multiple labels
   properties?: Record<string, PropertyValue>;
+  propertiesParam?: ParameterRef; // e.g., CREATE (n:Label $props)
 }
 
 export interface EdgePattern {
@@ -964,6 +965,7 @@ export class Parser {
   private tokens: Token[] = [];
   private pos: number = 0;
   private anonVarCounter: number = 0;
+  private allowParameterMapInNodePattern: boolean = false;
 
   /**
    * Parse a number string, validating that integers are within int64 range.
@@ -1139,12 +1141,17 @@ export class Parser {
     this.expect("KEYWORD", "CREATE");
     const patterns: (NodePattern | RelationshipPattern)[] = [];
 
+    const prevAllowParamMap = this.allowParameterMapInNodePattern;
+    this.allowParameterMapInNodePattern = true;
+
     patterns.push(...this.parsePatternChain());
 
     while (this.check("COMMA")) {
       this.advance();
       patterns.push(...this.parsePatternChain());
     }
+
+    this.allowParameterMapInNodePattern = prevAllowParamMap;
 
     // Validate: CREATE requires relationship type and direction
     for (const pattern of patterns) {
@@ -1977,6 +1984,15 @@ export class Parser {
     // Properties
     if (this.check("LBRACE")) {
       pattern.properties = this.parseProperties();
+    }
+
+    // Parameter map properties: (n:Label $props)
+    if (this.allowParameterMapInNodePattern && this.check("PARAMETER")) {
+      if (pattern.properties) {
+        throw new Error("Cannot use both literal properties and parameter map in node pattern");
+      }
+      const paramToken = this.advance();
+      pattern.propertiesParam = { type: "parameter", name: paramToken.value };
     }
 
     this.expect("RPAREN");

@@ -4708,5 +4708,17 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].sorted).toEqual([1, 2, 3]);
       });
     });
+
+    describe("CREATE from parameter map", () => {
+      it("creates node properties from a parameter map", async () => {
+        const result = await exec("CREATE (n:T5Param $props) RETURN n.name, n.age", {
+          props: { name: "Alice", age: 30 },
+        });
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["n.name"]).toBe("Alice");
+        expect(result.data[0]["n.age"]).toBe(30);
+      });
+    });
   });
 });

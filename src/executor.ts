@@ -2334,11 +2334,12 @@ export class Executor {
     globalContext: PhaseContext,
     params: Record<string, unknown>
   ): void {
-    const id = crypto.randomUUID();
-    const labelJson = this.normalizeLabelToJson(pattern.label);
-    const props = this.resolvePropertiesInContext(pattern.properties || {}, rowContext, params);
-    
-    this.db.execute(
+           const id = crypto.randomUUID();
+           const labelJson = this.normalizeLabelToJson(pattern.label);
+           const props = this.resolveNodePatternProperties(pattern, params, rowContext);
+
+           this.db.execute(
+
       "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
       [id, labelJson, JSON.stringify(props)]
     );
@@ -2403,7 +2404,7 @@ export class Executor {
     } else {
       // Create new source node
       sourceId = crypto.randomUUID();
-      const props = this.resolvePropertiesInContext(pattern.source.properties || {}, rowContext, params);
+      const props = this.resolveNodePatternProperties(pattern.source, params, rowContext);
       this.db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
         [sourceId, this.normalizeLabelToJson(pattern.source.label), JSON.stringify(props)]
@@ -2426,7 +2427,7 @@ export class Executor {
     } else {
       // Create new target node
       targetId = crypto.randomUUID();
-      const props = this.resolvePropertiesInContext(pattern.target.properties || {}, rowContext, params);
+      const props = this.resolveNodePatternProperties(pattern.target, params, rowContext);
       this.db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
         [targetId, this.normalizeLabelToJson(pattern.target.label), JSON.stringify(props)]
@@ -6730,7 +6731,8 @@ export class Executor {
           // Handle node pattern
           const id = crypto.randomUUID();
           const labelJson = this.normalizeLabelToJson(pattern.label);
-          const props = this.resolveProperties(pattern.properties || {}, params);
+           const props = this.resolveNodePatternProperties(pattern, params);
+
           
           this.db.execute(
             "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
@@ -8963,7 +8965,7 @@ export class Executor {
     } else {
       // Create new source node (with or without label - anonymous nodes are valid)
       sourceId = crypto.randomUUID();
-      const props = this.resolveProperties(rel.source.properties || {}, params);
+      const props = this.resolveNodePatternProperties(rel.source, params);
       const labelJson = this.normalizeLabelToJson(rel.source.label);
       this.db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
@@ -8983,7 +8985,7 @@ export class Executor {
     } else {
       // Create new target node (with or without label - anonymous nodes are valid)
       targetId = crypto.randomUUID();
-      const props = this.resolveProperties(rel.target.properties || {}, params);
+      const props = this.resolveNodePatternProperties(rel.target, params);
       const labelJson = this.normalizeLabelToJson(rel.target.label);
       this.db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
@@ -11036,7 +11038,7 @@ export class Executor {
     } else {
       // Create new source node (with or without label - anonymous nodes are valid)
       sourceId = crypto.randomUUID();
-      const props = this.resolveProperties(rel.source.properties || {}, params);
+      const props = this.resolveNodePatternProperties(rel.source, params);
       const labelJson = this.normalizeLabelToJson(rel.source.label);
       this.db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
@@ -11057,7 +11059,7 @@ export class Executor {
     } else {
       // Create new target node (with or without label - anonymous nodes are valid)
       targetId = crypto.randomUUID();
-      const props = this.resolveProperties(rel.target.properties || {}, params);
+      const props = this.resolveNodePatternProperties(rel.target, params);
       const labelJson = this.normalizeLabelToJson(rel.target.label);
       this.db.execute(
         "INSERT INTO nodes (id, label, properties) VALUES (?, ?, ?)",
@@ -11087,6 +11089,34 @@ export class Executor {
     if (rel.edge.variable) {
       resolvedIds[rel.edge.variable] = edgeId;
     }
+  }
+
+  /**
+   * Resolve node properties, including (n $props) parameter maps.
+   */
+  private resolveNodePatternProperties(
+    pattern: NodePattern,
+    params: Record<string, unknown>,
+    rowContext?: Map<string, unknown>
+  ): Record<string, unknown> {
+    const resolved = rowContext
+      ? this.resolvePropertiesInContext(pattern.properties || {}, rowContext, params)
+      : this.resolveProperties(pattern.properties || {}, params);
+
+    if (!pattern.propertiesParam) {
+      return resolved;
+    }
+
+    const paramValue = params[pattern.propertiesParam.name];
+    if (paramValue === undefined || paramValue === null) {
+      return resolved;
+    }
+
+    if (typeof paramValue !== "object" || Array.isArray(paramValue)) {
+      throw new Error(`Expected parameter $${pattern.propertiesParam.name} to be a map`);
+    }
+
+    return { ...(paramValue as Record<string, unknown>), ...resolved };
   }
 
   /**

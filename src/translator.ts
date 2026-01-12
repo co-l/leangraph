@@ -278,7 +278,7 @@ export class Translator {
       ? (Array.isArray(node.label) ? node.label : [node.label])
       : [];
     const labelJson = JSON.stringify(labelArray);
-    const properties = this.serializeProperties(node.properties || {});
+    const properties = this.serializeNodePatternProperties(node);
 
     if (node.variable) {
       this.ctx.variables.set(node.variable, { type: "node", alias: id });
@@ -295,6 +295,30 @@ export class Translator {
     };
   }
 
+  private serializeNodePatternProperties(node: NodePattern): { json: string; params: unknown[] } {
+    const literal = this.serializeProperties(node.properties || {});
+
+    if (!node.propertiesParam) {
+      return literal;
+    }
+
+    const paramValue = this.ctx.paramValues[node.propertiesParam.name];
+    if (paramValue === undefined || paramValue === null) {
+      return literal;
+    }
+
+    if (typeof paramValue !== "object" || Array.isArray(paramValue)) {
+      throw new Error(`Expected parameter $${node.propertiesParam.name} to be a map`);
+    }
+
+    const merged = {
+      ...(paramValue as Record<string, unknown>),
+      ...(JSON.parse(literal.json) as Record<string, unknown>),
+    };
+
+    return { json: JSON.stringify(merged), params: [] };
+  }
+
   private translateCreateRelationship(rel: RelationshipPattern): SqlStatement[] {
     const statements: SqlStatement[] = [];
 
@@ -305,7 +329,7 @@ export class Translator {
       if (existing) {
         // Variable already bound - check for label or property conflict
         // In CREATE, you cannot rebind a variable with new properties/labels
-        if (rel.source.label || rel.source.properties) {
+        if (rel.source.label || rel.source.properties || rel.source.propertiesParam) {
           throw new Error(`Variable \`${rel.source.variable}\` already declared`);
         }
         // Use the actual ID if available (from MERGE), otherwise use alias (from CREATE)
@@ -330,7 +354,7 @@ export class Translator {
       if (existing) {
         // Variable already bound - check for label or property conflict
         // In CREATE, you cannot rebind a variable with new properties/labels
-        if (rel.target.label || rel.target.properties) {
+        if (rel.target.label || rel.target.properties || rel.target.propertiesParam) {
           throw new Error(`Variable \`${rel.target.variable}\` already declared`);
         }
         // Use the actual ID if available (from MERGE), otherwise use alias (from CREATE)

@@ -4547,5 +4547,18 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].connections).toBe(2);
       });
     });
+
+    describe("UNWIND with maps", () => {
+      it("supports UNWIND map property access with aggregation", async () => {
+        // UNWIND inline map list and aggregate on map property
+        const result = await exec(`
+          UNWIND [{a:1}, {a:2}, {a:3}] as m
+          RETURN sum(m.a) as total
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].total).toBe(6);
+      });
+    });
   });
 });

@@ -5137,6 +5137,27 @@ export class Translator {
             const distinctKeyword = expr.distinct ? "DISTINCT " : "";
             
             if (arg.type === "property") {
+              // First check if this is an UNWIND variable
+              const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+                alias: string;
+                variable: string;
+                jsonExpr: string;
+                params: unknown[];
+              }> | undefined;
+              
+              if (unwindClauses) {
+                const unwindClause = unwindClauses.find(u => u.variable === arg.variable);
+                if (unwindClause) {
+                  tables.push(unwindClause.alias);
+                  // UNWIND variables use the 'value' column from json_each
+                  return {
+                    sql: `${expr.functionName}(${distinctKeyword}json_extract(${unwindClause.alias}.value, '$.${arg.property}'))`,
+                    tables,
+                    params,
+                  };
+                }
+              }
+              
               const varInfo = this.ctx.variables.get(arg.variable!);
               if (!varInfo) {
                 throw new Error(`Unknown variable: ${arg.variable}`);
@@ -5149,16 +5170,16 @@ export class Translator {
                 params,
               };
             } else if (arg.type === "variable") {
-              // Check if this is an UNWIND variable first
-              const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+              // Check if this is an UNWIND variable first (use different name to avoid shadowing)
+              const unwindClausesVar = (this.ctx as any).unwindClauses as Array<{
                 alias: string;
                 variable: string;
                 jsonExpr: string;
                 params: unknown[];
               }> | undefined;
               
-              if (unwindClauses) {
-                const unwindClause = unwindClauses.find(u => u.variable === arg.variable);
+              if (unwindClausesVar) {
+                const unwindClause = unwindClausesVar.find((u: { variable: string }) => u.variable === arg.variable);
                 if (unwindClause) {
                   tables.push(unwindClause.alias);
                   // For MIN/MAX on UNWIND variables, use type-aware comparison

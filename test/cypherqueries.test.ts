@@ -4680,5 +4680,33 @@ describe("CypherQueries.json Patterns", () => {
         expect(unique.sort()).toEqual([1, 2, 3]);
       });
     });
+
+    describe("WITH LIMIT", () => {
+      it("limits values from UNWIND range", async () => {
+        // Pattern: UNWIND range(...) as n WITH n LIMIT 5 RETURN collect(n)
+        const result = await exec(`
+          UNWIND range(1, 100) as n
+          WITH n LIMIT 5
+          RETURN collect(n) as first5
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].first5).toEqual([1, 2, 3, 4, 5]);
+      });
+    });
+
+    describe("WITH ORDER BY", () => {
+      it("sorts values from UNWIND then collects", async () => {
+        // Pattern: UNWIND [...] as n WITH n ORDER BY n RETURN collect(n)
+        const result = await exec(`
+          UNWIND [3,1,2] as n
+          WITH n ORDER BY n
+          RETURN collect(n) as sorted
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].sorted).toEqual([1, 2, 3]);
+      });
+    });
   });
 });

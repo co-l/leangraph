@@ -1241,11 +1241,19 @@ export class Translator {
     // Validate ORDER BY with aggregation
     // When aggregation is used in RETURN/WITH, ORDER BY expressions with mixed aggregate/non-aggregate
     // are not allowed unless the non-aggregate parts are in an implicit GROUP BY
+    // Note: Only validate the RETURN clause's own ORDER BY, not a previous WITH's ORDER BY.
+    // A WITH clause's ORDER BY applies to pre-aggregation rows and was already validated against WITH items.
     const hasAggregation = clause.items.some(item => this.isAggregateExpression(item.expression));
-    const prevWithOrderBy = (this.ctx as any).withOrderBy as { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;
-    const orderByToValidate = clause.orderBy && clause.orderBy.length > 0 ? clause.orderBy : prevWithOrderBy;
-    if (hasAggregation && orderByToValidate && orderByToValidate.length > 0) {
-      this.validateAggregationOrderBy(clause, orderByToValidate);
+    if (hasAggregation && clause.orderBy && clause.orderBy.length > 0) {
+      this.validateAggregationOrderBy(clause, clause.orderBy);
+    }
+    
+    // When RETURN has aggregation and there's a previous WITH ORDER BY (or row ordering),
+    // use that to order values within COLLECT() functions. This enables patterns like:
+    // UNWIND [3,1,2] as n WITH n ORDER BY n RETURN collect(n) -> [1,2,3]
+    const rowOrderBy = (this.ctx as any).rowOrderBy as { expression: Expression; direction: "ASC" | "DESC" }[] | undefined;
+    if (hasAggregation && rowOrderBy && rowOrderBy.length > 0) {
+      (this.ctx as any).collectOrderBy = rowOrderBy;
     }
 
     const selectParts: string[] = [];

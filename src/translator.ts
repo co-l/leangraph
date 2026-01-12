@@ -14565,6 +14565,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return { sql: result.sql, params: result.params };
       }
 
+      case "object": {
+        // Map literal in WHERE clause (e.g., WITH {a: 1} AS x WHERE x IS NOT NULL)
+        const result = this.translateObjectLiteral(expr);
+        return { sql: result.sql, params: result.params };
+      }
+
       default:
         throw new Error(`Unknown expression type in WHERE: ${expr.type}`);
     }

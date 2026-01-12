@@ -4884,5 +4884,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]).toBeDefined();
       });
     });
+
+    describe("Map literal in WHERE IS NOT NULL", () => {
+      it("supports map literal in WHERE IS NOT NULL", async () => {
+        const result = await exec("WITH {a: -55, b: false} AS x WHERE x IS NOT NULL RETURN x");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].x).toEqual({ a: -55, b: false });
+      });
+    });
   });
 });

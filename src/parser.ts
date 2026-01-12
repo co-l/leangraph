@@ -116,7 +116,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -2940,6 +2940,16 @@ export class Parser {
       if (nextToken && nextToken.type === "LPAREN") {
         const functionName = this.advance().value.toUpperCase();
         this.advance(); // LPAREN
+        
+        // Check if this is EXISTS with a pattern
+        if (functionName === "EXISTS") {
+          // EXISTS((pattern)) - check if next token is LPAREN (start of pattern)
+          if (this.check("LPAREN") && this.isPatternStart()) {
+            const patterns = this.parsePatternChain();
+            this.expect("RPAREN");
+            return { type: "existsPattern", patterns };
+          }
+        }
         
         // Check if this is a list predicate: ALL, ANY, NONE, SINGLE
         const listPredicates = ["ALL", "ANY", "NONE", "SINGLE"];

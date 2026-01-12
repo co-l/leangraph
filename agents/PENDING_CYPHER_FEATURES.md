@@ -11,7 +11,7 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 | Category | Count | Complexity | Files to Modify |
 |----------|-------|------------|-----------------|
 | Parser Features | 6 | High | `parser.ts` |
-| Expression Context | 3 | Medium | `translator.ts`, `executor.ts` |
+| Expression Context | 0 | Medium | `translator.ts`, `executor.ts` |
 | Runtime Behaviors | 2 | Medium-High | `translator.ts`, `executor.ts` |
 | Missing Functions | 1 | Low | `translator.ts` |
 
@@ -26,13 +26,13 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 | `shortestPath()` | `MATCH p = shortestPath((a)-[*]->(b))` | `Expected LPAREN, got IDENTIFIER` |
 | `FOREACH` | `FOREACH (x IN list \| SET n.val = x)` | `Unexpected token 'FOREACH'` |
 
-### Expression Context (3 tests)
+### Expression Context (0 tests) - All Done
 
-| Feature | Query Example | Current Error |
-|---------|---------------|---------------|
-| CASE in WHERE | `WHERE CASE WHEN x > 0 THEN true END` | `Unknown expression type in WHERE: case` |
-| CASE in SET | `SET n.cat = CASE WHEN ... END` | `Cannot evaluate expression of type case` |
-| `exists()` pattern | `RETURN exists((n)-[:REL]->())` | `Expected expression, got COLON` |
+| Feature | Query Example | Status |
+|---------|---------------|--------|
+| CASE in WHERE | `WHERE CASE WHEN x > 0 THEN true END` | Done |
+| CASE in SET | `SET n.cat = CASE WHEN ... END` | Done |
+| `exists()` pattern | `RETURN exists((n)-[:REL]->())` | Done |
 
 ### Runtime Behaviors (2 tests)
 
@@ -248,7 +248,7 @@ When you complete a feature:
 | Negative list index | Done | 2026-01-12 |
 | CASE in WHERE | Done | 2026-01-12 |
 | CASE in SET | Done | 2026-01-12 |
-| `exists()` pattern | Pending | - |
+| `exists()` pattern | Done | 2026-01-12 |
 | OPTIONAL MATCH + DELETE | Pending | - |
 | UNWIND + MATCH | Pending | - |
 | `duration()` | Done | 2026-01-12 |

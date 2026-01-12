@@ -4180,7 +4180,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ "p.category": "adult" }]);
       });
 
-      it.skip("handles exists() with pattern expression in RETURN", async () => {
+      it("handles exists() with pattern expression in RETURN", async () => {
         // Current error: "Expected expression, got COLON ':'"
         await exec(`CREATE (a:TestPerson {name: 'Alice'})-[:KNOWS]->(:TestPerson {name: 'Bob'})`);
         await exec(`CREATE (c:TestPerson {name: 'Charlie'})`);

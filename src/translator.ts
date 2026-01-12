@@ -5654,13 +5654,21 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               if (unwindClauses) {
                 const unwindClause = unwindClauses.find(u => u.variable === arg.variable);
                 if (unwindClause) {
-                  tables.push(unwindClause.alias);
+                  // Check if this UNWIND variable was wrapped in a WITH subquery
+                  const subqueryColName = (unwindClause as any).subqueryColumnName;
+                  const valueRef = subqueryColName 
+                    ? `__with_subquery__."${subqueryColName}"`
+                    : `${unwindClause.alias}.value`;
+                  
+                  if (!subqueryColName) {
+                    tables.push(unwindClause.alias);
+                  }
                   // For UNWIND variables, collect the raw values from json_each
                   if (useDistinct) {
                     // Filter nulls using CASE WHEN ... IS NOT NULL
                     params.push(...collectOrderParams);
                     return {
-                      sql: `COALESCE(json('[' || GROUP_CONCAT(DISTINCT CASE WHEN ${unwindClause.alias}.value IS NOT NULL THEN json_quote(${unwindClause.alias}.value) END${collectOrderClause}) || ']'), json('[]'))`,
+                      sql: `COALESCE(json('[' || GROUP_CONCAT(DISTINCT CASE WHEN ${valueRef} IS NOT NULL THEN json_quote(${valueRef}) END${collectOrderClause}) || ']'), json('[]'))`,
                       tables,
                       params,
                     };
@@ -5668,7 +5676,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                   // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
                   params.push(...collectOrderParams);
                   return {
-                    sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${unwindClause.alias}.value IS NOT NULL THEN json_quote(${unwindClause.alias}.value) END${collectOrderClause}) || ']'), json('[]'))`,
+                    sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${valueRef} IS NOT NULL THEN json_quote(${valueRef}) END${collectOrderClause}) || ']'), json('[]'))`,
                     tables,
                     params,
                   };

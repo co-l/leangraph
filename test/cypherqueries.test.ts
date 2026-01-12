@@ -4665,5 +4665,20 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].val).toBe("test");
       });
     });
+
+    describe("WITH DISTINCT", () => {
+      it("deduplicates values from UNWIND", async () => {
+        // Pattern: UNWIND [...] as n WITH DISTINCT n RETURN collect(n)
+        const result = await exec(`
+          UNWIND [1,1,2,2,3] as n
+          WITH DISTINCT n
+          RETURN collect(n) as unique
+        `);
+
+        expect(result.data).toHaveLength(1);
+        const unique = result.data[0].unique as number[];
+        expect(unique.sort()).toEqual([1, 2, 3]);
+      });
+    });
   });
 });

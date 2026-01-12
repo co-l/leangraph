@@ -4581,5 +4581,24 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[1]).toEqual({ g: "B", cnt: 1, sum: 3 });
       });
     });
+
+    describe("Keyword as variable name", () => {
+      it("supports 'end' as variable name with all() predicate on path nodes", async () => {
+        // 'end' is a keyword (CASE...END) but should be usable as variable name
+        await exec("CREATE (a:T3P {id: 'p1', active: true})-[:NEXT]->(b:T3P {id: 'p2', active: true})-[:NEXT]->(c:T3P {id: 'p3', active: false})");
+
+        const result = await exec(`
+          MATCH path = (a:T3P {id: 'p1'})-[:NEXT*]->(end)
+          WHERE all(n IN nodes(path) WHERE n.active = true)
+          RETURN end.id
+          ORDER BY end.id
+        `);
+
+        // Only paths where ALL nodes are active should be returned
+        // p1 -> p2 has all active nodes (p1 and p2 both active)
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["end.id"]).toBe("p2");
+      });
+    });
   });
 });

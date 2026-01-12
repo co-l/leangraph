@@ -1950,9 +1950,11 @@ export class Parser {
 
     const pattern: NodePattern = {};
 
-    // Variable name
-    if (this.check("IDENTIFIER")) {
-      pattern.variable = this.advance().value;
+    // Variable name (allow keywords like 'end' as variable names)
+    if (this.check("IDENTIFIER") || this.check("KEYWORD")) {
+      const token = this.advance();
+      // Use originalValue for keywords to preserve original casing (e.g., 'end' not 'END')
+      pattern.variable = token.originalValue || token.value;
     }
 
     // Labels (can be multiple: :A:B:C)
@@ -1993,9 +1995,11 @@ export class Parser {
     if (this.check("LBRACKET")) {
       this.advance();
 
-      // Variable name
-      if (this.check("IDENTIFIER")) {
-        edge.variable = this.advance().value;
+      // Variable name (allow keywords as variable names)
+      if (this.check("IDENTIFIER") || this.check("KEYWORD")) {
+        const token = this.advance();
+        // Use originalValue for keywords to preserve original casing
+        edge.variable = token.originalValue || token.value;
       }
 
       // Type (can be identifier or keyword, or multiple types separated by |)

@@ -4874,5 +4874,15 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]).toBeDefined();
       });
     });
+
+    describe("PROFILE query", () => {
+      it("returns query execution profile", async () => {
+        const result = await exec("PROFILE MATCH (n) RETURN n LIMIT 1");
+
+        // PROFILE should return plan information
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]).toBeDefined();
+      });
+    });
   });
 });

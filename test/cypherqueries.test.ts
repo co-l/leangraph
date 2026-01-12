@@ -4822,6 +4822,13 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toHaveLength(1);
         expect(result.data[0].p).toEqual({ x: 0, y: 0 });
       });
+
+      it("creates a point from latitude/longitude", async () => {
+        const result = await exec("RETURN point({latitude: 48.8566, longitude: 2.3522}) as paris");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].paris).toEqual({ latitude: 48.8566, longitude: 2.3522 });
+      });
     });
   });
 });

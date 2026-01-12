@@ -6546,16 +6546,16 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("floor requires an argument");
         }
 
-        // CEIL: round up to integer
+        // CEIL: round up to integer (towards positive infinity)
         if (expr.functionName === "CEIL") {
           if (expr.args && expr.args.length > 0) {
             const argResult = this.translateFunctionArg(expr.args[0]);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
-            // SQLite doesn't have CEIL, simulate with CASE
-            // Use subquery to evaluate arg once (avoids duplicate parameter binding)
+            // SQLite's CAST truncates towards zero, which is correct for ceil of negative numbers
+            // For positive numbers with fractional part, we need to add 1
             return { 
-              sql: `(SELECT CASE WHEN v = CAST(v AS INTEGER) THEN CAST(v AS INTEGER) ELSE CAST(v AS INTEGER) + 1 END FROM (SELECT ${argResult.sql} AS v))`, 
+              sql: `(SELECT CASE WHEN v <= 0 OR v = CAST(v AS INTEGER) THEN CAST(v AS INTEGER) ELSE CAST(v AS INTEGER) + 1 END FROM (SELECT ${argResult.sql} AS v))`, 
               tables, 
               params 
             };

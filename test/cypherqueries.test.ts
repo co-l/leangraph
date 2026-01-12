@@ -4912,5 +4912,15 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].f).toBe(-9);
       });
     });
+
+    describe("ceil() with negative numbers", () => {
+      it("ceils negative numbers towards positive infinity", async () => {
+        // ceil(-1.34) should be -1, not 0
+        const result = await exec("RETURN ceil(-1.34) as c");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].c).toBe(-1);
+      });
+    });
   });
 });

@@ -4782,5 +4782,18 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["n.id"]).toBe("pc1");
       });
     });
+
+    describe("datetime() component access", () => {
+      it("accesses hour, minute, second from datetime", async () => {
+        const result = await exec(
+          "WITH datetime('2024-06-15T10:30:45') as dt RETURN dt.hour as h, dt.minute as m, dt.second as s"
+        );
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].h).toBe(10);
+        expect(result.data[0].m).toBe(30);
+        expect(result.data[0].s).toBe(45);
+      });
+    });
   });
 });

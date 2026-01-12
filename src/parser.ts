@@ -116,7 +116,7 @@ export interface ObjectProperty {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "reduce";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "reduce" | "filter" | "extract";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -3010,6 +3010,61 @@ export class Parser {
             variable: iteratorToken.value,
             listExpr,
             reduceExpr,
+          };
+        }
+        
+        // Check if this is a FILTER expression: filter(x IN list WHERE predicate)
+        if (functionName === "FILTER") {
+          // Parse variable IN listExpr
+          const iteratorToken = this.expect("IDENTIFIER");
+          if (!this.checkKeyword("IN")) {
+            throw new Error("Expected IN keyword in filter()");
+          }
+          this.advance(); // consume IN
+          const listExpr = this.parseExpression();
+          
+          // Expect WHERE
+          if (!this.checkKeyword("WHERE")) {
+            throw new Error("Expected WHERE keyword in filter()");
+          }
+          this.advance(); // consume WHERE
+          
+          // Parse the filter predicate
+          const filterCondition = this.parseWhereCondition();
+          
+          this.expect("RPAREN");
+          
+          return {
+            type: "filter",
+            variable: iteratorToken.value,
+            listExpr,
+            filterCondition,
+          };
+        }
+        
+        // Check if this is an EXTRACT expression: extract(x IN list | expr)
+        if (functionName === "EXTRACT") {
+          // Parse variable IN listExpr
+          const iteratorToken = this.expect("IDENTIFIER");
+          if (!this.checkKeyword("IN")) {
+            throw new Error("Expected IN keyword in extract()");
+          }
+          this.advance(); // consume IN
+          const listExpr = this.parseExpression();
+          
+          // Expect PIPE
+          this.expect("PIPE");
+          
+          // Parse the map expression
+          const mapExpr = this.parseExpression();
+          
+          this.expect("RPAREN");
+          
+          return {
+            type: "extract",
+            variable: iteratorToken.value,
+            listExpr,
+            mapExpr,
           };
         }
         

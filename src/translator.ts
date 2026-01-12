@@ -9330,6 +9330,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return this.translateReduceExpression(expr);
       }
 
+      case "filter": {
+        // filter(x IN list WHERE cond) - same as list comprehension without map expression
+        return this.translateFilterExpression(expr);
+      }
+
+      case "extract": {
+        // extract(x IN list | expr) - same as list comprehension without filter
+        return this.translateExtractExpression(expr);
+      }
+
       case "unary": {
         return this.translateUnaryExpression(expr);
       }
@@ -11152,6 +11162,92 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     
     // Params order: init params, then list params (once for each occurrence), then reduce params
     params.push(...initResult.params, ...listResult.params, ...reduceResult.params);
+    
+    return { sql, tables, params };
+  }
+
+  /**
+   * Translate a filter expression.
+   * Syntax: filter(x IN list WHERE predicate)
+   * 
+   * Returns a list of elements that satisfy the predicate.
+   * Equivalent to list comprehension [x IN list WHERE predicate] without mapping.
+   */
+  private translateFilterExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    const variable = expr.variable!;
+    const listExpr = expr.listExpr!;
+    const filterCondition = expr.filterCondition!;
+    
+    // Translate the source list expression
+    const listResult = this.translateExpression(listExpr);
+    tables.push(...listResult.tables);
+    
+    // Wrap the source expression for json_each
+    let sourceExpr = listResult.sql;
+    if (listExpr.type === "property") {
+      // For property access, use json_extract 
+      const varInfo = this.ctx.variables.get(listExpr.variable!);
+      if (varInfo) {
+        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${listExpr.property}')`;
+      }
+    }
+    
+    // Build the WHERE clause from the filter condition
+    const filterResult = this.translateListComprehensionCondition(filterCondition, variable, "__flt__");
+    const filterParams = filterResult.params;
+    const whereClause = ` WHERE ${filterResult.sql}`;
+    
+    // Build the final SQL using json_group_array
+    const sql = `(SELECT json_group_array(__flt__.value) FROM json_each(${sourceExpr}) AS __flt__${whereClause})`;
+    
+    // Params must match SQL order: source params, then filter params
+    params.push(...listResult.params, ...filterParams);
+    
+    return { sql, tables, params };
+  }
+
+  /**
+   * Translate an extract expression.
+   * Syntax: extract(x IN list | expr)
+   * 
+   * Returns a list of mapped values.
+   * Equivalent to list comprehension [x IN list | expr] without filtering.
+   */
+  private translateExtractExpression(expr: Expression): { sql: string; tables: string[]; params: unknown[] } {
+    const tables: string[] = [];
+    const params: unknown[] = [];
+    
+    const variable = expr.variable!;
+    const listExpr = expr.listExpr!;
+    const mapExpr = expr.mapExpr!;
+    
+    // Translate the source list expression
+    const listResult = this.translateExpression(listExpr);
+    tables.push(...listResult.tables);
+    
+    // Wrap the source expression for json_each
+    let sourceExpr = listResult.sql;
+    if (listExpr.type === "property") {
+      // For property access, use json_extract 
+      const varInfo = this.ctx.variables.get(listExpr.variable!);
+      if (varInfo) {
+        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${listExpr.property}')`;
+      }
+    }
+    
+    // Translate the map expression
+    const mapResult = this.translateListComprehensionExpr(mapExpr, variable, "__ext__");
+    const mapParams = mapResult.params;
+    const selectExpr = mapResult.sql;
+    
+    // Build the final SQL using json_group_array
+    const sql = `(SELECT json_group_array(${selectExpr}) FROM json_each(${sourceExpr}) AS __ext__)`;
+    
+    // Params must match SQL order: select params, then source params
+    params.push(...mapParams, ...listResult.params);
     
     return { sql, tables, params };
   }

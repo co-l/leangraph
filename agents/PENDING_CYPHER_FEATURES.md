@@ -10,10 +10,10 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 
 | Category | Count | Complexity | Files to Modify |
 |----------|-------|------------|-----------------|
-| Parser Features | 5 | High | `parser.ts` |
+| Parser Features | 2 | High | `parser.ts` |
 | Expression Context | 0 | Medium | `translator.ts`, `executor.ts` |
 | Runtime Behaviors | 0 | Medium-High | `translator.ts`, `executor.ts` |
-| Missing Functions | 1 | Low | `translator.ts` |
+| Missing Functions | 0 | Low | `translator.ts` |
 
 ### Parser Features (6 tests)
 
@@ -21,8 +21,8 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 |---------|---------------|--------|
 | Regex `=~` | `WHERE p.name =~ '.*ob'` | Done |
 | `reduce()` | `reduce(acc = 0, x IN list \| acc + x)` | Done |
-| `filter()` | `filter(x IN list WHERE x > 2)` | `Expected RPAREN, got KEYWORD 'WHERE'` |
-| `extract()` | `extract(x IN list \| x.name)` | `Expected RPAREN, got PIPE` |
+| `filter()` | `filter(x IN list WHERE x > 2)` | Done |
+| `extract()` | `extract(x IN list \| x.name)` | Done |
 | `shortestPath()` | `MATCH p = shortestPath((a)-[*]->(b))` | `Expected LPAREN, got IDENTIFIER` |
 | `FOREACH` | `FOREACH (x IN list \| SET n.val = x)` | `Unexpected token 'FOREACH'` |
 
@@ -41,11 +41,11 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 | OPTIONAL MATCH + DELETE | `OPTIONAL MATCH (n)-[r]->() DELETE n` | Done |
 | UNWIND + MATCH | `UNWIND list AS x MATCH (n {prop: x})` | Done |
 
-### Missing Functions (1 test)
+### Missing Functions (0 tests) - All Done
 
-| Function | Query Example | Current Error |
-|----------|---------------|---------------|
-| `sign()` | `RETURN sign(-10)` | `Unknown function: SIGN` |
+| Function | Query Example | Status |
+|----------|---------------|--------|
+| `sign()` | `RETURN sign(-10)` | Done |
 
 ## TDD Workflow
 
@@ -254,7 +254,7 @@ When you complete a feature:
 | `duration()` | Done | 2026-01-12 |
 | Regex `=~` | Done | 2026-01-12 |
 | `reduce()` | Done | 2026-01-12 |
-| `filter()` | Pending | - |
-| `extract()` | Pending | - |
+| `filter()` | Done | 2026-01-12 |
+| `extract()` | Done | 2026-01-12 |
 | `shortestPath()` | Pending | - |
 | `FOREACH` | Pending | - |

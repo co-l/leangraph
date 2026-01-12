@@ -4109,14 +4109,14 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ sum: 10 }]);
       });
 
-      it.skip("supports filter() function", async () => {
+      it("supports filter() function", async () => {
         // Current error: "Expected RPAREN, got KEYWORD 'WHERE'"
         const result = await exec(`RETURN filter(x IN [1,2,3,4,5] WHERE x > 2) as filtered`);
 
         expect(result.data).toEqual([{ filtered: [3, 4, 5] }]);
       });
 
-      it.skip("supports extract() function", async () => {
+      it("supports extract() function", async () => {
         // Current error: "Expected RPAREN, got PIPE '|'"
         await exec(`CREATE (p:TestPerson {name: 'Alice'})`);
         await exec(`CREATE (p:TestPerson {name: 'Bob'})`);

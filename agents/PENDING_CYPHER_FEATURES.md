@@ -248,7 +248,7 @@ When you complete a feature:
 | `sign()` | Done | 2026-01-12 |
 | Negative list index | Done | 2026-01-12 |
 | CASE in WHERE | Done | 2026-01-12 |
-| CASE in SET | Pending | - |
+| CASE in SET | Done | 2026-01-12 |
 | `exists()` pattern | Pending | - |
 | OPTIONAL MATCH + DELETE | Pending | - |
 | UNWIND + MATCH | Pending | - |

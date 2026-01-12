@@ -4168,7 +4168,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toEqual([{ "p.name": "Alice" }]);
       });
 
-      it.skip("handles CASE WHEN in SET clause", async () => {
+      it("handles CASE WHEN in SET clause", async () => {
         // Current error: "Cannot evaluate expression of type case"
         await exec(`CREATE (p:TestPerson {name: 'Alice', age: 30})`);
 

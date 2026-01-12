@@ -10072,7 +10072,7 @@ export class Executor {
       }
 
       // Use context-aware evaluation for expressions that may reference properties
-      const value = assignment.value.type === "binary" || assignment.value.type === "property"
+      const value = assignment.value.type === "binary" || assignment.value.type === "property" || assignment.value.type === "case"
         ? this.evaluateExpressionWithContext(assignment.value, params, resolvedIds)
         : this.evaluateExpression(assignment.value, params);
 
@@ -10176,6 +10176,35 @@ export class Executor {
     }
     
     return deletedVariables;
+  }
+
+  /**
+   * Build a row context from resolved node/edge IDs for condition evaluation
+   */
+  private buildRowFromResolvedIds(resolvedIds: Record<string, string>): Record<string, unknown> {
+    const row: Record<string, unknown> = {};
+    for (const [varName, entityId] of Object.entries(resolvedIds)) {
+      // Try to get properties from nodes first
+      const nodeResult = this.db.execute(
+        `SELECT properties FROM nodes WHERE id = ?`,
+        [entityId]
+      );
+      if (nodeResult.rows.length > 0) {
+        const props = JSON.parse(nodeResult.rows[0].properties as string || "{}");
+        row[varName] = props;
+        continue;
+      }
+      // Try edges
+      const edgeResult = this.db.execute(
+        `SELECT properties FROM edges WHERE id = ?`,
+        [entityId]
+      );
+      if (edgeResult.rows.length > 0) {
+        const props = JSON.parse(edgeResult.rows[0].properties as string || "{}");
+        row[varName] = props;
+      }
+    }
+    return row;
   }
 
   /**
@@ -10298,6 +10327,19 @@ export class Executor {
         const funcName = expr.functionName!.toUpperCase();
         const args = expr.args || [];
         return this.evaluateFunctionInProperty(funcName, args, params, {});
+      }
+      case "case": {
+        // Evaluate CASE WHEN ... THEN ... ELSE ... END
+        // Build a row context from resolvedIds for condition evaluation
+        const row = this.buildRowFromResolvedIds(resolvedIds);
+        if (expr.whens) {
+          for (const when of expr.whens) {
+            if (this.evaluateWhereConditionOnRow(when.condition, row, params)) {
+              return this.evaluateExpressionWithContext(when.result, params, resolvedIds);
+            }
+          }
+        }
+        return expr.elseExpr ? this.evaluateExpressionWithContext(expr.elseExpr, params, resolvedIds) : null;
       }
       default:
         throw new Error(`Cannot evaluate expression of type ${expr.type}`);

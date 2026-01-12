@@ -10,7 +10,7 @@ All pending tests are in `/home/conrad/tmp/leangraph-test/failures.json` where '
 
 ### 1. Pick a Feature
 
-Start with the first failure in the json file
+Look at how many failures are left in the json file and show it to me, then start with the first failure in the json file
 
 
 ### 2. Add the Test

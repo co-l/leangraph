@@ -4411,5 +4411,68 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[2]).toEqual({ "x.a": 2, "x.b": 1 });
       });
     });
+
+    describe("Math functions", () => {
+      it("supports log() natural logarithm", async () => {
+        const result = await exec("RETURN log(2.718281828) as ln");
+        expect(result.data[0].ln).toBeCloseTo(1.0, 5);
+      });
+
+      it("supports log10() base-10 logarithm", async () => {
+        const result = await exec("RETURN log10(100) as log10");
+        expect(result.data[0].log10).toBe(2);
+      });
+
+      it("supports exp() exponential", async () => {
+        const result = await exec("RETURN exp(1) as e");
+        expect(result.data[0].e).toBeCloseTo(2.718281828, 5);
+      });
+
+      it("supports sin() cos() tan() trigonometric functions", async () => {
+        const result = await exec("RETURN sin(0) as s, cos(0) as c, tan(0) as t");
+        expect(result.data[0].s).toBe(0);
+        expect(result.data[0].c).toBe(1);
+        expect(result.data[0].t).toBe(0);
+      });
+
+      it("supports e() and pi() constants", async () => {
+        const result = await exec("RETURN e() as euler, pi() as pi");
+        expect(result.data[0].euler).toBeCloseTo(2.718281828, 5);
+        expect(result.data[0].pi).toBeCloseTo(3.14159265, 5);
+      });
+
+      it("supports asin() acos() atan() inverse trig functions", async () => {
+        const result = await exec("RETURN asin(0) as asin, acos(1) as acos, atan(0) as atan");
+        expect(result.data[0].asin).toBe(0);
+        expect(result.data[0].acos).toBe(0);
+        expect(result.data[0].atan).toBe(0);
+      });
+
+      it("supports atan2() two-argument arctangent", async () => {
+        const result = await exec("RETURN atan2(1, 1) as atan2");
+        expect(result.data[0].atan2).toBeCloseTo(0.7853981633974483, 10); // pi/4
+      });
+
+      it("supports degrees() and radians() conversion", async () => {
+        const result = await exec("RETURN degrees(3.14159265) as deg, radians(180) as rad");
+        expect(result.data[0].deg).toBeCloseTo(180, 3);
+        expect(result.data[0].rad).toBeCloseTo(3.14159265, 5);
+      });
+
+      it("supports haversin() haversine function", async () => {
+        const result = await exec("RETURN haversin(0.5) as hav");
+        expect(result.data[0].hav).toBeCloseTo(0.0612, 3);
+      });
+
+      it("supports stDev() sample standard deviation", async () => {
+        const result = await exec("UNWIND [1,2,3,4,5] as n RETURN stDev(n) as stddev");
+        expect(result.data[0].stddev).toBeCloseTo(1.5811, 3);
+      });
+
+      it("supports stDevP() population standard deviation", async () => {
+        const result = await exec("UNWIND [1,2,3,4,5] as n RETURN stDevP(n) as stddev");
+        expect(result.data[0].stddev).toBeCloseTo(1.4142, 3);
+      });
+    });
   });
 });

@@ -5284,6 +5284,75 @@ export class Translator {
           throw new Error(`${expr.functionName} requires a property, variable, or expression argument`);
         }
         
+        // Standard deviation functions: STDEV (sample), STDEVP (population)
+        // Formula: sqrt((sum(x^2) - sum(x)^2/n) / (n-1)) for sample
+        //          sqrt((sum(x^2) - sum(x)^2/n) / n) for population
+        if (expr.functionName === "STDEV" || expr.functionName === "STDEVP") {
+          if (expr.args && expr.args.length > 0) {
+            const arg = expr.args[0];
+            // Validate that the argument doesn't contain non-deterministic functions
+            if (this.containsNonDeterministicFunction(arg)) {
+              throw new Error(`SyntaxError: Can't use non-deterministic (random) functions inside of aggregate functions.`);
+            }
+            
+            let valueSql: string;
+            if (arg.type === "property") {
+              const varInfo = this.ctx.variables.get(arg.variable!);
+              if (!varInfo) {
+                throw new Error(`Unknown variable: ${arg.variable}`);
+              }
+              tables.push(varInfo.alias);
+              valueSql = `json_extract(${varInfo.alias}.properties, '$.${arg.property}')`;
+            } else if (arg.type === "variable") {
+              // Check if this is an UNWIND variable
+              const unwindClauses = (this.ctx as any).unwindClauses as Array<{
+                alias: string;
+                variable: string;
+                jsonExpr: string;
+                params: unknown[];
+              }> | undefined;
+              
+              if (unwindClauses) {
+                const unwindClause = unwindClauses.find(u => u.variable === arg.variable);
+                if (unwindClause) {
+                  tables.push(unwindClause.alias);
+                  valueSql = `${unwindClause.alias}.value`;
+                } else {
+                  const varInfo = this.ctx.variables.get(arg.variable!);
+                  if (!varInfo) {
+                    throw new Error(`Unknown variable: ${arg.variable}`);
+                  }
+                  tables.push(varInfo.alias);
+                  valueSql = `${varInfo.alias}.id`;
+                }
+              } else {
+                const varInfo = this.ctx.variables.get(arg.variable!);
+                if (!varInfo) {
+                  throw new Error(`Unknown variable: ${arg.variable}`);
+                }
+                tables.push(varInfo.alias);
+                valueSql = `${varInfo.alias}.id`;
+              }
+            } else {
+              // Handle expressions
+              const argResult = this.translateFunctionArg(arg);
+              tables.push(...argResult.tables);
+              params.push(...argResult.params);
+              valueSql = argResult.sql;
+            }
+            
+            // Use computational formula for standard deviation
+            // Sample: sqrt((sum(x^2) - sum(x)^2/n) / (n-1))
+            // Population: sqrt((sum(x^2) - sum(x)^2/n) / n)
+            // Note: multiply by 1.0 to force float division in SQLite
+            const divisor = expr.functionName === "STDEV" ? `(COUNT(${valueSql}) - 1)` : `COUNT(${valueSql})`;
+            const formula = `CASE WHEN COUNT(${valueSql}) <= 1 THEN 0.0 ELSE sqrt((SUM(${valueSql} * ${valueSql}) - SUM(${valueSql}) * SUM(${valueSql}) * 1.0 / COUNT(${valueSql})) * 1.0 / ${divisor}) END`;
+            
+            return { sql: formula, tables, params };
+          }
+          throw new Error(`${expr.functionName.toLowerCase()} requires an argument`);
+        }
+        
         // Percentile functions: PERCENTILEDISC, PERCENTILECONT
         // percentileDisc(value, percentile) - Returns discrete value at percentile position
         // percentileCont(value, percentile) - Returns interpolated value at percentile position
@@ -6081,6 +6150,154 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
             tables, 
             params 
           };
+        }
+
+        // LOG: natural logarithm (Cypher log = SQLite ln)
+        if (expr.functionName === "LOG") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `ln(${argResult.sql})`, tables, params };
+          }
+          throw new Error("log requires an argument");
+        }
+
+        // LOG10: base-10 logarithm
+        if (expr.functionName === "LOG10") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `log10(${argResult.sql})`, tables, params };
+          }
+          throw new Error("log10 requires an argument");
+        }
+
+        // EXP: exponential (e^x)
+        if (expr.functionName === "EXP") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `exp(${argResult.sql})`, tables, params };
+          }
+          throw new Error("exp requires an argument");
+        }
+
+        // Trigonometric functions
+        if (expr.functionName === "SIN") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `sin(${argResult.sql})`, tables, params };
+          }
+          throw new Error("sin requires an argument");
+        }
+
+        if (expr.functionName === "COS") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `cos(${argResult.sql})`, tables, params };
+          }
+          throw new Error("cos requires an argument");
+        }
+
+        if (expr.functionName === "TAN") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `tan(${argResult.sql})`, tables, params };
+          }
+          throw new Error("tan requires an argument");
+        }
+
+        if (expr.functionName === "ASIN") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `asin(${argResult.sql})`, tables, params };
+          }
+          throw new Error("asin requires an argument");
+        }
+
+        if (expr.functionName === "ACOS") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `acos(${argResult.sql})`, tables, params };
+          }
+          throw new Error("acos requires an argument");
+        }
+
+        if (expr.functionName === "ATAN") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `atan(${argResult.sql})`, tables, params };
+          }
+          throw new Error("atan requires an argument");
+        }
+
+        if (expr.functionName === "ATAN2") {
+          if (expr.args && expr.args.length >= 2) {
+            const arg1Result = this.translateFunctionArg(expr.args[0]);
+            const arg2Result = this.translateFunctionArg(expr.args[1]);
+            tables.push(...arg1Result.tables, ...arg2Result.tables);
+            params.push(...arg1Result.params, ...arg2Result.params);
+            return { sql: `atan2(${arg1Result.sql}, ${arg2Result.sql})`, tables, params };
+          }
+          throw new Error("atan2 requires two arguments");
+        }
+
+        // DEGREES: convert radians to degrees
+        if (expr.functionName === "DEGREES") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `degrees(${argResult.sql})`, tables, params };
+          }
+          throw new Error("degrees requires an argument");
+        }
+
+        // RADIANS: convert degrees to radians
+        if (expr.functionName === "RADIANS") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `radians(${argResult.sql})`, tables, params };
+          }
+          throw new Error("radians requires an argument");
+        }
+
+        // HAVERSIN: haversine function (1 - cos(x)) / 2
+        if (expr.functionName === "HAVERSIN") {
+          if (expr.args && expr.args.length > 0) {
+            const argResult = this.translateFunctionArg(expr.args[0]);
+            tables.push(...argResult.tables);
+            params.push(...argResult.params);
+            return { sql: `((1.0 - cos(${argResult.sql})) / 2.0)`, tables, params };
+          }
+          throw new Error("haversin requires an argument");
+        }
+
+        // E: Euler's number constant
+        if (expr.functionName === "E") {
+          return { sql: `exp(1)`, tables, params };
+        }
+
+        // PI: mathematical constant pi
+        if (expr.functionName === "PI") {
+          return { sql: `pi()`, tables, params };
         }
 
         // ============================================================================

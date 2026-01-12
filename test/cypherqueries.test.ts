@@ -4720,5 +4720,17 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["n.age"]).toBe(30);
       });
     });
+
+    describe("SET from another node", () => {
+      it("copies property value from another matched node", async () => {
+        await exec("CREATE (a:T5Copy {val: 100})");
+        await exec("CREATE (b:T5Copy {val: 0})");
+
+        const result = await exec("MATCH (a:T5Copy {val: 100}), (b:T5Copy {val: 0}) SET b.val = a.val RETURN b.val");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["b.val"]).toBe(100);
+      });
+    });
   });
 });

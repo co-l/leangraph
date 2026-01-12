@@ -9501,9 +9501,20 @@ export class Executor {
     const referencedInSet = new Set<string>();
     for (const setClause of setClauses) {
       for (const assignment of setClause.assignments) {
-        const resolved = resolveAlias(assignment.variable);
-        if (resolved) {
-          referencedInSet.add(resolved);
+        const resolvedTarget = resolveAlias(assignment.variable);
+        if (resolvedTarget) {
+          referencedInSet.add(resolvedTarget);
+        }
+
+        if (assignment.value) {
+          const valueVars: string[] = [];
+          this.collectExpressionVariables(assignment.value, valueVars);
+          for (const v of valueVars) {
+            const resolvedValueVar = resolveAlias(v);
+            if (resolvedValueVar) {
+              referencedInSet.add(resolvedValueVar);
+            }
+          }
         }
       }
     }

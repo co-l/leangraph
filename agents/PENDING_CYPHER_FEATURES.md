@@ -10,7 +10,7 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 
 | Category | Count | Complexity | Files to Modify |
 |----------|-------|------------|-----------------|
-| Parser Features | 2 | High | `parser.ts` |
+| Parser Features | 1 | High | `parser.ts` |
 | Expression Context | 0 | Medium | `translator.ts`, `executor.ts` |
 | Runtime Behaviors | 0 | Medium-High | `translator.ts`, `executor.ts` |
 | Missing Functions | 0 | Low | `translator.ts` |
@@ -23,7 +23,7 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 | `reduce()` | `reduce(acc = 0, x IN list \| acc + x)` | Done |
 | `filter()` | `filter(x IN list WHERE x > 2)` | Done |
 | `extract()` | `extract(x IN list \| x.name)` | Done |
-| `shortestPath()` | `MATCH p = shortestPath((a)-[*]->(b))` | `Expected LPAREN, got IDENTIFIER` |
+| `shortestPath()` | `MATCH p = shortestPath((a)-[*]->(b))` | Done |
 | `FOREACH` | `FOREACH (x IN list \| SET n.val = x)` | `Unexpected token 'FOREACH'` |
 
 ### Expression Context (0 tests) - All Done
@@ -256,5 +256,5 @@ When you complete a feature:
 | `reduce()` | Done | 2026-01-12 |
 | `filter()` | Done | 2026-01-12 |
 | `extract()` | Done | 2026-01-12 |
-| `shortestPath()` | Pending | - |
+| `shortestPath()` | Done | 2026-01-12 |
 | `FOREACH` | Pending | - |

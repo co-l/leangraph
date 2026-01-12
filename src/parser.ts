@@ -30,6 +30,7 @@ export interface PathExpression {
   type: "path";
   variable: string;
   patterns: (NodePattern | RelationshipPattern)[];
+  pathFunction?: "shortestPath" | "allShortestPaths"; // Path-finding functions
 }
 
 export interface ParameterRef {
@@ -1193,13 +1194,32 @@ export class Parser {
       const identifier = this.advance().value;
       
       if (this.check("EQUALS")) {
-        // This is a path expression: p = (a)-[r]->(b)
+        // This is a path expression: p = (a)-[r]->(b) or p = shortestPath(...)
         this.advance(); // consume "="
+        
+        // Check for path function: shortestPath() or allShortestPaths()
+        let pathFunction: "shortestPath" | "allShortestPaths" | undefined;
+        if (this.check("IDENTIFIER")) {
+          const funcName = this.peek().value.toLowerCase();
+          if (funcName === "shortestpath" || funcName === "allshortestpaths") {
+            pathFunction = funcName === "shortestpath" ? "shortestPath" : "allShortestPaths";
+            this.advance(); // consume function name
+            this.expect("LPAREN"); // consume opening paren
+          }
+        }
+        
         const patterns = this.parsePatternChain();
+        
+        // If we had a path function, consume the closing paren
+        if (pathFunction) {
+          this.expect("RPAREN");
+        }
+        
         return {
           type: "path",
           variable: identifier,
-          patterns
+          patterns,
+          ...(pathFunction && { pathFunction })
         };
       } else {
         // Not a path expression, backtrack

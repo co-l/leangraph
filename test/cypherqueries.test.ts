@@ -4129,7 +4129,7 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].names).toContain("Bob");
       });
 
-      it.skip("supports shortestPath() function", async () => {
+      it("supports shortestPath() function", async () => {
         // Current error: "Expected LPAREN, got IDENTIFIER 'shortestPath'"
         await exec(
           `CREATE (a:TestNode {name: 'A'})-[:LINK]->(:TestNode {name: 'B'})-[:LINK]->(:TestNode {name: 'C'})`

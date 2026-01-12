@@ -4560,5 +4560,26 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].total).toBe(6);
       });
     });
+
+    describe("Nested aggregation", () => {
+      it("supports reduce() after collect() in grouped query", async () => {
+        // Setup data
+        await exec("CREATE (:T3Data {group: 'A', val: 1})");
+        await exec("CREATE (:T3Data {group: 'A', val: 2})");
+        await exec("CREATE (:T3Data {group: 'B', val: 3})");
+
+        // Group by group, collect values, then reduce
+        const result = await exec(`
+          MATCH (d:T3Data)
+          WITH d.group as g, collect(d.val) as vals
+          RETURN g, size(vals) as cnt, reduce(s=0, x IN vals | s+x) as sum
+          ORDER BY g
+        `);
+
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0]).toEqual({ g: "A", cnt: 2, sum: 3 });
+        expect(result.data[1]).toEqual({ g: "B", cnt: 1, sum: 3 });
+      });
+    });
   });
 });

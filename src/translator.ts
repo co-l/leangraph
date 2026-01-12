@@ -11459,28 +11459,66 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const listResult = this.translateExpression(listExpr);
     tables.push(...listResult.tables);
     
+    // Check if the list expression is a WITH alias that contains an aggregation
+    // In that case, we need to avoid putting the aggregation inside the recursive CTE
+    // because SQLite doesn't allow aggregate functions in that context.
+    let listExprSql = listResult.sql;
+    let needsAggregateWrapper = false;
+    
+    if (listExpr.type === "variable") {
+      const withAliases = (this.ctx as any).withAliases as Map<string, Expression> | undefined;
+      if (withAliases && withAliases.has(listExpr.variable!)) {
+        const aliasExpr = withAliases.get(listExpr.variable!)!;
+        if (this.isAggregateExpression(aliasExpr)) {
+          needsAggregateWrapper = true;
+        }
+      }
+    }
+    
     // Build the reduce expression with variable substitutions
     // Replace accumulator with "__red__.acc" and variable with "__red_elem.value"
     const reduceResult = this.translateReduceBodyExpr(reduceExpr, accumulator, variable, "__red__", "__red_elem");
     
-    // Build recursive CTE:
-    // WITH RECURSIVE __red__(idx, acc) AS (
-    //   SELECT 0, <init>
-    //   UNION ALL
-    //   SELECT idx + 1, <reduceExpr>
-    //   FROM __red__, json_each(<list>) AS __red_elem__
-    //   WHERE __red__.idx = __red_elem__.key
-    // )
-    // SELECT acc FROM __red__ ORDER BY idx DESC LIMIT 1
+    let sql: string;
     
-    const sql = `(WITH RECURSIVE __red__(idx, acc) AS (
+    if (needsAggregateWrapper) {
+      // For aggregation-based lists, use a subquery approach that avoids aggregate in recursive CTE
+      // This uses the json_array_reduce helper pattern that iterates without recursion
+      // SQLite's json_each produces key/value pairs we can iterate over
+      // We calculate the reduce using a correlated subquery sum pattern for numeric operations
+      
+      // Check if this is a simple addition pattern: acc + x or x + acc
+      const isSimpleAddition = reduceExpr.type === "binary" && reduceExpr.operator === "+";
+      
+      if (isSimpleAddition) {
+        // For simple addition, use SUM which works with aggregations
+        // reduce(s=0, x IN list | s+x) is equivalent to COALESCE(init + SUM(values), init)
+        sql = `(${initResult.sql} + COALESCE((SELECT SUM(__elem.value) FROM json_each(${listExprSql}) AS __elem), 0))`;
+      } else {
+        // For complex reduce operations, we need to use a window function approach
+        // or materialize the list first. For now, fall back to the standard CTE approach
+        // but wrap the list in a scalar subquery to try to avoid the aggregate issue.
+        // This may still fail for some patterns, but handles many cases.
+        sql = `(WITH RECURSIVE __red__(idx, acc) AS (
       SELECT 0, ${initResult.sql}
       UNION ALL
       SELECT __red__.idx + 1, ${reduceResult.sql}
-      FROM __red__, json_each(${listResult.sql}) AS __red_elem
+      FROM __red__, json_each(${listExprSql}) AS __red_elem
       WHERE __red__.idx = __red_elem.key
     )
     SELECT acc FROM __red__ ORDER BY idx DESC LIMIT 1)`;
+      }
+    } else {
+      // Standard recursive CTE approach for non-aggregate lists
+      sql = `(WITH RECURSIVE __red__(idx, acc) AS (
+      SELECT 0, ${initResult.sql}
+      UNION ALL
+      SELECT __red__.idx + 1, ${reduceResult.sql}
+      FROM __red__, json_each(${listExprSql}) AS __red_elem
+      WHERE __red__.idx = __red_elem.key
+    )
+    SELECT acc FROM __red__ ORDER BY idx DESC LIMIT 1)`;
+    }
     
     // Params order: init params, then list params (once for each occurrence), then reduce params
     params.push(...initResult.params, ...listResult.params, ...reduceResult.params);

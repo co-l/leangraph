@@ -12132,6 +12132,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           };
         }
         
+        // For equality comparisons involving CASE expressions (which return json('true')/json('false')),
+        // use cypher_bool_eq to handle JSON boolean vs integer comparison
+        if (condition.operator === "=" && 
+            (condition.left?.type === "case" || condition.right?.type === "case")) {
+          return {
+            sql: `cypher_bool_eq(${left.sql}, ${right.sql})`,
+            params: [...left.params, ...right.params],
+          };
+        }
+        
         return {
           sql: `${left.sql} ${condition.operator} ${right.sql}`,
           params: [...left.params, ...right.params],
@@ -13181,6 +13191,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           sql: `(${labelChecks})`,
           params: [],
         };
+      }
+
+      case "case": {
+        // CASE expression in WHERE clause
+        const result = this.translateCaseExpression(expr);
+        return { sql: result.sql, params: result.params };
       }
 
       default:

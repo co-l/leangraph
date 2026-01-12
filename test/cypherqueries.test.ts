@@ -4156,7 +4156,7 @@ describe("CypherQueries.json Patterns", () => {
     // EXPRESSION CONTEXT FEATURES
     // ============================================
     describe("Expression Context", () => {
-      it.skip("handles CASE WHEN in WHERE clause", async () => {
+      it("handles CASE WHEN in WHERE clause", async () => {
         // Current error: "Unknown expression type in WHERE: case"
         await exec(`CREATE (p:TestPerson {name: 'Alice', age: 30})`);
         await exec(`CREATE (p:TestPerson {name: 'Bob', age: 25})`);

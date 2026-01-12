@@ -4345,4 +4345,25 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
   });
+
+  /**
+   * Pending Cypher Features
+   * Tests for features discovered through integration testing
+   */
+  describe("Pending Cypher Features", () => {
+    describe("Map Projection", () => {
+      it("supports map projection with property selectors", async () => {
+        // Pattern: p {.name, .age} - project selected properties from node
+        await exec("CREATE (p:T2Person {name: 'Alice', age: 30, city: 'Paris'})");
+
+        const result = await exec(`
+          MATCH (p:T2Person {name: 'Alice'})
+          RETURN p {.name, .age} as projection
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].projection).toEqual({ name: "Alice", age: 30 });
+      });
+    });
+  });
 });

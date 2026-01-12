@@ -4,80 +4,25 @@
 
 This guide covers Cypher features that work in Neo4j 3.5 but are not yet implemented in LeanGraph. These were discovered through integration testing in real-world projects.
 
-All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cypher Features"** describe block, marked with `it.skip()`.
-
-## Feature Categories
-
-| Category | Count | Complexity | Files to Modify |
-|----------|-------|------------|-----------------|
-| Parser Features | 0 | High | `parser.ts` |
-| Expression Context | 0 | Medium | `translator.ts`, `executor.ts` |
-| Runtime Behaviors | 0 | Medium-High | `translator.ts`, `executor.ts` |
-| Missing Functions | 0 | Low | `translator.ts` |
-
-### Parser Features (6 tests)
-
-| Feature | Query Example | Status |
-|---------|---------------|--------|
-| Regex `=~` | `WHERE p.name =~ '.*ob'` | Done |
-| `reduce()` | `reduce(acc = 0, x IN list \| acc + x)` | Done |
-| `filter()` | `filter(x IN list WHERE x > 2)` | Done |
-| `extract()` | `extract(x IN list \| x.name)` | Done |
-| `shortestPath()` | `MATCH p = shortestPath((a)-[*]->(b))` | Done |
-| `FOREACH` | `FOREACH (x IN list \| SET n.val = x)` | Done |
-
-### Expression Context (0 tests) - All Done
-
-| Feature | Query Example | Status |
-|---------|---------------|--------|
-| CASE in WHERE | `WHERE CASE WHEN x > 0 THEN true END` | Done |
-| CASE in SET | `SET n.cat = CASE WHEN ... END` | Done |
-| `exists()` pattern | `RETURN exists((n)-[:REL]->())` | Done |
-
-### Runtime Behaviors (0 tests) - All Done
-
-| Feature | Query Example | Status |
-|---------|---------------|--------|
-| OPTIONAL MATCH + DELETE | `OPTIONAL MATCH (n)-[r]->() DELETE n` | Done |
-| UNWIND + MATCH | `UNWIND list AS x MATCH (n {prop: x})` | Done |
-
-### Missing Functions (0 tests) - All Done
-
-| Function | Query Example | Status |
-|----------|---------------|--------|
-| `sign()` | `RETURN sign(-10)` | Done |
+All pending tests are in `/home/conrad/tmp/leangraph-test/failures.json` where 'status'='failure'
 
 ## TDD Workflow
 
 ### 1. Pick a Feature
 
-Start with the easiest wins:
-```bash
-# Recommended order:
-# 1. sign() function - just add to translator.ts
-# 2. Negative list indexing - SQLite JSON path handling
-# 3. CASE in WHERE/SET - extend existing CASE support
-# 4. Parser features - more complex, tackle one at a time
-```
+Start with the first failure in the json file
 
-### 2. Enable the Test
 
-In `test/cypherqueries.test.ts`, remove `.skip`:
+### 2. Add the Test
 
+In `test/cypherqueries.test.ts`, add the test at the end of the file
 ```typescript
-// Before
-it.skip("supports sign() function", async () => { ... });
-
-// After
 it("supports sign() function", async () => { ... });
 ```
 
 ### 3. Run the Test
 
 ```bash
-# Run just the pending features tests
-npm test -- -t "Pending Cypher Features"
-
 # Run a specific test
 npm test -- -t "supports sign"
 
@@ -135,80 +80,17 @@ console.log('Params:', result.params);
 npm test
 ```
 
-### 6. Commit
+### 6. Update the JSON file
+
+Set the 'status' of the fixed test as 'resolved'
+ in /home/conrad/tmp/leangraph-test/failures.json
+
+### 6. Commit & push
 
 ```bash
 git add -A
 git commit -m "feat: implement sign() function"
-```
-
-## Implementation Guides
-
-### Adding a New Function (e.g., `sign()`)
-
-Functions may need changes in **both** `translator.ts` (SQL generation) and `executor.ts` (runtime evaluation). Check both files.
-
-1. **translator.ts** - Find the math functions section (~line 5990) and add a new `if` block:
-
-```typescript
-// SIGN: returns -1, 0, or 1 based on the sign of the number
-if (expr.functionName === "SIGN") {
-  if (expr.args && expr.args.length > 0) {
-    const argResult = this.translateFunctionArg(expr.args[0]);
-    tables.push(...argResult.tables);
-    params.push(...argResult.params);
-    return { sql: `SIGN(${argResult.sql})`, tables, params };
-  }
-  throw new Error("sign requires an argument");
-}
-```
-
-2. **executor.ts** - If the function needs runtime evaluation (e.g., in complex expressions), add to `evaluateFunction()` (~line 3970):
-
-```typescript
-case "SIGN": {
-  if (args.length === 0) return null;
-  const value = this.evaluateExpressionInRow(args[0], row, params);
-  if (typeof value !== "number") return null;
-  return Math.sign(value);
-}
-```
-
-**Tip:** Search for similar functions (e.g., `ABS`, `ROUND`) to find the exact locations.
-
-### Adding a Parser Feature (e.g., `=~` regex)
-
-1. **parser.ts** - Add `~` to tokenizer
-2. **parser.ts** - Handle `=~` as a binary operator in `parseComparisonCondition()`
-3. **translator.ts** - Translate to SQLite's `REGEXP` or `GLOB`
-
-### Extending Expression Context (e.g., CASE in WHERE)
-
-1. **translator.ts** - Add `case "case":` handling in `translateWhereExpression()`
-2. Reuse existing `translateCaseExpression()` logic
-
-### Runtime Fixes (e.g., negative indexing)
-
-1. **translator.ts** - Modify list index translation
-2. Handle negative indices by converting to `json_array_length() + index`
-
-## Quick Commands
-
-```bash
-# Run pending features tests only
-npm test -- -t "Pending Cypher Features"
-
-# Run a specific category
-npm test -- -t "Parser Features"
-npm test -- -t "Expression Context"
-npm test -- -t "Runtime Behaviors"
-npm test -- -t "Missing Functions"
-
-# Count remaining skipped tests
-grep -c "it.skip" test/cypherqueries.test.ts
-
-# List all skipped test names
-grep "it.skip" test/cypherqueries.test.ts | sed 's/.*it.skip("\([^"]*\)".*/\1/'
+git push
 ```
 
 ## Key Files
@@ -233,28 +115,3 @@ grep "it.skip" test/cypherqueries.test.ts | sed 's/.*it.skip("\([^"]*\)".*/\1/'
 | `no such column` | translator.ts SQL generation |
 | `bad JSON path` | translator.ts JSON handling |
 | `Too few/many parameter values` | translator.ts or executor.ts |
-
-## Progress Tracking
-
-When you complete a feature:
-
-1. Remove `.skip` from the test
-2. Run full test suite to ensure no regressions
-3. Update this section with completion date
-
-| Feature | Status | Completed |
-|---------|--------|-----------|
-| `sign()` | Done | 2026-01-12 |
-| Negative list index | Done | 2026-01-12 |
-| CASE in WHERE | Done | 2026-01-12 |
-| CASE in SET | Done | 2026-01-12 |
-| `exists()` pattern | Done | 2026-01-12 |
-| OPTIONAL MATCH + DELETE | Done | 2026-01-12 |
-| UNWIND + MATCH | Done | 2026-01-12 |
-| `duration()` | Done | 2026-01-12 |
-| Regex `=~` | Done | 2026-01-12 |
-| `reduce()` | Done | 2026-01-12 |
-| `filter()` | Done | 2026-01-12 |
-| `extract()` | Done | 2026-01-12 |
-| `shortestPath()` | Done | 2026-01-12 |
-| `FOREACH` | Done | 2026-01-12 |

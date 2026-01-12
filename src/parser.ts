@@ -116,8 +116,15 @@ export interface ObjectProperty {
   value: Expression;
 }
 
+export interface MapProjectionItem {
+  type: "property" | "literal" | "allProperties"; // .prop, key: value, or .*
+  property?: string; // The property name for .prop syntax
+  key?: string; // The key for key: value syntax
+  value?: Expression; // The value for key: value syntax
+}
+
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "reduce" | "filter" | "extract";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "reduce" | "filter" | "extract" | "mapProjection";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -171,6 +178,9 @@ export interface Expression {
   // variable is reused for iterator variable
   // listExpr is reused for list expression
   reduceExpr?: Expression;
+  // Map projection fields: p {.name, .age, key: expr}
+  projectionSource?: Expression; // The source expression (e.g., the variable p)
+  projectionItems?: MapProjectionItem[];
 }
 
 export interface ReturnItem {
@@ -2764,12 +2774,17 @@ export class Parser {
     return left;
   }
 
-  // Handle postfix operations: list indexing like expr[0] or expr[1..3], and chained property access like a.b.c
+  // Handle postfix operations: list indexing like expr[0] or expr[1..3], chained property access like a.b.c, and map projection like p {.name, .age}
   private parsePostfixExpression(): Expression {
     let expr = this.parsePrimaryExpression();
 
-    // Handle list/map indexing: expr[index] or expr[start..end], and chained property access: expr.prop
-    while (this.check("LBRACKET") || this.check("DOT")) {
+    // Handle list/map indexing: expr[index] or expr[start..end], chained property access: expr.prop, and map projection: expr {.prop1, .prop2}
+    while (this.check("LBRACKET") || this.check("DOT") || this.check("LBRACE")) {
+      if (this.check("LBRACE")) {
+        // Map projection: p {.name, .age} or p {.name, years: p.age}
+        expr = this.parseMapProjection(expr);
+        continue;
+      }
       if (this.check("DOT")) {
         this.advance(); // consume .
         // Property access - property names can be keywords too
@@ -3533,6 +3548,49 @@ export class Parser {
    */
   private parseListComprehensionExpression(variable: string): Expression {
     return this.parseExpression();
+  }
+
+  /**
+   * Parse a map projection: p {.name, .age} or p {.name, years: p.age}
+   * This syntax allows projecting selected properties from a node/map.
+   */
+  private parseMapProjection(source: Expression): Expression {
+    this.expect("LBRACE"); // consume {
+    
+    const items: MapProjectionItem[] = [];
+    
+    while (!this.check("RBRACE") && !this.isAtEnd()) {
+      if (items.length > 0) {
+        this.expect("COMMA");
+      }
+      
+      // Check for .* (project all properties)
+      if (this.check("DOT")) {
+        this.advance(); // consume .
+        if (this.check("STAR")) {
+          this.advance(); // consume *
+          items.push({ type: "allProperties" });
+        } else {
+          // .property shorthand
+          const property = this.expectIdentifierOrKeyword();
+          items.push({ type: "property", property });
+        }
+      } else {
+        // key: value syntax
+        const key = this.expectIdentifierOrKeyword();
+        this.expect("COLON");
+        const value = this.parseExpression();
+        items.push({ type: "literal", key, value });
+      }
+    }
+    
+    this.expect("RBRACE"); // consume }
+    
+    return {
+      type: "mapProjection",
+      projectionSource: source,
+      projectionItems: items,
+    };
   }
 
   // Token helpers

@@ -27,6 +27,7 @@ import {
   SetAssignment,
   ReturnItem,
   CaseWhen,
+  MapProjectionItem,
   parse,
 } from "./parser.js";
 import { assertValidPropertyValue, isValidPropertyValue } from "./property-value.js";
@@ -9385,6 +9386,41 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Access property from the result using json_extract
         return {
           sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
+          tables,
+          params,
+        };
+      }
+
+      case "mapProjection": {
+        // Map projection: p {.name, .age} or p {.name, key: expr}
+        // This creates a new JSON object with selected properties from the source
+        const sourceResult = this.translateExpression(expr.projectionSource!);
+        tables.push(...sourceResult.tables);
+        params.push(...sourceResult.params);
+        
+        const items = expr.projectionItems || [];
+        const jsonParts: string[] = [];
+        
+        for (const item of items) {
+          if (item.type === "property") {
+            // .property shorthand - extract property from source
+            const key = item.property!;
+            jsonParts.push(`'${key}', json_extract(${sourceResult.sql}, '$.${key}')`);
+          } else if (item.type === "literal") {
+            // key: value syntax
+            const key = item.key!;
+            const valueResult = this.translateExpression(item.value!);
+            tables.push(...valueResult.tables);
+            params.push(...valueResult.params);
+            jsonParts.push(`'${key}', ${valueResult.sql}`);
+          } else if (item.type === "allProperties") {
+            // .* - project all properties (not yet fully supported, just returns the source)
+            // TODO: implement proper .* support
+          }
+        }
+        
+        return {
+          sql: `json_object(${jsonParts.join(", ")})`,
           tables,
           params,
         };

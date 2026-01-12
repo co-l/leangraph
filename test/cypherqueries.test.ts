@@ -4635,5 +4635,22 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].days).toBe(3);
       });
     });
+
+    describe("IN with labels() function", () => {
+      it("supports 'value' IN labels(n) in WHERE clause", async () => {
+        // Pattern: WHERE 'Label' IN labels(n)
+        // The labels() function returns a list, and IN checks membership
+        await exec("CREATE (n:T4Check {id: 'chk'})");
+
+        const result = await exec(`
+          MATCH (n:T4Check)
+          WHERE 'T4Check' IN labels(n)
+          RETURN n.id
+        `);
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["n.id"]).toBe("chk");
+      });
+    });
   });
 });

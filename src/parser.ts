@@ -2499,8 +2499,12 @@ export class Parser {
     // Check for IN operator
     if (this.checkKeyword("IN")) {
       this.advance();
-      // IN can be followed by a list literal [...] or a parameter $param
-      const listExpr = this.parseInListExpression();
+      // IN can be followed by any expression that evaluates to a list:
+      // - list literal [...]
+      // - parameter $param  
+      // - variable reference
+      // - function call like labels(n), keys(n), etc.
+      const listExpr = this.parseExpression();
       return { type: "in", left, list: listExpr };
     }
 

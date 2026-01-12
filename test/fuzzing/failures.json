@@ -309,7 +309,7 @@
     "query": "RETURN floor(-8.92)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -355,7 +355,7 @@
     "query": "RETURN floor(-8.54)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -401,7 +401,7 @@
     "query": "RETURN floor(-4.20)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

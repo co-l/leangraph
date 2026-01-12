@@ -6529,14 +6529,19 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("round requires an argument");
         }
 
-        // FLOOR: round down to integer
+        // FLOOR: round down to integer (towards negative infinity)
         if (expr.functionName === "FLOOR") {
           if (expr.args && expr.args.length > 0) {
             const argResult = this.translateFunctionArg(expr.args[0]);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
-            // SQLite doesn't have FLOOR, use CAST for positive numbers or CASE for proper floor
-            return { sql: `CAST(${argResult.sql} AS INTEGER)`, tables, params };
+            // SQLite's CAST truncates towards zero, but floor rounds towards -infinity
+            // For negative numbers with a fractional part, we need to subtract 1
+            return { 
+              sql: `(SELECT CASE WHEN v >= 0 OR v = CAST(v AS INTEGER) THEN CAST(v AS INTEGER) ELSE CAST(v AS INTEGER) - 1 END FROM (SELECT ${argResult.sql} AS v))`,
+              tables, 
+              params 
+            };
           }
           throw new Error("floor requires an argument");
         }

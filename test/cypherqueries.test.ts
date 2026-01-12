@@ -4902,5 +4902,15 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].result).toBe("null");
       });
     });
+
+    describe("floor() with negative numbers", () => {
+      it("floors negative numbers towards negative infinity", async () => {
+        // floor(-8.92) should be -9, not -8
+        const result = await exec("RETURN floor(-8.92) as f");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].f).toBe(-9);
+      });
+    });
   });
 });

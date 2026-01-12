@@ -3010,9 +3010,57 @@ export class Executor {
     // This handles cases like: WITH x AS foo MATCH (n) WHERE n.id = foo
     const transformedClause = this.transformClauseForContext(clause, contextVarNames);
     
+    // For OPTIONAL MATCH with bound source variable BUT new target variable, we need 
+    // to prepend a regular MATCH clause to bind the source first. This ensures the 
+    // translator includes the source node in the FROM clause.
+    // e.g., "OPTIONAL MATCH (n)-[r]->() WHERE id(n) = ?" becomes
+    //       "MATCH (n) WHERE id(n) = ? OPTIONAL MATCH (n)-[r]->()"
+    // Note: When BOTH source and target are bound, we don't need prefix MATCHes - the
+    // WHERE constraints added by transformClauseForContext are sufficient.
+    const prefixMatchClauses: MatchClause[] = [];
+    if (clause.type === "OPTIONAL_MATCH") {
+      for (const pattern of clause.patterns) {
+        if ('source' in pattern && 'edge' in pattern && 'target' in pattern) {
+          const relPattern = pattern as RelationshipPattern;
+          const sourceVar = relPattern.source?.variable;
+          const targetVar = relPattern.target?.variable;
+          const sourceIsBound = sourceVar && contextVarNames.has(sourceVar);
+          const targetIsBound = targetVar && contextVarNames.has(targetVar);
+          
+          // Only add prefix MATCH when source is bound but target is new
+          // This handles: WITH n OPTIONAL MATCH (n)-[r]->() where n is bound, target is new
+          if (sourceIsBound && !targetIsBound) {
+            const nodeId = this.extractNodeId(inputRow.get(sourceVar!));
+            if (nodeId) {
+              prefixMatchClauses.push({
+                type: "MATCH",
+                patterns: [{
+                  variable: sourceVar
+                } as NodePattern],
+                where: {
+                  type: "comparison",
+                  left: {
+                    type: "function",
+                    functionName: "ID",
+                    args: [{ type: "variable", variable: sourceVar }]
+                  } as Expression,
+                  operator: "=",
+                  right: {
+                    type: "parameter",
+                    name: `_ctx_${sourceVar}`
+                  } as Expression
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+    
     // Build a MATCH + RETURN query for all pattern variables
     const matchQuery: Query = {
       clauses: [
+        ...prefixMatchClauses,
         transformedClause,
         {
           type: "RETURN" as const,
@@ -3022,9 +3070,16 @@ export class Executor {
     };
     
     // Create params with context values prefixed with _ctx_
+    // For node variables, extract the node ID for use in id() comparisons
     const mergedParams: Record<string, unknown> = { ...params };
     for (const [key, value] of inputRow) {
-      mergedParams[`_ctx_${key}`] = value;
+      // If value is a node object, extract its ID for the parameter
+      const nodeId = this.extractNodeId(value);
+      if (nodeId) {
+        mergedParams[`_ctx_${key}`] = nodeId;
+      } else {
+        mergedParams[`_ctx_${key}`] = value;
+      }
     }
     
     // Translate to SQL with merged parameters
@@ -3107,6 +3162,10 @@ export class Executor {
    * This converts WHERE conditions like `n.id = foo` (where foo is from context)
    * to `n.id = $_ctx_foo` so the translator can handle it.
    * Also transforms pattern properties like {name: foo} to use context parameters.
+   * 
+   * For bound variables that appear as sources in relationship patterns, we add
+   * WHERE constraints like `id(n) = $_ctx_n` so the translator knows to include
+   * the node in the FROM clause.
    */
   private transformClauseForContext(
     clause: MatchClause,
@@ -3124,6 +3183,67 @@ export class Executor {
     // Transform WHERE condition to use parameter references for context variables
     if (transformed.where) {
       transformed.where = this.transformWhereForContext(transformed.where, contextVars);
+    }
+    
+    // For OPTIONAL MATCH with bound source but new target, add WHERE constraints 
+    // to ensure the source node is properly included in the SQL FROM clause.
+    // This handles: WITH n OPTIONAL MATCH (n)-[r:REL]->() where n is bound but target is new
+    // Note: When BOTH source and target are bound, we don't add WHERE constraints here
+    // because the translator can handle that case and adding constraints causes bad SQL
+    // (referencing tables before they're joined).
+    const boundSourceVars = new Set<string>();
+    for (const pattern of transformed.patterns) {
+      if ('source' in pattern && 'edge' in pattern && 'target' in pattern) {
+        const relPattern = pattern as RelationshipPattern;
+        const sourceVar = relPattern.source?.variable;
+        const targetVar = relPattern.target?.variable;
+        const sourceIsBound = sourceVar && contextVars.has(sourceVar);
+        const targetIsBound = targetVar && contextVars.has(targetVar);
+        
+        // Only add constraint when source is bound but target is new
+        if (sourceIsBound && !targetIsBound) {
+          boundSourceVars.add(sourceVar!);
+        }
+      }
+    }
+    
+    // Add WHERE constraints for bound source variables: id(varName) = $_ctx_varName
+    if (boundSourceVars.size > 0) {
+      const idConditions: WhereCondition[] = [];
+      for (const varName of boundSourceVars) {
+        idConditions.push({
+          type: "comparison",
+          left: {
+            type: "function",
+            functionName: "ID",
+            args: [{ type: "variable", variable: varName }]
+          } as Expression,
+          operator: "=",
+          right: {
+            type: "parameter",
+            name: `_ctx_${varName}`
+          } as Expression
+        });
+      }
+      
+      // Combine with existing WHERE using conditions array
+      if (transformed.where) {
+        // Combine all conditions into a single AND clause
+        transformed.where = {
+          type: "and",
+          conditions: [...idConditions, transformed.where]
+        };
+      } else {
+        // Just use the ID conditions
+        if (idConditions.length === 1) {
+          transformed.where = idConditions[0];
+        } else {
+          transformed.where = {
+            type: "and",
+            conditions: idConditions
+          };
+        }
+      }
     }
     
     return transformed;
@@ -3722,7 +3842,9 @@ export class Executor {
   ): PhaseContext {
     for (const row of context.rows) {
       for (const variable of clause.variables) {
-        const id = row.get(variable) as string;
+        const value = row.get(variable);
+        // Extract node/edge ID from the value (could be object with _nf_id or string ID)
+        const id = this.extractNodeId(value);
         if (!id) continue;
         
         if (clause.detach) {

@@ -12,7 +12,7 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 |----------|-------|------------|-----------------|
 | Parser Features | 6 | High | `parser.ts` |
 | Expression Context | 0 | Medium | `translator.ts`, `executor.ts` |
-| Runtime Behaviors | 2 | Medium-High | `translator.ts`, `executor.ts` |
+| Runtime Behaviors | 0 | Medium-High | `translator.ts`, `executor.ts` |
 | Missing Functions | 1 | Low | `translator.ts` |
 
 ### Parser Features (6 tests)
@@ -34,12 +34,12 @@ All pending tests are in `test/cypherqueries.test.ts` under the **"Pending Cyphe
 | CASE in SET | `SET n.cat = CASE WHEN ... END` | Done |
 | `exists()` pattern | `RETURN exists((n)-[:REL]->())` | Done |
 
-### Runtime Behaviors (2 tests)
+### Runtime Behaviors (0 tests) - All Done
 
-| Feature | Query Example | Current Error |
-|---------|---------------|---------------|
-| OPTIONAL MATCH + DELETE | `OPTIONAL MATCH (n)-[r]->() DELETE n` | `no such column: n0.id` |
-| UNWIND + MATCH | `UNWIND list AS x MATCH (n {prop: x})` | `Too few parameter values` |
+| Feature | Query Example | Status |
+|---------|---------------|--------|
+| OPTIONAL MATCH + DELETE | `OPTIONAL MATCH (n)-[r]->() DELETE n` | Done |
+| UNWIND + MATCH | `UNWIND list AS x MATCH (n {prop: x})` | Done |
 
 ### Missing Functions (1 test)
 
@@ -249,7 +249,7 @@ When you complete a feature:
 | CASE in WHERE | Done | 2026-01-12 |
 | CASE in SET | Done | 2026-01-12 |
 | `exists()` pattern | Done | 2026-01-12 |
-| OPTIONAL MATCH + DELETE | Pending | - |
+| OPTIONAL MATCH + DELETE | Done | 2026-01-12 |
 | UNWIND + MATCH | Done | 2026-01-12 |
 | `duration()` | Done | 2026-01-12 |
 | Regex `=~` | Done | 2026-01-12 |

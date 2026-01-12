@@ -4202,7 +4202,7 @@ describe("CypherQueries.json Patterns", () => {
     // RUNTIME / EXECUTION FEATURES
     // ============================================
     describe("Runtime Behaviors", () => {
-      it.skip("handles OPTIONAL MATCH + DELETE when optional has no match", async () => {
+      it("handles OPTIONAL MATCH + DELETE when optional has no match", async () => {
         // Current error: "no such column: n0.id"
         const result = await exec(
           `CREATE (n:TestTemp {id: 'temp1'}) WITH n OPTIONAL MATCH (n)-[r:FAKE]->() DELETE n RETURN count(*) as deleted`

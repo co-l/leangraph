@@ -1,4 +1,5 @@
-import { GraphDatabase, Executor } from "leangraph";
+import { GraphDatabase } from "../../../src/db.js";
+import { Executor } from "../../../src/executor.js";
 import { BENCHMARK_CONFIG } from "../config.js";
 import {
   generateUsers,

@@ -107,12 +107,12 @@ export function analyzeForHybrid(
     const targetVar = rel.target.variable || `node${i + 1}`;
     
     // Check if this is the node WHERE applies to
-    const nodeFilter = (filterTargetVar === targetVar)
+    const whereFilter = (filterTargetVar === targetVar)
       ? convertWhereToFilter(matchClause.where, targetVar, params)
       : undefined;
     
     // If WHERE references this node but couldn't be converted, fail
-    if (filterTargetVar === targetVar && nodeFilter === null) {
+    if (filterTargetVar === targetVar && whereFilter === null) {
       return { suitable: false, reason: "WHERE clause uses unsupported expressions" };
     }
     
@@ -120,10 +120,35 @@ export function analyzeForHybrid(
       filterTargetIndex = i;
     }
 
+    // Build filter from inline properties and/or WHERE clause
+    const inlineProps = targetInfo.properties;
+    const hasInlineProps = Object.keys(inlineProps).length > 0;
+    
+    let nodeFilter: ((node: MemoryNode) => boolean) | undefined;
+    if (hasInlineProps && whereFilter) {
+      // Combine inline property filter with WHERE filter
+      nodeFilter = (node: MemoryNode) => {
+        for (const [key, value] of Object.entries(inlineProps)) {
+          if (node.properties[key] !== value) return false;
+        }
+        return whereFilter(node);
+      };
+    } else if (hasInlineProps) {
+      // Only inline property filter
+      nodeFilter = (node: MemoryNode) => {
+        for (const [key, value] of Object.entries(inlineProps)) {
+          if (node.properties[key] !== value) return false;
+        }
+        return true;
+      };
+    } else if (whereFilter) {
+      nodeFilter = whereFilter;
+    }
+
     const node: ChainNode = {
       variable: targetVar,
       label: targetInfo.label,
-      filter: nodeFilter || undefined,
+      filter: nodeFilter,
     };
 
     chain.push({ hop, node });
@@ -303,11 +328,14 @@ export function isHybridCompatiblePattern(query: Query): boolean {
     return false;
   }
 
-  // Must have at least one variable-length edge
+  // Suitable for hybrid if:
+  // - Has at least one variable-length edge, OR
+  // - Has 2+ relationship patterns (multi-hop traversal benefits from hybrid)
   const hasVarLength = relPatterns.some(
     (rel) => rel.edge.minHops !== undefined || rel.edge.maxHops !== undefined
   );
-  if (!hasVarLength) {
+  const isMultiHop = relPatterns.length >= 2;
+  if (!hasVarLength && !isMultiHop) {
     return false;
   }
 

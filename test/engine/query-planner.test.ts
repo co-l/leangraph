@@ -61,12 +61,13 @@ describe("QueryPlanner", () => {
       expect(isHybridCompatiblePattern(query)).toBe(true);
     });
 
-    it("rejects pattern without var-length edge", () => {
+    it("accepts multi-hop pattern without var-length edge", () => {
+      // Multi-hop patterns benefit from hybrid even without var-length edges
       const query = parseQuery(`
         MATCH (a:Person)-[:KNOWS]->(b:Person)-[:WORKS_AT]->(c:Company)
         RETURN a, b, c
       `);
-      expect(isHybridCompatiblePattern(query)).toBe(false);
+      expect(isHybridCompatiblePattern(query)).toBe(true);
     });
 
     it("accepts pattern with only one var-length relationship", () => {
@@ -133,6 +134,15 @@ describe("QueryPlanner", () => {
       const query = parseQuery(`
         MATCH (a:Person)
         RETURN a
+      `);
+      expect(isHybridCompatiblePattern(query)).toBe(false);
+    });
+
+    it("rejects single-hop fixed-length pattern", () => {
+      // Single-hop without var-length doesn't benefit from hybrid
+      const query = parseQuery(`
+        MATCH (a:Person)-[:KNOWS]->(b:Person)
+        RETURN a, b
       `);
       expect(isHybridCompatiblePattern(query)).toBe(false);
     });

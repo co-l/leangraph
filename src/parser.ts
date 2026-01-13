@@ -82,7 +82,7 @@ export type PropertyValue =
   | PropertyValue[];
 
 export interface WhereCondition {
-  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate" | "patternMatch" | "expression" | "regex";
+  type: "comparison" | "and" | "or" | "not" | "contains" | "startsWith" | "endsWith" | "isNull" | "isNotNull" | "exists" | "in" | "listPredicate" | "patternMatch" | "expression" | "regex" | "propertyExists";
   left?: Expression;
   right?: Expression;
   operator?: "=" | "<>" | "<" | ">" | "<=" | ">=";
@@ -98,6 +98,8 @@ export interface WhereCondition {
   variable?: string;
   listExpr?: Expression;
   filterCondition?: WhereCondition;
+  // For propertyExists: EXISTS(n.property)
+  expression?: Expression;
 }
 
 export interface CaseWhen {
@@ -125,7 +127,7 @@ export interface MapProjectionItem {
 }
 
 export interface Expression {
-  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "sizePattern" | "reduce" | "filter" | "extract" | "mapProjection";
+  type: "property" | "literal" | "parameter" | "variable" | "function" | "case" | "binary" | "object" | "comparison" | "listComprehension" | "listPredicate" | "patternComprehension" | "unary" | "labelPredicate" | "propertyAccess" | "indexAccess" | "in" | "stringOp" | "existsPattern" | "sizePattern" | "reduce" | "filter" | "extract" | "mapProjection" | "regexMatch" | "list";
   variable?: string;
   property?: string;
   value?: PropertyValue;
@@ -182,6 +184,10 @@ export interface Expression {
   // Map projection fields: p {.name, .age, key: expr}
   projectionSource?: Expression; // The source expression (e.g., the variable p)
   projectionItems?: MapProjectionItem[];
+  // Regex match fields: left =~ pattern
+  pattern?: Expression;
+  // List literal fields: [elem1, elem2, ...]
+  elements?: Expression[];
 }
 
 export interface ReturnItem {

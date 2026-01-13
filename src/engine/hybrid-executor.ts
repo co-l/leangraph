@@ -41,6 +41,47 @@ export interface PatternResult {
   c: MemoryNode;
 }
 
+// ============================================================================
+// Generalized Pattern Chain Types (supports N nodes, multiple var-length)
+// ============================================================================
+
+/** A single hop (edge) in the pattern chain */
+export interface ChainHop {
+  /** Edge type filter (null = any type) */
+  edgeType: string | null;
+  /** Direction of traversal */
+  direction: Direction;
+  /** Minimum hops (1 for fixed edges) */
+  minHops: number;
+  /** Maximum hops (1 for fixed edges, same as min) */
+  maxHops: number;
+}
+
+/** A node position in the pattern chain */
+export interface ChainNode {
+  /** Variable name from the query (e.g., "a", "b", "person") */
+  variable: string;
+  /** Required label for this node */
+  label: string;
+  /** Optional filter function (from WHERE clause) */
+  filter?: (node: MemoryNode) => boolean;
+}
+
+/** Generalized pattern chain parameters */
+export interface PatternChainParams {
+  /** The anchor (starting) node specification */
+  anchor: ChainNode;
+  /** Property filters for the anchor node */
+  anchorProps: Record<string, unknown>;
+  /** Sequence of hops and target nodes */
+  chain: Array<{ hop: ChainHop; node: ChainNode }>;
+}
+
+/** Result type - maps variable names to MemoryNode */
+export type ChainResultRaw = Map<string, MemoryNode>;
+
+
+
 export class HybridExecutor {
   private loader: SubgraphLoader;
 
@@ -159,6 +200,119 @@ export class HybridExecutor {
 
     return results;
   }
+
+  // ==========================================================================
+  // Generalized Pattern Chain Execution
+  // ==========================================================================
+
+  /**
+   * Execute a generalized pattern chain query.
+   * Supports arbitrary length chains and multiple variable-length edges.
+   * 
+   * Pattern examples:
+   *   (a)-[*]->(b)-[:R1]->(c)-[:R2]->(d)  -- 4 nodes, var-length first
+   *   (a)-[:R1]->(b)-[*]->(c)-[:R2]->(d)  -- var-length in middle
+   *   (a)-[*]->(b)-[*]->(c)               -- multiple var-length
+   * 
+   * Returns results as Maps from variable names to MemoryNodes.
+   */
+  executePatternChain(params: PatternChainParams): ChainResultRaw[] {
+    const { anchor, anchorProps, chain } = params;
+
+    // 1. Find anchor nodes using SQL (indexed lookup)
+    const anchorIds = this.loader.findAnchors(anchor.label, anchorProps);
+    if (anchorIds.length === 0) {
+      return [];
+    }
+
+    // 2. Calculate maximum depth needed for subgraph loading
+    const totalMaxDepth = chain.reduce((sum, { hop }) => sum + hop.maxHops, 0);
+
+    // 3. Load bounded subgraph
+    const graph = this.loader.loadSubgraph({
+      anchorNodeIds: anchorIds,
+      maxDepth: totalMaxDepth,
+      edgeTypes: null, // Load all edge types
+      direction: "both", // Load all directions for flexibility
+    });
+
+    // 4. Traverse in-memory to find pattern matches
+    const results: ChainResultRaw[] = [];
+
+    for (const anchorId of anchorIds) {
+      const anchorNode = graph.getNode(anchorId);
+      if (!anchorNode) continue;
+
+      // Check anchor label
+      if (!this.hasLabel(anchorNode, anchor.label)) {
+        continue;
+      }
+
+      // Apply anchor filter if provided
+      if (anchor.filter && !anchor.filter(anchorNode)) {
+        continue;
+      }
+
+      // Start recursive chain matching
+      const initialMatch = new Map<string, MemoryNode>();
+      initialMatch.set(anchor.variable, anchorNode);
+
+      this.matchChain(graph, initialMatch, anchorNode, chain, 0, results);
+    }
+
+    return results;
+  }
+
+  /**
+   * Recursively match the pattern chain starting from a given node.
+   */
+  private matchChain(
+    graph: MemoryGraph,
+    currentMatch: Map<string, MemoryNode>,
+    currentNode: MemoryNode,
+    chain: Array<{ hop: ChainHop; node: ChainNode }>,
+    hopIndex: number,
+    results: ChainResultRaw[]
+  ): void {
+    // Base case: all hops matched
+    if (hopIndex >= chain.length) {
+      results.push(new Map(currentMatch));
+      return;
+    }
+
+    const { hop, node: targetNodeSpec } = chain[hopIndex];
+
+    // Traverse this hop (handles both fixed and var-length)
+    for (const path of graph.traversePaths(
+      currentNode.id,
+      hop.edgeType,
+      hop.minHops,
+      hop.maxHops,
+      hop.direction
+    )) {
+      const targetNode = path.nodes[path.nodes.length - 1];
+
+      // Check target node label
+      if (!this.hasLabel(targetNode, targetNodeSpec.label)) {
+        continue;
+      }
+
+      // Apply target node filter if provided
+      if (targetNodeSpec.filter && !targetNodeSpec.filter(targetNode)) {
+        continue;
+      }
+
+      // Add to match and recurse
+      const newMatch = new Map(currentMatch);
+      newMatch.set(targetNodeSpec.variable, targetNode);
+
+      this.matchChain(graph, newMatch, targetNode, chain, hopIndex + 1, results);
+    }
+  }
+
+  // ==========================================================================
+  // Helper Methods
+  // ==========================================================================
 
   /**
    * Check if a node has a specific label.

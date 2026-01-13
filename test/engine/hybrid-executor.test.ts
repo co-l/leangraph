@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GraphDatabase } from "../../src/db.js";
-import { HybridExecutor } from "../../src/engine/hybrid-executor.js";
+import { HybridExecutor, PatternChainParams } from "../../src/engine/hybrid-executor.js";
 import { Executor } from "../../src/executor.js";
 
 describe("HybridExecutor", () => {
@@ -487,6 +487,458 @@ describe("HybridExecutor", () => {
 
       expect(results).toHaveLength(1);
       expect(results[0].c.properties.name).toBe("Corp");
+    });
+  });
+
+  // ==========================================================================
+  // Generalized Pattern Chain Tests
+  // ==========================================================================
+
+  describe("executePatternChain() - longer chains", () => {
+    let db: GraphDatabase;
+    let hybridExecutor: HybridExecutor;
+    let sqlExecutor: Executor;
+
+    beforeEach(() => {
+      db = new GraphDatabase(":memory:");
+      db.initialize();
+      hybridExecutor = new HybridExecutor(db);
+      sqlExecutor = new Executor(db);
+
+      // Create a 4-node chain test graph:
+      //
+      //   (alice:Person)--[:KNOWS]->(bob:Person)--[:MANAGES]->(proj:Project)--[:USES]->(tech:Tech)
+      //                                          |
+      //                                          v [:MANAGES]
+      //                                     (proj2:Project)--[:USES]->(tech2:Tech)
+      //
+      db.insertNode("alice", "Person", { name: "Alice", age: 30 });
+      db.insertNode("bob", "Person", { name: "Bob", age: 25 });
+      db.insertNode("charlie", "Person", { name: "Charlie", age: 35 });
+      db.insertNode("proj1", "Project", { name: "Alpha", budget: 100000 });
+      db.insertNode("proj2", "Project", { name: "Beta", budget: 50000 });
+      db.insertNode("tech1", "Tech", { name: "TypeScript" });
+      db.insertNode("tech2", "Tech", { name: "Rust" });
+
+      db.insertEdge("e1", "KNOWS", "alice", "bob", {});
+      db.insertEdge("e2", "KNOWS", "bob", "charlie", {});
+      db.insertEdge("e3", "MANAGES", "bob", "proj1", {});
+      db.insertEdge("e4", "MANAGES", "bob", "proj2", {});
+      db.insertEdge("e5", "USES", "proj1", "tech1", {});
+      db.insertEdge("e6", "USES", "proj2", "tech2", {});
+    });
+
+    afterEach(() => {
+      db.close();
+    });
+
+    it("should handle 4-node chain: (a)-[*]->(b)-[:R1]->(c)-[:R2]->(d)", () => {
+      // Pattern: (a:Person)-[:KNOWS*1..2]->(b:Person)-[:MANAGES]->(c:Project)-[:USES]->(d:Tech)
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Alice" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "b", label: "Person" },
+          },
+          {
+            hop: { edgeType: "MANAGES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "c", label: "Project" },
+          },
+          {
+            hop: { edgeType: "USES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "d", label: "Tech" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // Expected paths:
+      // Alice -> Bob (depth 1) -> proj1 -> tech1
+      // Alice -> Bob (depth 1) -> proj2 -> tech2
+      expect(results).toHaveLength(2);
+      const techNames = results.map((r) => r.get("d")!.properties.name).sort();
+      expect(techNames).toEqual(["Rust", "TypeScript"]);
+    });
+
+    it("should handle var-length in middle: (a)-[:R1]->(b)-[*]->(c)-[:R2]->(d)", () => {
+      // Add intermediate nodes for multi-hop in the middle
+      db.insertNode("lead", "Person", { name: "Lead" });
+      db.insertEdge("e7", "KNOWS", "alice", "lead", {});
+      db.insertEdge("e8", "REPORTS_TO", "lead", "bob", {});
+      db.insertEdge("e9", "REPORTS_TO", "bob", "charlie", {});
+      db.insertNode("proj3", "Project", { name: "Gamma" });
+      db.insertEdge("e10", "MANAGES", "charlie", "proj3", {});
+      db.insertEdge("e11", "USES", "proj3", "tech1", {});
+
+      // Pattern: (a:Person)-[:KNOWS]->(b:Person)-[:REPORTS_TO*1..2]->(c:Person)-[:MANAGES]->(d:Project)
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Alice" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "b", label: "Person" },
+          },
+          {
+            hop: { edgeType: "REPORTS_TO", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "c", label: "Person" },
+          },
+          {
+            hop: { edgeType: "MANAGES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "d", label: "Project" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // Alice -> Lead -> Bob (depth 1) -> proj1/proj2
+      // Alice -> Lead -> Bob -> Charlie (depth 2) -> proj3
+      expect(results.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should handle var-length at end: (a)-[:R1]->(b)-[:R2]->(c)-[*]->(d)", () => {
+      // Add more tech dependencies
+      db.insertNode("lib1", "Tech", { name: "React" });
+      db.insertNode("lib2", "Tech", { name: "Vite" });
+      db.insertEdge("e12", "DEPENDS_ON", "tech1", "lib1", {});
+      db.insertEdge("e13", "DEPENDS_ON", "lib1", "lib2", {});
+
+      // Pattern: (a:Person)-[:KNOWS]->(b:Person)-[:MANAGES]->(c:Project)-[:USES|DEPENDS_ON*1..3]->(d:Tech)
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Alice" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "b", label: "Person" },
+          },
+          {
+            hop: { edgeType: "MANAGES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "c", label: "Project" },
+          },
+          {
+            hop: { edgeType: null, direction: "out", minHops: 1, maxHops: 3 }, // any edge type
+            node: { variable: "d", label: "Tech" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // Should find paths through USES and DEPENDS_ON
+      expect(results.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("should handle 5-node chain", () => {
+      // Add another level
+      db.insertNode("vendor", "Company", { name: "Acme" });
+      db.insertEdge("e14", "PROVIDED_BY", "tech1", "vendor", {});
+
+      // (a:Person)-[*]->(b:Person)-[:MANAGES]->(c:Project)-[:USES]->(d:Tech)-[:PROVIDED_BY]->(e:Company)
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Alice" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "b", label: "Person" },
+          },
+          {
+            hop: { edgeType: "MANAGES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "c", label: "Project" },
+          },
+          {
+            hop: { edgeType: "USES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "d", label: "Tech" },
+          },
+          {
+            hop: { edgeType: "PROVIDED_BY", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "e", label: "Company" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // Alice -> Bob -> proj1 -> tech1 -> vendor
+      expect(results).toHaveLength(1);
+      expect(results[0].get("e")!.properties.name).toBe("Acme");
+    });
+
+    it("should apply filter on intermediate node", () => {
+      // Filter: only projects with budget > 75000
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Alice" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "b", label: "Person" },
+          },
+          {
+            hop: { edgeType: "MANAGES", direction: "out", minHops: 1, maxHops: 1 },
+            node: {
+              variable: "c",
+              label: "Project",
+              filter: (node) => (node.properties.budget as number) > 75000,
+            },
+          },
+          {
+            hop: { edgeType: "USES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "d", label: "Tech" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // Only proj1 (budget 100000) passes the filter
+      expect(results).toHaveLength(1);
+      expect(results[0].get("c")!.properties.name).toBe("Alpha");
+      expect(results[0].get("d")!.properties.name).toBe("TypeScript");
+    });
+
+    it("should return empty for no matches", () => {
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Nobody" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "b", label: "Person" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+      expect(results).toEqual([]);
+    });
+
+    it("regression: 3-node pattern still works", () => {
+      // Same as original (a)-[*]->(b)-[:R]->(c) pattern
+      const params: PatternChainParams = {
+        anchor: { variable: "a", label: "Person" },
+        anchorProps: { name: "Alice" },
+        chain: [
+          {
+            hop: { edgeType: "KNOWS", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "b", label: "Person" },
+          },
+          {
+            hop: { edgeType: "MANAGES", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "c", label: "Project" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // Alice -> Bob -> proj1/proj2
+      expect(results).toHaveLength(2);
+    });
+  });
+
+  describe("executePatternChain() - multiple variable-length", () => {
+    let db: GraphDatabase;
+    let hybridExecutor: HybridExecutor;
+    let sqlExecutor: Executor;
+
+    beforeEach(() => {
+      db = new GraphDatabase(":memory:");
+      db.initialize();
+      hybridExecutor = new HybridExecutor(db);
+      sqlExecutor = new Executor(db);
+
+      // Create a graph for testing multiple var-length patterns:
+      //
+      //   (a)-->(b)-->(c)-->(d)-->(e)
+      //    |         ^
+      //    +---------+
+      //
+      db.insertNode("a", "Node", { name: "A", level: 0 });
+      db.insertNode("b", "Node", { name: "B", level: 1 });
+      db.insertNode("c", "Node", { name: "C", level: 2 });
+      db.insertNode("d", "Node", { name: "D", level: 3 });
+      db.insertNode("e", "Node", { name: "E", level: 4 });
+
+      db.insertEdge("e1", "LINK", "a", "b", {});
+      db.insertEdge("e2", "LINK", "b", "c", {});
+      db.insertEdge("e3", "LINK", "a", "c", {}); // shortcut
+      db.insertEdge("e4", "LINK", "c", "d", {});
+      db.insertEdge("e5", "LINK", "d", "e", {});
+    });
+
+    afterEach(() => {
+      db.close();
+    });
+
+    it("should handle two consecutive var-length: (a)-[*1..2]->(b)-[*1..2]->(c)", () => {
+      const params: PatternChainParams = {
+        anchor: { variable: "x", label: "Node" },
+        anchorProps: { name: "A" },
+        chain: [
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "y", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "z", label: "Node" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // First var-length from A: B (1 hop), C (1 hop via shortcut, 2 hops via B)
+      // Second var-length from each:
+      //   From B: C (1), D (2)
+      //   From C: D (1), E (2)
+      // Combinations are numerous - just check we get results
+      expect(results.length).toBeGreaterThanOrEqual(4);
+    });
+
+    it("should handle different bounds: (a)-[*1..2]->(b)-[*2..3]->(c)", () => {
+      const params: PatternChainParams = {
+        anchor: { variable: "x", label: "Node" },
+        anchorProps: { name: "A" },
+        chain: [
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "y", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 2, maxHops: 3 },
+            node: { variable: "z", label: "Node" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // First hop: B or C
+      // Second hop: must be 2-3 hops, so from B: D (2), E (3); from C: E (2)
+      // Should get some results with z being D or E
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      const zNames = results.map((r) => r.get("z")!.properties.name);
+      expect(zNames.every((n) => n === "D" || n === "E")).toBe(true);
+    });
+
+    it("should handle var + fixed + var: (a)-[*]->(b)-[:R]->(c)-[*]->(d)", () => {
+      // Add a fixed-hop middle
+      db.insertNode("hub", "Hub", { name: "Hub" });
+      db.insertEdge("e6", "LINK", "b", "hub", {});
+      db.insertEdge("e7", "CONNECT", "hub", "c", {});
+      db.insertEdge("e8", "CONNECT", "hub", "d", {});
+
+      const params: PatternChainParams = {
+        anchor: { variable: "start", label: "Node" },
+        anchorProps: { name: "A" },
+        chain: [
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "mid1", label: "Hub" },
+          },
+          {
+            hop: { edgeType: "CONNECT", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "mid2", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "end", label: "Node" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // A -[*1..2]-> Hub -[:CONNECT]-> C/D -[*1..2]-> ...
+      expect(results.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should handle three var-length hops", () => {
+      const params: PatternChainParams = {
+        anchor: { variable: "n0", label: "Node" },
+        anchorProps: { name: "A" },
+        chain: [
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "n1", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "n2", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 1 },
+            node: { variable: "n3", label: "Node" },
+          },
+        ],
+      };
+
+      const results = hybridExecutor.executePatternChain(params);
+
+      // A -> B -> C -> D or A -> C -> D -> E (via shortcut)
+      expect(results.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should handle cycles without infinite loops", () => {
+      // Add a cycle
+      db.insertEdge("e_cycle", "LINK", "e", "a", {}); // E -> A creates cycle
+
+      const params: PatternChainParams = {
+        anchor: { variable: "x", label: "Node" },
+        anchorProps: { name: "A" },
+        chain: [
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 5 },
+            node: { variable: "y", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 5 },
+            node: { variable: "z", label: "Node" },
+          },
+        ],
+      };
+
+      // Should complete without hanging
+      const results = hybridExecutor.executePatternChain(params);
+      expect(results.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should match SQL results for multi-var-length pattern", () => {
+      // SQL query equivalent
+      const sqlResult = sqlExecutor.execute(`
+        MATCH (x:Node {name: 'A'})-[:LINK*1..2]->(y:Node)-[:LINK*1..2]->(z:Node)
+        RETURN x.name AS x_name, y.name AS y_name, z.name AS z_name
+      `);
+
+      const params: PatternChainParams = {
+        anchor: { variable: "x", label: "Node" },
+        anchorProps: { name: "A" },
+        chain: [
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "y", label: "Node" },
+          },
+          {
+            hop: { edgeType: "LINK", direction: "out", minHops: 1, maxHops: 2 },
+            node: { variable: "z", label: "Node" },
+          },
+        ],
+      };
+
+      const hybridResults = hybridExecutor.executePatternChain(params);
+
+      expect(sqlResult.success).toBe(true);
+      if (sqlResult.success) {
+        // Compare counts
+        expect(hybridResults.length).toBe(sqlResult.data.length);
+      }
     });
   });
 });

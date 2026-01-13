@@ -69,20 +69,22 @@ describe("QueryPlanner", () => {
       expect(isHybridCompatiblePattern(query)).toBe(false);
     });
 
-    it("rejects pattern with only one relationship", () => {
+    it("accepts pattern with only one var-length relationship", () => {
       const query = parseQuery(`
         MATCH (a:Person)-[:KNOWS*1..3]->(b:Person)
         RETURN a, b
       `);
-      expect(isHybridCompatiblePattern(query)).toBe(false);
+      // Now accepted - single var-length edge is valid
+      expect(isHybridCompatiblePattern(query)).toBe(true);
     });
 
-    it("rejects pattern with multiple var-length edges", () => {
+    it("accepts pattern with multiple var-length edges", () => {
       const query = parseQuery(`
         MATCH (a:Person)-[:KNOWS*1..3]->(b:Person)-[:WORKS_AT*1..2]->(c:Company)
         RETURN a, b, c
       `);
-      expect(isHybridCompatiblePattern(query)).toBe(false);
+      // Now accepted - multiple var-length edges are supported
+      expect(isHybridCompatiblePattern(query)).toBe(true);
     });
 
     it("rejects queries with CREATE", () => {
@@ -155,14 +157,21 @@ describe("QueryPlanner", () => {
 
       expect(result.suitable).toBe(true);
       expect(result.params).toBeDefined();
-      expect(result.params!.anchorLabel).toBe("Person");
+      
+      // Check anchor node
+      expect(result.params!.anchor.label).toBe("Person");
+      expect(result.params!.anchor.variable).toBe("a");
       expect(result.params!.anchorProps).toEqual({ name: "Alice" });
-      expect(result.params!.varEdgeType).toBe("KNOWS");
-      expect(result.params!.varMinDepth).toBe(1);
-      expect(result.params!.varMaxDepth).toBe(3);
-      expect(result.params!.middleLabel).toBe("Person");
-      expect(result.params!.finalEdgeType).toBe("WORKS_AT");
-      expect(result.params!.finalLabel).toBe("Company");
+      
+      // Check first hop (var-length)
+      expect(result.params!.chain[0].hop.edgeType).toBe("KNOWS");
+      expect(result.params!.chain[0].hop.minHops).toBe(1);
+      expect(result.params!.chain[0].hop.maxHops).toBe(3);
+      expect(result.params!.chain[0].node.label).toBe("Person");
+      
+      // Check second hop (fixed)
+      expect(result.params!.chain[1].hop.edgeType).toBe("WORKS_AT");
+      expect(result.params!.chain[1].node.label).toBe("Company");
     });
 
     it("resolves parameter refs in anchor properties", () => {
@@ -183,7 +192,7 @@ describe("QueryPlanner", () => {
       `);
       const result = analyzeForHybrid(query, {});
 
-      expect(result.params!.varDirection).toBe("out");
+      expect(result.params!.chain[0].hop.direction).toBe("out");
     });
 
     it("extracts correct direction for incoming var-length edge", () => {
@@ -193,7 +202,7 @@ describe("QueryPlanner", () => {
       `);
       const result = analyzeForHybrid(query, {});
 
-      expect(result.params!.varDirection).toBe("in");
+      expect(result.params!.chain[0].hop.direction).toBe("in");
     });
 
     it("extracts correct direction for undirected var-length edge", () => {
@@ -203,7 +212,7 @@ describe("QueryPlanner", () => {
       `);
       const result = analyzeForHybrid(query, {});
 
-      expect(result.params!.varDirection).toBe("both");
+      expect(result.params!.chain[0].hop.direction).toBe("both");
     });
 
     it("handles var-length edge without type (any type)", () => {
@@ -214,7 +223,7 @@ describe("QueryPlanner", () => {
       const result = analyzeForHybrid(query, {});
 
       expect(result.suitable).toBe(true);
-      expect(result.params!.varEdgeType).toBeNull();
+      expect(result.params!.chain[0].hop.edgeType).toBeNull();
     });
 
     it("extracts final edge direction correctly", () => {
@@ -224,8 +233,8 @@ describe("QueryPlanner", () => {
       `);
       const result = analyzeForHybrid(query, {});
 
-      expect(result.params!.finalEdgeType).toBe("EMPLOYS");
-      expect(result.params!.finalDirection).toBe("in");
+      expect(result.params!.chain[1].hop.edgeType).toBe("EMPLOYS");
+      expect(result.params!.chain[1].hop.direction).toBe("in");
     });
 
     it("returns suitable=false with reason for invalid pattern", () => {
@@ -235,6 +244,7 @@ describe("QueryPlanner", () => {
       `);
       const result = analyzeForHybrid(query, {});
 
+      // No var-length edge, so not suitable for hybrid
       expect(result.suitable).toBe(false);
       expect(result.reason).toBeDefined();
     });
@@ -247,9 +257,88 @@ describe("QueryPlanner", () => {
       const result = analyzeForHybrid(query, {});
 
       expect(result.suitable).toBe(true);
-      expect(result.params!.varMinDepth).toBe(2);
+      expect(result.params!.chain[0].hop.minHops).toBe(2);
       // Unbounded should default to a reasonable max
-      expect(result.params!.varMaxDepth).toBeGreaterThanOrEqual(10);
+      expect(result.params!.chain[0].hop.maxHops).toBeGreaterThanOrEqual(10);
+    });
+
+    // New tests for generalized patterns
+    it("handles 4-node pattern chain", () => {
+      const query = parseQuery(`
+        MATCH (a:Person)-[:KNOWS*1..2]->(b:Person)-[:MANAGES]->(c:Project)-[:USES]->(d:Tech)
+        RETURN a, b, c, d
+      `);
+      const result = analyzeForHybrid(query, {});
+
+      expect(result.suitable).toBe(true);
+      expect(result.params!.chain.length).toBe(3);
+      
+      expect(result.params!.chain[0].hop.edgeType).toBe("KNOWS");
+      expect(result.params!.chain[0].hop.minHops).toBe(1);
+      expect(result.params!.chain[0].node.label).toBe("Person");
+      
+      expect(result.params!.chain[1].hop.edgeType).toBe("MANAGES");
+      expect(result.params!.chain[1].hop.minHops).toBe(1);
+      expect(result.params!.chain[1].hop.maxHops).toBe(1);
+      expect(result.params!.chain[1].node.label).toBe("Project");
+      
+      expect(result.params!.chain[2].hop.edgeType).toBe("USES");
+      expect(result.params!.chain[2].node.label).toBe("Tech");
+    });
+
+    it("handles multiple var-length edges", () => {
+      const query = parseQuery(`
+        MATCH (a:Node)-[:LINK*1..2]->(b:Node)-[:LINK*1..3]->(c:Node)
+        RETURN a, b, c
+      `);
+      const result = analyzeForHybrid(query, {});
+
+      expect(result.suitable).toBe(true);
+      expect(result.params!.chain.length).toBe(2);
+      
+      // First hop is var-length
+      expect(result.params!.chain[0].hop.minHops).toBe(1);
+      expect(result.params!.chain[0].hop.maxHops).toBe(2);
+      
+      // Second hop is also var-length
+      expect(result.params!.chain[1].hop.minHops).toBe(1);
+      expect(result.params!.chain[1].hop.maxHops).toBe(3);
+    });
+
+    it("handles var-length in middle of chain", () => {
+      const query = parseQuery(`
+        MATCH (a:Person)-[:KNOWS]->(b:Person)-[:FRIEND_OF*1..3]->(c:Person)-[:WORKS_AT]->(d:Company)
+        RETURN a, b, c, d
+      `);
+      const result = analyzeForHybrid(query, {});
+
+      expect(result.suitable).toBe(true);
+      expect(result.params!.chain.length).toBe(3);
+      
+      // First hop is fixed
+      expect(result.params!.chain[0].hop.minHops).toBe(1);
+      expect(result.params!.chain[0].hop.maxHops).toBe(1);
+      
+      // Second hop is var-length
+      expect(result.params!.chain[1].hop.minHops).toBe(1);
+      expect(result.params!.chain[1].hop.maxHops).toBe(3);
+      
+      // Third hop is fixed
+      expect(result.params!.chain[2].hop.minHops).toBe(1);
+      expect(result.params!.chain[2].hop.maxHops).toBe(1);
+    });
+
+    it("handles single var-length relationship (2 nodes)", () => {
+      const query = parseQuery(`
+        MATCH (a:Person)-[:KNOWS*1..3]->(b:Person)
+        RETURN a, b
+      `);
+      const result = analyzeForHybrid(query, {});
+
+      expect(result.suitable).toBe(true);
+      expect(result.params!.chain.length).toBe(1);
+      expect(result.params!.chain[0].hop.edgeType).toBe("KNOWS");
+      expect(result.params!.chain[0].node.label).toBe("Person");
     });
   });
 

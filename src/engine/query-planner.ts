@@ -1,18 +1,24 @@
 /**
  * Query Planner - Analyzes Cypher AST to determine if a query
  * can use the hybrid execution engine.
+ * 
+ * Supports generalized pattern chains with:
+ *   - N nodes (arbitrary chain length)
+ *   - Multiple variable-length edges
+ *   - Var-length edges at any position
  */
 
 import {
   Query,
   MatchClause,
+  ReturnClause,
   WhereCondition,
   NodePattern,
   RelationshipPattern,
   Expression,
   PropertyValue,
 } from "../parser.js";
-import { VarLengthPatternParams } from "./hybrid-executor.js";
+import { PatternChainParams, ChainHop, ChainNode } from "./hybrid-executor.js";
 import { MemoryNode, Direction } from "./memory-graph.js";
 
 /** Default max depth for unbounded variable-length paths */
@@ -22,7 +28,7 @@ export interface HybridAnalysisResult {
   /** Whether the query is suitable for hybrid execution */
   suitable: boolean;
   /** Extracted parameters for HybridExecutor (if suitable) */
-  params?: VarLengthPatternParams;
+  params?: PatternChainParams;
   /** Reason why the query is not suitable (for debugging) */
   reason?: string;
 }
@@ -30,6 +36,10 @@ export interface HybridAnalysisResult {
 /**
  * Analyze a parsed query to determine if it can use the hybrid executor.
  * Returns extracted parameters if suitable, or a reason if not.
+ * 
+ * Supports generalized pattern chains:
+ *   (a)-[*]->(b)-[:R1]->(c)-[:R2]->(d)  -- N nodes
+ *   (a)-[*]->(b)-[*]->(c)               -- multiple var-length
  */
 export function analyzeForHybrid(
   query: Query,
@@ -50,67 +60,142 @@ export function analyzeForHybrid(
     (p): p is RelationshipPattern => "edge" in p
   );
 
-  if (relPatterns.length !== 2) {
-    return { suitable: false, reason: "Expected exactly 2 relationship patterns" };
+  if (relPatterns.length < 1) {
+    return { suitable: false, reason: "Need at least 1 relationship pattern" };
   }
 
-  const [firstRel, secondRel] = relPatterns;
-
   // Extract anchor node info (first node in the pattern)
-  const anchorInfo = extractNodeInfo(firstRel.source, params);
+  const anchorInfo = extractNodeInfo(relPatterns[0].source, params);
   if (!anchorInfo) {
     return { suitable: false, reason: "Anchor node must have a label" };
   }
 
-  // Extract middle node info
-  const middleInfo = extractNodeInfo(firstRel.target, params);
-  if (!middleInfo) {
-    return { suitable: false, reason: "Middle node must have a label" };
+  const anchorVar = relPatterns[0].source.variable || "node0";
+
+  // Build the chain from relationship patterns
+  const chain: Array<{ hop: ChainHop; node: ChainNode }> = [];
+  
+  // Track which variable the WHERE clause applies to (for now: single node)
+  let filterTargetVar: string | null = null;
+  let filterTargetIndex: number = -1;
+  
+  // Find which node the WHERE clause references (if any)
+  if (matchClause.where) {
+    filterTargetVar = findWhereTargetVar(matchClause.where, relPatterns);
   }
 
-  // Extract final node info
-  const finalInfo = extractNodeInfo(secondRel.target, params);
-  if (!finalInfo) {
-    return { suitable: false, reason: "Final node must have a label" };
+  for (let i = 0; i < relPatterns.length; i++) {
+    const rel = relPatterns[i];
+    
+    // Extract edge info
+    const edge = rel.edge;
+    const isVarLength = edge.minHops !== undefined || edge.maxHops !== undefined;
+    
+    const hop: ChainHop = {
+      edgeType: edge.type || null,
+      direction: edgeDirectionToDirection(edge.direction),
+      minHops: isVarLength ? (edge.minHops ?? 1) : 1,
+      maxHops: isVarLength ? (edge.maxHops ?? DEFAULT_MAX_DEPTH) : 1,
+    };
+
+    // Extract target node info
+    const targetInfo = extractNodeInfo(rel.target, params);
+    if (!targetInfo) {
+      return { suitable: false, reason: `Node at position ${i + 1} must have a label` };
+    }
+
+    const targetVar = rel.target.variable || `node${i + 1}`;
+    
+    // Check if this is the node WHERE applies to
+    const nodeFilter = (filterTargetVar === targetVar)
+      ? convertWhereToFilter(matchClause.where, targetVar, params)
+      : undefined;
+    
+    // If WHERE references this node but couldn't be converted, fail
+    if (filterTargetVar === targetVar && nodeFilter === null) {
+      return { suitable: false, reason: "WHERE clause uses unsupported expressions" };
+    }
+    
+    if (filterTargetVar === targetVar) {
+      filterTargetIndex = i;
+    }
+
+    const node: ChainNode = {
+      variable: targetVar,
+      label: targetInfo.label,
+      filter: nodeFilter || undefined,
+    };
+
+    chain.push({ hop, node });
   }
 
-  // Extract variable-length edge info
-  const varEdge = firstRel.edge;
-  const varEdgeType = varEdge.type || null;
-  const varMinDepth = varEdge.minHops ?? 1;
-  const varMaxDepth = varEdge.maxHops ?? DEFAULT_MAX_DEPTH;
-  const varDirection = edgeDirectionToDirection(varEdge.direction);
-
-  // Extract final edge info
-  const finalEdge = secondRel.edge;
-  const finalEdgeType = finalEdge.type || "";
-  const finalDirection = edgeDirectionToDirection(finalEdge.direction);
-
-  // Get the middle node variable for WHERE filter extraction
-  const middleVar = firstRel.target.variable || "";
-
-  // Convert WHERE clause to filter function
-  const middleFilter = convertWhereToFilter(matchClause.where, middleVar, params);
-  if (middleFilter === null && matchClause.where) {
-    return { suitable: false, reason: "WHERE clause references multiple nodes or uses unsupported expressions" };
+  // If WHERE references a node that's not in the chain (e.g., anchor), fail for now
+  if (matchClause.where && filterTargetVar && filterTargetIndex === -1 && filterTargetVar !== anchorVar) {
+    return { suitable: false, reason: "WHERE clause references node not in chain or unsupported" };
   }
 
   return {
     suitable: true,
     params: {
-      anchorLabel: anchorInfo.label,
+      anchor: {
+        variable: anchorVar,
+        label: anchorInfo.label,
+      },
       anchorProps: anchorInfo.properties,
-      varEdgeType,
-      varMinDepth,
-      varMaxDepth,
-      varDirection,
-      middleLabel: middleInfo.label,
-      middleFilter: middleFilter || undefined,
-      finalEdgeType,
-      finalDirection,
-      finalLabel: finalInfo.label,
+      chain,
     },
   };
+}
+
+/**
+ * Find which variable the WHERE clause references.
+ * Returns null if WHERE references multiple nodes or an unknown variable.
+ */
+function findWhereTargetVar(
+  where: WhereCondition,
+  relPatterns: RelationshipPattern[]
+): string | null {
+  // Collect all variables from the pattern
+  const allVars = new Set<string>();
+  if (relPatterns[0]?.source.variable) {
+    allVars.add(relPatterns[0].source.variable);
+  }
+  for (const rel of relPatterns) {
+    if (rel.target.variable) {
+      allVars.add(rel.target.variable);
+    }
+  }
+
+  // Find which variable is referenced in WHERE
+  const referencedVars = new Set<string>();
+  collectReferencedVars(where, referencedVars);
+
+  // Filter to only include known pattern variables
+  const patternVars = [...referencedVars].filter(v => allVars.has(v));
+  
+  // We only support single-node WHERE for now
+  if (patternVars.length === 1) {
+    return patternVars[0];
+  }
+  
+  return null;
+}
+
+/**
+ * Collect all variable names referenced in a WHERE condition.
+ */
+function collectReferencedVars(condition: WhereCondition, vars: Set<string>): void {
+  if (condition.left?.type === "property" && condition.left.variable) {
+    vars.add(condition.left.variable);
+  }
+  if (condition.right?.type === "property" && condition.right.variable) {
+    vars.add(condition.right.variable);
+  }
+  if (condition.conditions) {
+    for (const c of condition.conditions) {
+      collectReferencedVars(c, vars);
+    }
+  }
 }
 
 /**
@@ -128,8 +213,49 @@ function edgeDirectionToDirection(direction: "left" | "right" | "none"): Directi
 }
 
 /**
- * Check if a query's structure matches the hybrid-compatible pattern:
- * (a:Label)-[*min..max]->(b:Label)-[:TYPE]->(c:Label)
+ * Check if an expression contains an aggregation function.
+ */
+function hasAggregationFunction(expr: Expression | undefined): boolean {
+  if (!expr) return false;
+  
+  if (expr.type === "function") {
+    const aggFunctions = ["count", "sum", "avg", "min", "max", "collect", "stdev", "stdevp"];
+    // Check both name and functionName (parser uses different fields)
+    const funcName = (expr.name || expr.functionName || "").toLowerCase();
+    if (aggFunctions.includes(funcName)) {
+      return true;
+    }
+    // Check arguments recursively
+    if (expr.args) {
+      return expr.args.some((arg: Expression) => hasAggregationFunction(arg));
+    }
+  }
+  
+  // Check for aggregation in nested expressions
+  if (expr.type === "binary") {
+    return hasAggregationFunction(expr.left) || hasAggregationFunction(expr.right);
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a query's structure matches a hybrid-compatible pattern.
+ * 
+ * Supported patterns:
+ *   (a:Label)-[*min..max]->(b:Label)-[:TYPE]->(c:Label)     -- original
+ *   (a)-[*]->(b)-[:R1]->(c)-[:R2]->(d)                      -- longer chains
+ *   (a)-[*]->(b)-[*]->(c)                                   -- multiple var-length
+ *   (a)-[:R1]->(b)-[*]->(c)                                 -- var-length anywhere
+ * 
+ * Requirements:
+ *   - No mutations (CREATE, SET, DELETE, MERGE)
+ *   - Has RETURN clause
+ *   - Exactly one MATCH clause
+ *   - At least 1 relationship pattern
+ *   - At least one variable-length edge
+ *   - No relationship property predicates (not supported in hybrid)
+ *   - All nodes must have labels (checked in analyzeForHybrid)
  */
 export function isHybridCompatiblePattern(query: Query): boolean {
   // Must not have mutations
@@ -141,8 +267,21 @@ export function isHybridCompatiblePattern(query: Query): boolean {
   }
 
   // Must have RETURN
-  const hasReturn = query.clauses.some((c) => c.type === "RETURN");
-  if (!hasReturn) {
+  const returnClause = query.clauses.find((c) => c.type === "RETURN") as ReturnClause | undefined;
+  if (!returnClause) {
+    return false;
+  }
+
+  // Must not have ORDER BY (not supported in hybrid)
+  if (returnClause.orderBy && returnClause.orderBy.length > 0) {
+    return false;
+  }
+
+  // Must not have aggregation functions in RETURN (not supported in hybrid)
+  const hasAggregation = returnClause.items.some((item) => 
+    hasAggregationFunction(item.expression)
+  );
+  if (hasAggregation) {
     return false;
   }
 
@@ -159,24 +298,24 @@ export function isHybridCompatiblePattern(query: Query): boolean {
     (p): p is RelationshipPattern => "edge" in p
   );
 
-  // Must have exactly 2 relationship patterns
-  if (relPatterns.length !== 2) {
+  // Must have at least 1 relationship pattern
+  if (relPatterns.length < 1) {
     return false;
   }
 
-  const [firstRel, secondRel] = relPatterns;
-
-  // First relationship must be variable-length
-  const firstHasVarLength =
-    firstRel.edge.minHops !== undefined || firstRel.edge.maxHops !== undefined;
-  if (!firstHasVarLength) {
+  // Must have at least one variable-length edge
+  const hasVarLength = relPatterns.some(
+    (rel) => rel.edge.minHops !== undefined || rel.edge.maxHops !== undefined
+  );
+  if (!hasVarLength) {
     return false;
   }
 
-  // Second relationship must NOT be variable-length
-  const secondHasVarLength =
-    secondRel.edge.minHops !== undefined || secondRel.edge.maxHops !== undefined;
-  if (secondHasVarLength) {
+  // Must not have relationship property predicates (not supported in hybrid)
+  const hasEdgeProperties = relPatterns.some(
+    (rel) => rel.edge.properties && Object.keys(rel.edge.properties).length > 0
+  );
+  if (hasEdgeProperties) {
     return false;
   }
 

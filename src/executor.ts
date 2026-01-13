@@ -9202,6 +9202,8 @@ export class Executor {
   /**
    * Try to execute a hybrid var-length pattern query using the in-memory graph engine.
    * Falls back to null if the query can't be executed via hybrid approach.
+   * 
+   * Supports generalized pattern chains with N nodes and multiple var-length edges.
    */
   private tryHybridVarLengthExecution(
     query: Query,
@@ -9215,32 +9217,14 @@ export class Executor {
       return null;
     }
 
-    // Execute using hybrid executor
-    const rawResults = this.hybridExecutor.executeVarLengthPatternRaw(analysis.params);
+    // Execute using hybrid executor (generalized chain execution)
+    const rawResults = this.hybridExecutor.executePatternChain(analysis.params);
 
     // Get the RETURN clause to understand what columns to output
     const returnClause = query.clauses.find((c) => c.type === "RETURN") as ReturnClause | undefined;
     if (!returnClause) {
       return null;
     }
-
-    // Get the MATCH clause to extract variable names
-    const matchClause = query.clauses.find((c) => c.type === "MATCH") as MatchClause | undefined;
-    if (!matchClause) {
-      return null;
-    }
-
-    // Extract variable names from the pattern
-    const relPatterns = matchClause.patterns.filter(
-      (p): p is RelationshipPattern => "edge" in p
-    );
-    if (relPatterns.length !== 2) {
-      return null;
-    }
-
-    const anchorVar = relPatterns[0].source.variable || "a";
-    const middleVar = relPatterns[0].target.variable || "b";
-    const finalVar = relPatterns[1].target.variable || "c";
 
     // Format results according to the RETURN clause
     const formattedResults: Record<string, unknown>[] = [];
@@ -9256,23 +9240,19 @@ export class Executor {
           const varName = item.expression.variable;
           const propName = item.expression.property;
           
-          if (varName === anchorVar && propName) {
-            row[alias] = result.a.properties[propName];
-          } else if (varName === middleVar && propName) {
-            row[alias] = result.b.properties[propName];
-          } else if (varName === finalVar && propName) {
-            row[alias] = result.c.properties[propName];
+          // Look up the node by variable name in the result Map
+          const node = varName ? result.get(varName) : undefined;
+          if (node && propName) {
+            row[alias] = node.properties[propName];
           }
         } else if (item.expression.type === "variable") {
           // Full node: a, b, c
           const varName = item.expression.variable;
           
-          if (varName === anchorVar) {
-            row[alias] = result.a.properties;
-          } else if (varName === middleVar) {
-            row[alias] = result.b.properties;
-          } else if (varName === finalVar) {
-            row[alias] = result.c.properties;
+          // Look up the node by variable name in the result Map
+          const node = varName ? result.get(varName) : undefined;
+          if (node) {
+            row[alias] = node.properties;
           }
         }
       }

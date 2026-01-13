@@ -295,29 +295,61 @@ function compareNodes(
   a: Record<string, unknown>,
   b: Record<string, unknown>
 ): DataComparison {
-  // Compare labels
-  const aLabels = (a.labels as string[]) || [];
-  const bLabels = (b.labels as string[]) || [];
+  const aIsNeo4jNode =
+    a._type === "node" && Array.isArray(a.labels) && typeof a.properties === "object";
+  const bIsNeo4jNode =
+    b._type === "node" && Array.isArray(b.labels) && typeof b.properties === "object";
 
-  if (aLabels.length !== bLabels.length) {
-    return {
-      match: false,
-      reason: `Node label count mismatch: ${aLabels.length} vs ${bLabels.length}`,
-    };
-  }
+  // If both sides are Neo4j-style nodes, compare labels + properties.
+  if (aIsNeo4jNode && bIsNeo4jNode) {
+    const aLabels = (a.labels as string[]) || [];
+    const bLabels = (b.labels as string[]) || [];
 
-  const sortedA = [...aLabels].sort();
-  const sortedB = [...bLabels].sort();
-  for (let i = 0; i < sortedA.length; i++) {
-    if (sortedA[i] !== sortedB[i]) {
+    if (aLabels.length !== bLabels.length) {
       return {
         match: false,
-        reason: `Node label mismatch: ${sortedA[i]} vs ${sortedB[i]}`,
+        reason: `Node label count mismatch: ${aLabels.length} vs ${bLabels.length}`,
       };
     }
+
+    const sortedA = [...aLabels].sort();
+    const sortedB = [...bLabels].sort();
+    for (let i = 0; i < sortedA.length; i++) {
+      if (sortedA[i] !== sortedB[i]) {
+        return {
+          match: false,
+          reason: `Node label mismatch: ${sortedA[i]} vs ${sortedB[i]}`,
+        };
+      }
+    }
+
+    return compareValues(a.properties, b.properties);
   }
 
-  // Compare properties
+  // LeanGraph returns nodes as flat property maps (with internal _nf_* keys).
+  // When comparing against Neo4j nodes, treat the flat object as "properties".
+  const neo = aIsNeo4jNode ? a : bIsNeo4jNode ? b : null;
+  const other = neo === a ? b : neo === b ? a : null;
+
+  if (neo && other) {
+    const otherPropsRaw =
+      other && typeof other === "object" && "properties" in other
+        ? (other as Record<string, unknown>).properties
+        : other;
+
+    if (otherPropsRaw && typeof otherPropsRaw === "object" && !Array.isArray(otherPropsRaw)) {
+      const cleaned: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(otherPropsRaw as Record<string, unknown>)) {
+        if (k.startsWith("_nf_")) continue;
+        cleaned[k] = v;
+      }
+      return compareValues(neo.properties, cleaned);
+    }
+
+    return compareValues(neo.properties, otherPropsRaw);
+  }
+
+  // Fallback: compare properties if present.
   return compareValues(a.properties, b.properties);
 }
 

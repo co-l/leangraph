@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { ExecutionResult } from "../src/executor";
 import { createTestClient, TestClient } from "./utils";
+import { compareResults } from "./fuzzing/compare";
 
 /**
  * Tests for Cypher query patterns from /tmp/cypherqueries.json
@@ -5092,6 +5093,42 @@ describe("CypherQueries.json Patterns", () => {
         expect(typeof a._nf_id).toBe("string");
         expect(typeof b._nf_id).toBe("string");
         expect(a._nf_id).not.toBe(b._nf_id);
+      });
+
+      it("treats flat LeanGraph nodes as Neo4j nodes in fuzz comparison", async () => {
+        const query = "MATCH (m:Movie) RETURN m SKIP 1 LIMIT 2";
+        const setup = [
+          "CREATE (:Movie {name: 1})",
+          "CREATE (:Movie {name: 2})",
+          "CREATE (:Movie {name: 3})",
+        ];
+
+        const neo4jResult = {
+          success: true,
+          data: [
+            { m: { _type: "node", labels: ["Movie"], properties: { name: 2 } } },
+            { m: { _type: "node", labels: ["Movie"], properties: { name: 3 } } },
+          ],
+        };
+
+        const leangraphResult = {
+          success: true,
+          data: [
+            { m: { name: 2, _nf_id: "id-2" } },
+            { m: { name: 3, _nf_id: "id-3" } },
+          ],
+        };
+
+        const comparison = compareResults(
+          query,
+          "pattern",
+          "match",
+          neo4jResult,
+          leangraphResult,
+          setup
+        );
+
+        expect(comparison.status).toBe("pass");
       });
     });
   });

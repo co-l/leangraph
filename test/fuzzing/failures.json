@@ -158,7 +158,7 @@
     "query": "MATCH (m:Movie) RETURN m SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

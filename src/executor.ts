@@ -6827,11 +6827,12 @@ export class Executor {
             [id]
           );
           
-          if (nodeResult.rows.length > 0) {
-            const row = nodeResult.rows[0];
-            // Neo4j 3.5 format: return properties directly
-            resultRow[alias] = this.getNodeProperties(row.id as string, row.properties as string | object);
-          } else {
+            if (nodeResult.rows.length > 0) {
+              const row = nodeResult.rows[0];
+              // Neo4j 3.5 format: return properties directly, but include _nf_id for identity
+              const props = this.getNodeProperties(row.id as string, row.properties as string | object);
+              resultRow[alias] = { ...props, _nf_id: row.id };
+            } else {
             // Try edges if not found in nodes (relationship variable)
             const edgeResult = this.db.execute(
               "SELECT id, type, properties FROM edges WHERE id = ?",

@@ -57,7 +57,7 @@
     "query": "CREATE (a:Director)-[r:WORKS_FOR]->(b:Director) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

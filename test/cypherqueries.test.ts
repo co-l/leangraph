@@ -5064,6 +5064,21 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toHaveLength(1);
         expect(result.data[0]["[x IN ['a', 'b', 'c'] | toUpper(x)]"]).toEqual(["A", "B", "C"]);
       });
+
+      it("supports CREATE relationship RETURN nodes include _nf_id", async () => {
+        const result = await exec("CREATE (a:Director)-[r:WORKS_FOR]->(b:Director) RETURN a, r, b");
+
+        expect(result.data).toHaveLength(1);
+
+        const a = result.data[0].a as Record<string, unknown>;
+        const b = result.data[0].b as Record<string, unknown>;
+
+        expect(a).toHaveProperty("_nf_id");
+        expect(b).toHaveProperty("_nf_id");
+        expect(typeof a._nf_id).toBe("string");
+        expect(typeof b._nf_id).toBe("string");
+        expect(a._nf_id).not.toBe(b._nf_id);
+      });
     });
   });
 });

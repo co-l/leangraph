@@ -1,5 +1,13 @@
 #!/bin/bash
-# Pre-commit hook: run tests before committing
+# Pre-commit hook: run build and tests before committing
+
+echo "Running build..."
+npm run build
+
+if [ $? -ne 0 ]; then
+  echo "Build failed. Commit aborted."
+  exit 1
+fi
 
 echo "Running local tests..."
 npm test

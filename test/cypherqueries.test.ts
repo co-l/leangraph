@@ -5186,5 +5186,33 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].x).toBe("2hello world");
     });
+
+    it("handles float modulo correctly", async () => {
+      // Bug: (-47.37) % 5 returns -2 (integer) instead of -2.37 (float)
+      // SQLite's % operator truncates to integer, need to use fmod equivalent
+      const result = await exec("RETURN (-47.37) % (5) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBeCloseTo(-2.37, 10);
+    });
+
+    it("preserves boolean type in list concatenation", async () => {
+      // Bug: [6, true] + 0 returns [6, 1, 0] instead of [6, true, 0]
+      // Boolean true is being converted to integer 1
+      const result = await exec("RETURN ([6, true]) + (0) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toEqual([6, true, 0]);
+    });
+
+    it("uses integer division when operand comes from list index", async () => {
+      // Bug: (([1, 2, 3][0]) % (5)) / (6) returns 0.166... instead of 0
+      // Neo4j uses integer division when both operands are integers
+      // List index returns integer, so result should be integer division
+      const result = await exec("RETURN (([1, 2, 3][0]) % (5)) / (6) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe(0);
+    });
   });
 });

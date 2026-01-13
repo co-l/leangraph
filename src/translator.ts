@@ -10666,6 +10666,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const rightIsStringLiteral = expr.right?.type === "literal" && typeof expr.right.value === "string";
     
     
+    // Helper for json_each that preserves boolean types (SQLite converts true/false to 1/0)
+    const jsonEachWithBooleans = (arrayExpr: string) => 
+      `SELECT CASE json_each.type WHEN 'true' THEN json('true') WHEN 'false' THEN json('false') ELSE json_each.value END as value FROM json_each(${arrayExpr})`;
+
     if (expr.operator === "+" && leftIsList && rightIsList) {
       // Both are lists: list + list concatenation
       // Pattern: (SELECT json_group_array(value) FROM (SELECT value FROM json_each(left) UNION ALL SELECT value FROM json_each(right)))
@@ -10673,7 +10677,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const rightArraySql = this.wrapForArray(expr.right!, rightResult.sql);
       
       return {
-        sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftArraySql}) UNION ALL SELECT value FROM json_each(${rightArraySql})))`,
+        sql: `(SELECT json_group_array(value) FROM (${jsonEachWithBooleans(leftArraySql)} UNION ALL ${jsonEachWithBooleans(rightArraySql)}))`,
         tables,
         params,
       };
@@ -10686,7 +10690,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       const rightScalarSql = rightResult.sql;
       
       return {
-        sql: `(SELECT json_group_array(value) FROM (SELECT value FROM json_each(${leftArraySql}) UNION ALL SELECT json_quote(${rightScalarSql})))`,
+        sql: `(SELECT json_group_array(value) FROM (${jsonEachWithBooleans(leftArraySql)} UNION ALL SELECT json_quote(${rightScalarSql})))`,
         tables,
         params,
       };
@@ -10812,38 +10816,64 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       };
     }
 
+    // Handle modulo operator - SQLite % only works on integers
+    // For float modulo, use (a - trunc(a/b) * b) formula (truncate toward zero, like C/Java/Neo4j)
+    if (expr.operator === "%") {
+      const leftIsFloat = expr.left?.type === "literal" && 
+        (expr.left as { numberLiteralKind?: string }).numberLiteralKind === "float";
+      const rightIsFloat = expr.right?.type === "literal" && 
+        (expr.right as { numberLiteralKind?: string }).numberLiteralKind === "float";
+      
+      if (leftIsFloat || rightIsFloat) {
+        // Float modulo: a - trunc(a/b) * b
+        // SQLite doesn't have TRUNC, use CAST to INTEGER which truncates toward zero
+        return {
+          sql: `(${leftSql} - CAST((${leftSql} * 1.0 / ${rightSql}) AS INTEGER) * ${rightSql})`,
+          tables,
+          params,
+        };
+      }
+    }
+
     // Handle division with proper integer division semantics
     // In Cypher, integer / integer = integer (truncated toward zero)
     // SQLite's -> operator returns TEXT which causes float division
     // We use CAST to ensure integer division when both operands are integers
     if (expr.operator === "/") {
-      // Check if both operands could be integers at compile time
-      const leftIsIntegerLiteral = expr.left?.type === "literal" && 
-        typeof expr.left.value === "number" && Number.isInteger(expr.left.value);
-      const rightIsIntegerLiteral = expr.right?.type === "literal" && 
-        typeof expr.right.value === "number" && Number.isInteger(expr.right.value);
-      const leftIsIntegerArrayIndex = expr.left?.type === "function" && 
-        expr.left.functionName === "INDEX" &&
-        expr.left.args?.[0]?.type === "literal" && 
-        Array.isArray(expr.left.args[0].value) &&
-        (expr.left.args[0].value as unknown[]).every(v => typeof v === "number" && Number.isInteger(v as number));
-      const rightIsIntegerArrayIndex = expr.right?.type === "function" && 
-        expr.right.functionName === "INDEX" &&
-        expr.right.args?.[0]?.type === "literal" && 
-        Array.isArray(expr.right.args[0].value) &&
-        (expr.right.args[0].value as unknown[]).every(v => typeof v === "number" && Number.isInteger(v as number));
+      // Recursive helper to check if expression evaluates to integer
+      const isIntegerExpression = (e: Expression | undefined): boolean => {
+        if (!e) return false;
+        // Integer literal - check numberLiteralKind to distinguish 3 from 3.0
+        if (e.type === "literal" && typeof e.value === "number") {
+          const literalKind = (e as { numberLiteralKind?: string }).numberLiteralKind;
+          // Only consider it integer if explicitly marked as integer (not float)
+          return literalKind === "integer";
+        }
+        // Array index with integer array elements
+        if (e.type === "function" && e.functionName === "INDEX" &&
+            e.args?.[0]?.type === "literal" && Array.isArray(e.args[0].value) &&
+            (e.args[0].value as unknown[]).every(v => typeof v === "number" && Number.isInteger(v as number))) {
+          return true;
+        }
+        // Binary expression where result is integer (both operands are integers and op preserves integerality)
+        if (e.type === "binary" && e.left && e.right) {
+          const integerOps = ["+", "-", "*", "%"]; // These preserve integer type
+          if (integerOps.includes(e.operator!) && isIntegerExpression(e.left) && isIntegerExpression(e.right)) {
+            return true;
+          }
+        }
+        return false;
+      };
       
-      // If both operands are statically known to be integers, use CAST to ensure integer division
-      const leftIsStaticInt = leftIsIntegerLiteral || leftIsIntegerArrayIndex;
-      const rightIsStaticInt = rightIsIntegerLiteral || rightIsIntegerArrayIndex;
+      // Check if both operands could be integers at compile time
+      const leftIsStaticInt = isIntegerExpression(expr.left);
+      const rightIsStaticInt = isIntegerExpression(expr.right);
       
       if (leftIsStaticInt && rightIsStaticInt) {
         // Both operands are integers, use CAST to ensure integer division
         // CAST(left AS INTEGER) / CAST(right AS INTEGER) ensures SQLite does integer division
-        const leftCast = leftIsIntegerArrayIndex ? `CAST(${leftSql} AS INTEGER)` : leftSql;
-        const rightCast = rightIsIntegerArrayIndex ? `CAST(${rightSql} AS INTEGER)` : rightSql;
         return {
-          sql: `(${leftCast} / ${rightCast})`,
+          sql: `(CAST(${leftSql} AS INTEGER) / CAST(${rightSql} AS INTEGER))`,
           tables,
           params,
         };

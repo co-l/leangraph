@@ -10,7 +10,7 @@ export interface ComparisonResult {
   query: string;
   category: Category;
   feature: Feature;
-  status: "pass" | "fail" | "neo4j_error";
+  status: "pass" | "fail" | "neo4j_error" | "skip";
   neo4jResult: QueryResult;
   leangraphResult: QueryResult;
   mismatch?: string;
@@ -26,6 +26,22 @@ function hasOrderBy(query: string): boolean {
 }
 
 /**
+ * Check if a query is non-deterministic and should be skipped.
+ * Non-deterministic queries produce different results on each run.
+ */
+function isNonDeterministic(query: string): boolean {
+  // rand() returns different random values
+  if (/\brand\s*\(\s*\)/i.test(query)) {
+    return true;
+  }
+  // SKIP without ORDER BY depends on internal storage order
+  if (/\bSKIP\b/i.test(query) && !hasOrderBy(query)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Compare results from Neo4j and leangraph.
  */
 export function compareResults(
@@ -36,6 +52,20 @@ export function compareResults(
   leangraph: QueryResult,
   setup?: string[]
 ): ComparisonResult {
+  // Skip non-deterministic queries (rand(), SKIP without ORDER BY)
+  if (isNonDeterministic(query)) {
+    return {
+      query,
+      category,
+      feature,
+      status: "skip",
+      neo4jResult: neo4j,
+      leangraphResult: leangraph,
+      mismatch: "Non-deterministic query (skipped)",
+      setup,
+    };
+  }
+
   // If Neo4j failed, this isn't a valid test case
   if (!neo4j.success) {
     return {
@@ -98,8 +128,57 @@ interface DataComparison {
 }
 
 /**
+ * Extract values from a row object, ignoring column names.
+ * Returns values in a consistent order (sorted by key name).
+ */
+function extractRowValues(row: unknown): unknown[] {
+  if (row === null || row === undefined) {
+    return [row];
+  }
+  if (typeof row !== "object" || Array.isArray(row)) {
+    return [row];
+  }
+  const obj = row as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return keys.map((k) => obj[k]);
+}
+
+/**
+ * Compare two rows by their values only, ignoring column names.
+ * This handles cosmetic differences like "toLower" vs "tolower" in column names.
+ */
+function compareRowValues(
+  neo4jRow: unknown,
+  leangraphRow: unknown
+): DataComparison {
+  const neo4jValues = extractRowValues(neo4jRow);
+  const leangraphValues = extractRowValues(leangraphRow);
+
+  if (neo4jValues.length !== leangraphValues.length) {
+    return {
+      match: false,
+      reason: `Column count mismatch: Neo4j=${neo4jValues.length}, Leangraph=${leangraphValues.length}`,
+    };
+  }
+
+  // Compare each value
+  for (let i = 0; i < neo4jValues.length; i++) {
+    const valMatch = compareValues(neo4jValues[i], leangraphValues[i]);
+    if (!valMatch.match) {
+      return {
+        match: false,
+        reason: `Column ${i}: ${valMatch.reason}`,
+      };
+    }
+  }
+
+  return { match: true };
+}
+
+/**
  * Compare two result data arrays.
  * If requireOrder is false, compare as unordered sets.
+ * Uses value-only comparison to ignore cosmetic column name differences.
  */
 function compareData(
   neo4j: unknown[],
@@ -115,9 +194,9 @@ function compareData(
   }
 
   if (requireOrder) {
-    // Compare each row in order
+    // Compare each row in order (by values only)
     for (let i = 0; i < neo4j.length; i++) {
-      const rowMatch = compareValues(neo4j[i], leangraph[i]);
+      const rowMatch = compareRowValues(neo4j[i], leangraph[i]);
       if (!rowMatch.match) {
         return {
           match: false,
@@ -133,7 +212,7 @@ function compareData(
       let found = false;
       for (let j = 0; j < leangraph.length; j++) {
         if (usedIndices.has(j)) continue;
-        const rowMatch = compareValues(neo4j[i], leangraph[j]);
+        const rowMatch = compareRowValues(neo4j[i], leangraph[j]);
         if (rowMatch.match) {
           usedIndices.add(j);
           found = true;

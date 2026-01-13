@@ -5110,7 +5110,8 @@ describe("CypherQueries.json Patterns", () => {
       });
 
       it("treats flat LeanGraph nodes as Neo4j nodes in fuzz comparison", async () => {
-        const query = "MATCH (m:Movie) RETURN m SKIP 1 LIMIT 2";
+        // Use ORDER BY to make deterministic (SKIP without ORDER BY is non-deterministic)
+        const query = "MATCH (m:Movie) RETURN m ORDER BY m.name SKIP 1 LIMIT 2";
         const setup = [
           "CREATE (:Movie {name: 1})",
           "CREATE (:Movie {name: 2})",

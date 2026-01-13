@@ -191,8 +191,11 @@ async function main(): Promise<void> {
         process.stdout.write("F");
         break;
       case "neo4j_error":
+      case "skip":
         skipCount++;
-        neo4jErrors.push(comparison);
+        if (comparison.status === "neo4j_error") {
+          neo4jErrors.push(comparison);
+        }
         if (options.verbose) {
           process.stdout.write("S");
         }
@@ -211,7 +214,7 @@ async function main(): Promise<void> {
   console.log("📊 Results:");
   console.log(`   ✓ Pass: ${passCount}`);
   console.log(`   ✗ Fail: ${failCount}`);
-  console.log(`   ⚠ Skip: ${skipCount} (Neo4j errors)\n`);
+  console.log(`   ⚠ Skip: ${skipCount} (non-deterministic or Neo4j errors)\n`);
 
   // Print failures
   if (failures.length > 0) {

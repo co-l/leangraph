@@ -5065,6 +5065,20 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["[x IN ['a', 'b', 'c'] | toUpper(x)]"]).toEqual(["A", "B", "C"]);
       });
 
+      it("supports list comprehension with WHERE column naming", async () => {
+        const result = await exec("WITH [1, 2, 3, 4, 5] AS list RETURN [x IN list WHERE x > 2]");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["[x IN list WHERE x > 2]"]).toEqual([3, 4, 5]);
+      });
+
+      it("preserves function name casing in column naming", async () => {
+        const result = await exec("RETURN toLower('TEST')");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["toLower('TEST')"]).toBe("test");
+      });
+
       it("supports CREATE relationship RETURN nodes include _nf_id", async () => {
         const result = await exec("CREATE (a:Director)-[r:WORKS_FOR]->(b:Director) RETURN a, r, b");
 

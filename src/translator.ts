@@ -15794,10 +15794,29 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         return `${expr.variable}.${expr.property}`;
       case "function": {
         // Build full function call representation: function(args)
-        const funcName = expr.functionName!.toLowerCase();
+        const canonicalFunctionName = (name: string): string => {
+          switch (name.toUpperCase()) {
+            case "TOUPPER":
+              return "toUpper";
+            case "TOLOWER":
+              return "toLower";
+            case "TOINTEGER":
+              return "toInteger";
+            case "TOFLOAT":
+              return "toFloat";
+            case "TOSTRING":
+              return "toString";
+            case "TOBOOLEAN":
+              return "toBoolean";
+            default:
+              return name.toLowerCase();
+          }
+        };
+
+        const funcName = canonicalFunctionName(expr.functionName!);
         if (expr.args && expr.args.length > 0) {
           // Special case: INDEX function should be rendered as list[index] notation
-          if (funcName === "index" && expr.args.length === 2) {
+          if (funcName.toLowerCase() === "index" && expr.args.length === 2) {
             const listName = this.getExpressionName(expr.args[0]);
             const indexName = this.getExpressionName(expr.args[1]);
             return `${listName}[${indexName}]`;
@@ -15927,6 +15946,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
               return "toUpper";
             case "TOLOWER":
               return "toLower";
+            case "TOINTEGER":
+              return "toInteger";
+            case "TOFLOAT":
+              return "toFloat";
+            case "TOSTRING":
+              return "toString";
+            case "TOBOOLEAN":
+              return "toBoolean";
             default:
               return name.toLowerCase();
           }

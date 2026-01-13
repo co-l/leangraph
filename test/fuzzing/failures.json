@@ -104,7 +104,7 @@
     "query": "WITH [1, 2, 3, 4, 5] AS list RETURN [x IN list WHERE x > 2]",
     "category": "expression",
     "feature": "comprehensions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -135,7 +135,7 @@
     "query": "RETURN toLower('TEST')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

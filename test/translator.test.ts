@@ -1386,7 +1386,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("UPPER(");
-      expect(result.returnColumns).toEqual(["toupper(n.name)"]);
+      expect(result.returnColumns).toEqual(["toUpper(n.name)"]);
     });
 
     it("generates LOWER for toLower()", () => {
@@ -1394,7 +1394,7 @@ describe("Translator", () => {
 
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("LOWER(");
-      expect(result.returnColumns).toEqual(["tolower(n.name)"]);
+      expect(result.returnColumns).toEqual(["toLower(n.name)"]);
     });
 
     it("generates TRIM for trim()", () => {
@@ -1434,7 +1434,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("CAST(");
       expect(result.statements[0].sql).toContain("AS TEXT");
-      expect(result.returnColumns).toEqual(["tostring(n.age)"]);
+      expect(result.returnColumns).toEqual(["toString(n.age)"]);
     });
   });
 
@@ -1445,7 +1445,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("CAST(");
       expect(result.statements[0].sql).toContain("AS INTEGER");
-      expect(result.returnColumns).toEqual(["tointeger(n.quantity)"]);
+      expect(result.returnColumns).toEqual(["toInteger(n.quantity)"]);
     });
 
     it("handles toInteger with string literal", () => {
@@ -1469,7 +1469,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("CAST(");
       expect(result.statements[0].sql).toContain("AS REAL");
-      expect(result.returnColumns).toEqual(["tofloat(n.price)"]);
+      expect(result.returnColumns).toEqual(["toFloat(n.price)"]);
     });
 
     it("handles toFloat with string literal", () => {
@@ -1493,7 +1493,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // toBoolean should use CASE to handle 'true'/'false' strings
       expect(result.statements[0].sql).toContain("CASE");
-      expect(result.returnColumns).toEqual(["toboolean(n.active)"]);
+      expect(result.returnColumns).toEqual(["toBoolean(n.active)"]);
     });
 
     it("handles toBoolean with string literal", () => {

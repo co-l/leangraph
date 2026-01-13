@@ -30,8 +30,17 @@
 export type { Direction, Path, MemoryNode, MemoryEdge, NodeRow, EdgeRow } from "./memory-graph.js";
 export type { SubgraphBounds, PropertyFilter } from "./subgraph-loader.js";
 export type { VarLengthPatternParams, PatternResult } from "./hybrid-executor.js";
+export type { HybridAnalysisResult } from "./query-planner.js";
 
 // Classes
 export { MemoryGraph } from "./memory-graph.js";
 export { SubgraphLoader } from "./subgraph-loader.js";
 export { HybridExecutor } from "./hybrid-executor.js";
+
+// Query Planner functions
+export {
+  analyzeForHybrid,
+  isHybridCompatiblePattern,
+  extractNodeInfo,
+  convertWhereToFilter,
+} from "./query-planner.js";

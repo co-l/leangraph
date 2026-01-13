@@ -5297,5 +5297,14 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].r).toBe(null);
     });
+
+    it("formats power result as float in string concatenation", async () => {
+      // Bug: 3^2 + 'hello' returns "9hello" instead of "9.0hello"
+      // In Neo4j, power always returns a float, so 3^2 = 9.0
+      const result = await exec("RETURN (([1, 2, 3][2]) ^ ([1, 2, 3][1])) + ('hello' + ' ' + 'world') AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe("9.0hello world");
+    });
   });
 });

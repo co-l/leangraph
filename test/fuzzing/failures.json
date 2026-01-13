@@ -1,6 +1,6 @@
 [
   {
-    "query": "RETURN ([-48, null]) + (([1, 2, 3][1]) - (null))",
+    "query": "RETURN (([1, 2, 3][2]) ^ ([1, 2, 3][1])) + ('hello' + ' ' + 'world')",
     "category": "expression",
     "feature": "expressions",
     "status": "resolved",
@@ -8,7 +8,7 @@
       "success": true,
       "data": [
         {
-          "([-48, null]) + (([1, 2, 3][1]) - (null))": null
+          "(([1, 2, 3][2]) ^ ([1, 2, 3][1])) + ('hello' + ' ' + 'world')": "9.0hello world"
         }
       ]
     },
@@ -16,14 +16,10 @@
       "success": true,
       "data": [
         {
-          "([-48, null]) + (([1, 2, 3][1]) - (null))": [
-            -48,
-            null,
-            null
-          ]
+          "(([1, 2, 3][2]) ^ ([1, 2, 3][1])) + ('hello' + ' ' + 'world')": "9hello world"
         }
       ]
     },
-    "mismatch": "No matching row found for Neo4j row 0: {\"([-48, null]) + (([1, 2, 3][1]) - (null))\":null}"
+    "mismatch": "No matching row found for Neo4j row 0: {\"(([1, 2, 3][2]) ^ ([1, 2, 3][1])) + ('hello' + ' ' + 'world')\":\"9.0hello world\"}"
   }
 ]

@@ -10710,16 +10710,24 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     // String concatenation: if either side is definitely a string (literal or string concat chain),
     // use || for concatenation instead of + (numeric addition)
     // Use cypher_to_string to properly format numbers (integers without .0)
+    // Exception: power expressions always return floats, so use CAST to preserve .0
     const leftIsStringConcat = this.isStringConcatenation(expr.left!);
     const rightIsStringConcat = this.isStringConcatenation(expr.right!);
     if (expr.operator === "+" && !leftIsList && !rightIsList && (leftIsStringConcat || rightIsStringConcat)) {
       // Wrap non-string expressions with cypher_to_string for proper number formatting
+      // But for power expressions, use CAST to preserve the .0 suffix (power always returns float)
+      const leftIsPower = this.isPowerExpression(expr.left!);
+      const rightIsPower = this.isPowerExpression(expr.right!);
       const leftSql = leftIsStringLiteral || leftIsStringConcat 
         ? this.wrapForArithmetic(expr.left!, leftResult.sql)
-        : `cypher_to_string(${this.wrapForArithmetic(expr.left!, leftResult.sql)})`;
+        : leftIsPower
+          ? `CAST(${this.wrapForArithmetic(expr.left!, leftResult.sql)} AS TEXT)`
+          : `cypher_to_string(${this.wrapForArithmetic(expr.left!, leftResult.sql)})`;
       const rightSql = rightIsStringLiteral || rightIsStringConcat
         ? this.wrapForArithmetic(expr.right!, rightResult.sql)
-        : `cypher_to_string(${this.wrapForArithmetic(expr.right!, rightResult.sql)})`;
+        : rightIsPower
+          ? `CAST(${this.wrapForArithmetic(expr.right!, rightResult.sql)} AS TEXT)`
+          : `cypher_to_string(${this.wrapForArithmetic(expr.right!, rightResult.sql)})`;
       return { sql: `(${leftSql} || ${rightSql})`, tables, params };
     }
 
@@ -11541,6 +11549,22 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // String-returning functions like toString(), toUpper(), toLower(), etc.
       const stringFunctions = ["TOSTRING", "TOUPPER", "TOLOWER", "TRIM", "LTRIM", "RTRIM", "SUBSTRING", "REPLACE", "REVERSE", "LEFT", "RIGHT"];
       return stringFunctions.includes((expr.functionName || "").toUpperCase());
+    }
+    return false;
+  }
+
+  /**
+   * Check if an expression is or contains a power operation (^).
+   * In Neo4j, power always returns a float, so when converting to string
+   * we should preserve the .0 suffix for whole numbers.
+   */
+  private isPowerExpression(expr: Expression): boolean {
+    if (expr.type === "binary" && expr.operator === "^") {
+      return true;
+    }
+    // Check if nested in other binary operations
+    if (expr.type === "binary" && expr.left && expr.right) {
+      return this.isPowerExpression(expr.left) || this.isPowerExpression(expr.right);
     }
     return false;
   }

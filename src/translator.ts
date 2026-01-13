@@ -10819,12 +10819,22 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     // Handle modulo operator - SQLite % only works on integers
     // For float modulo, use (a - trunc(a/b) * b) formula (truncate toward zero, like C/Java/Neo4j)
     if (expr.operator === "%") {
-      const leftIsFloat = expr.left?.type === "literal" && 
-        (expr.left as { numberLiteralKind?: string }).numberLiteralKind === "float";
-      const rightIsFloat = expr.right?.type === "literal" && 
-        (expr.right as { numberLiteralKind?: string }).numberLiteralKind === "float";
-      
-      if (leftIsFloat || rightIsFloat) {
+      // Recursive helper to check if expression contains float values
+      const containsFloat = (e: Expression | undefined): boolean => {
+        if (!e) return false;
+        // Float literal
+        if (e.type === "literal" && typeof e.value === "number") {
+          const literalKind = (e as { numberLiteralKind?: string }).numberLiteralKind;
+          return literalKind === "float";
+        }
+        // Binary expression - check both operands recursively
+        if (e.type === "binary" && (e.left || e.right)) {
+          return containsFloat(e.left) || containsFloat(e.right);
+        }
+        return false;
+      };
+
+      if (containsFloat(expr.left) || containsFloat(expr.right)) {
         // Float modulo: a - trunc(a/b) * b
         // SQLite doesn't have TRUNC, use CAST to INTEGER which truncates toward zero
         return {
@@ -10854,6 +10864,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             e.args?.[0]?.type === "literal" && Array.isArray(e.args[0].value) &&
             (e.args[0].value as unknown[]).every(v => typeof v === "number" && Number.isInteger(v as number))) {
           return true;
+        }
+        // Map property access: {a: 1, b: 2}.a - check if the accessed property is an integer
+        if (e.type === "propertyAccess" && e.object?.type === "object" && e.property) {
+          const mapObj = e.object as { properties?: Array<{ key: string; value: Expression }> };
+          const prop = mapObj.properties?.find(p => p.key === e.property);
+          if (prop && isIntegerExpression(prop.value)) {
+            return true;
+          }
         }
         // Binary expression where result is integer (both operands are integers and op preserves integerality)
         if (e.type === "binary" && e.left && e.right) {
@@ -11479,6 +11497,20 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     return false;
   }
 
+  /**
+   * Check if an expression is a boolean literal (true or false).
+   */
+  private isBooleanLiteral(expr: Expression): boolean {
+    return expr.type === "literal" && typeof expr.value === "boolean";
+  }
+
+  /**
+   * Check if an expression is an integer literal.
+   */
+  private isIntegerLiteral(expr: Expression): boolean {
+    return expr.type === "literal" && typeof expr.value === "number" && Number.isInteger(expr.value);
+  }
+
   private isStringConcatenation(expr: Expression): boolean {
     // Check if expression is a string concatenation chain
     // (contains a string literal anywhere in a + chain)
@@ -11785,6 +11817,24 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           tables,
           params: [...params, ...params],
         };
+      }
+    }
+
+    // In Cypher, boolean and integer types are NOT comparable.
+    // `true = 1` should return `false` (not `true`), because they are different types.
+    // Detect when comparing a boolean literal to an integer literal and short-circuit.
+    const leftIsBooleanLiteral = this.isBooleanLiteral(expr.left!);
+    const rightIsBooleanLiteral = this.isBooleanLiteral(expr.right!);
+    const leftIsIntegerLiteral = this.isIntegerLiteral(expr.left!);
+    const rightIsIntegerLiteral = this.isIntegerLiteral(expr.right!);
+    
+    if ((leftIsBooleanLiteral && rightIsIntegerLiteral) || (leftIsIntegerLiteral && rightIsBooleanLiteral)) {
+      // Different types: boolean vs integer -> always false for =, always true for <>
+      if (expr.comparisonOperator === "=") {
+        return { sql: `json('false')`, tables, params: [] };
+      }
+      if (expr.comparisonOperator === "<>") {
+        return { sql: `json('true')`, tables, params: [] };
       }
     }
 

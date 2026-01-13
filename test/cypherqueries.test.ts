@@ -5214,5 +5214,23 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].r).toBe(0);
     });
+
+    it("returns false for boolean-integer equality comparison", async () => {
+      // Bug: true = 1 returns true in LeanGraph but false in Neo4j
+      // In Neo4j, booleans and integers are different types, so equality is false
+      const result = await exec("RETURN true = 1 AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe(false);
+    });
+
+    it("handles nested float modulo correctly", async () => {
+      // Bug: ((-62.86) % (7)) % (2) returns 0 instead of -0.86
+      // The outer modulo needs to detect that its operand is a float expression
+      const result = await exec("RETURN ((-62.86) % (7)) % (2) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBeCloseTo(-0.86, 10);
+    });
   });
 });

@@ -27,6 +27,8 @@ import {
 } from "./parser.js";
 import { translate, TranslationResult, Translator } from "./translator.js";
 import { GraphDatabase } from "./db.js";
+import { HybridExecutor } from "./engine/hybrid-executor.js";
+import { analyzeForHybrid, isHybridCompatiblePattern } from "./engine/query-planner.js";
 
 // ============================================================================
 // Timezone Helpers
@@ -172,6 +174,7 @@ type QueryPattern =
   | "MERGE"            // MERGE with special handling
   | "MULTI_PHASE"      // MATCH + mutations (CREATE/SET/DELETE)
   | "FOREACH"          // FOREACH clause for iterating and mutating
+  | "HYBRID_VAR_LENGTH" // Hybrid execution for var-length patterns
   | "STANDARD";        // Standard SQL translation
 
 /**
@@ -234,9 +237,12 @@ export class Executor {
   private edgePropertyCache = new Map<string, Record<string, unknown>>();
   // Cache for full edge info (type, source_id, target_id) - populated by batchGetEdgeInfo
   private edgeInfoCache = new Map<string, { type: string; source_id: string; target_id: string }>();
+  // Hybrid executor for var-length pattern queries
+  private hybridExecutor: HybridExecutor;
 
   constructor(db: GraphDatabase) {
     this.db = db;
+    this.hybridExecutor = new HybridExecutor(db);
   }
 
   /**
@@ -444,6 +450,11 @@ export class Executor {
         }
         case "FOREACH": {
           const result = this.tryForeachExecution(parseResult.query, params);
+          if (result !== null) return makeResult(result);
+          break;
+        }
+        case "HYBRID_VAR_LENGTH": {
+          const result = this.tryHybridVarLengthExecution(parseResult.query, params);
           if (result !== null) return makeResult(result);
           break;
         }
@@ -764,7 +775,12 @@ export class Executor {
       }
     }
     
-    // 11. STANDARD - Default SQL translation
+    // 11. HYBRID_VAR_LENGTH - Var-length pattern suitable for hybrid execution
+    if (isHybridCompatiblePattern(query)) {
+      return "HYBRID_VAR_LENGTH";
+    }
+    
+    // 12. STANDARD - Default SQL translation
     return "STANDARD";
   }
   
@@ -9180,6 +9196,102 @@ export class Executor {
     }
 
     return [];
+  }
+
+  /**
+   * Try to execute a hybrid var-length pattern query using the in-memory graph engine.
+   * Falls back to null if the query can't be executed via hybrid approach.
+   */
+  private tryHybridVarLengthExecution(
+    query: Query,
+    params: Record<string, unknown>
+  ): Record<string, unknown>[] | null {
+    // Analyze the query for hybrid execution
+    const analysis = analyzeForHybrid(query, params);
+    
+    if (!analysis.suitable || !analysis.params) {
+      // Fall back to SQL execution
+      return null;
+    }
+
+    // Execute using hybrid executor
+    const rawResults = this.hybridExecutor.executeVarLengthPatternRaw(analysis.params);
+
+    // Get the RETURN clause to understand what columns to output
+    const returnClause = query.clauses.find((c) => c.type === "RETURN") as ReturnClause | undefined;
+    if (!returnClause) {
+      return null;
+    }
+
+    // Get the MATCH clause to extract variable names
+    const matchClause = query.clauses.find((c) => c.type === "MATCH") as MatchClause | undefined;
+    if (!matchClause) {
+      return null;
+    }
+
+    // Extract variable names from the pattern
+    const relPatterns = matchClause.patterns.filter(
+      (p): p is RelationshipPattern => "edge" in p
+    );
+    if (relPatterns.length !== 2) {
+      return null;
+    }
+
+    const anchorVar = relPatterns[0].source.variable || "a";
+    const middleVar = relPatterns[0].target.variable || "b";
+    const finalVar = relPatterns[1].target.variable || "c";
+
+    // Format results according to the RETURN clause
+    const formattedResults: Record<string, unknown>[] = [];
+
+    for (const result of rawResults) {
+      const row: Record<string, unknown> = {};
+
+      for (const item of returnClause.items) {
+        const alias = item.alias || this.getReturnItemKey(item);
+        
+        if (item.expression.type === "property") {
+          // Property access: a.name, b.age, etc.
+          const varName = item.expression.variable;
+          const propName = item.expression.property;
+          
+          if (varName === anchorVar && propName) {
+            row[alias] = result.a.properties[propName];
+          } else if (varName === middleVar && propName) {
+            row[alias] = result.b.properties[propName];
+          } else if (varName === finalVar && propName) {
+            row[alias] = result.c.properties[propName];
+          }
+        } else if (item.expression.type === "variable") {
+          // Full node: a, b, c
+          const varName = item.expression.variable;
+          
+          if (varName === anchorVar) {
+            row[alias] = result.a.properties;
+          } else if (varName === middleVar) {
+            row[alias] = result.b.properties;
+          } else if (varName === finalVar) {
+            row[alias] = result.c.properties;
+          }
+        }
+      }
+
+      formattedResults.push(row);
+    }
+
+    return formattedResults;
+  }
+
+  /**
+   * Get a key for a return item (used when no alias is provided).
+   */
+  private getReturnItemKey(item: ReturnItem): string {
+    if (item.expression.type === "property") {
+      return `${item.expression.variable}.${item.expression.property}`;
+    } else if (item.expression.type === "variable") {
+      return item.expression.variable || "";
+    }
+    return "";
   }
 
   /**

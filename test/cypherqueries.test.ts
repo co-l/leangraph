@@ -5057,6 +5057,13 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data).toHaveLength(1);
         expect(result.data[0]["CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END"]).toBe("five");
       });
+
+      it("supports list comprehension column naming", async () => {
+        const result = await exec("RETURN [x IN ['a', 'b', 'c'] | toUpper(x)]");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["[x IN ['a', 'b', 'c'] | toUpper(x)]"]).toEqual(["A", "B", "C"]);
+      });
     });
   });
 });

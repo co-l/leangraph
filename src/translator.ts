@@ -15920,6 +15920,99 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         parts.push("END");
         return parts.join(" ");
       }
+      case "listComprehension": {
+        const canonicalFunctionName = (name: string): string => {
+          switch (name.toUpperCase()) {
+            case "TOUPPER":
+              return "toUpper";
+            case "TOLOWER":
+              return "toLower";
+            default:
+              return name.toLowerCase();
+          }
+        };
+
+        const formatLiteralValue = (value: unknown): string => {
+          if (value === null) return "null";
+          if (typeof value === "string") return `'${value}'`;
+          if (typeof value === "boolean") return value ? "true" : "false";
+          if (typeof value === "number") return String(value);
+          if (Array.isArray(value)) {
+            return `[${value.map(formatLiteralValue).join(", ")}]`;
+          }
+          if (typeof value === "object" && value !== null) {
+            return JSON.stringify(value);
+          }
+          return String(value);
+        };
+
+        const formatExpression = (e: Expression): string => {
+          switch (e.type) {
+            case "variable":
+              return e.variable!;
+            case "property":
+              return `${e.variable}.${e.property}`;
+            case "literal":
+              return formatLiteralValue(e.value);
+            case "parameter":
+              return `$${e.name}`;
+            case "function": {
+              const name = canonicalFunctionName(e.functionName!);
+              const args = (e.args ?? []).map(formatExpression);
+              const distinctPrefix = e.distinct ? "DISTINCT " : "";
+              if (e.star) return `${name}(*)`;
+              return `${name}(${distinctPrefix}${args.join(", ")})`;
+            }
+            case "binary":
+              return `${formatExpression(e.left!)} ${e.operator} ${formatExpression(e.right!)}`;
+            case "unary":
+              return `${e.operator} ${formatExpression(e.operand!)}`;
+            case "comparison": {
+              const leftName = formatExpression(e.left!);
+              const op = e.comparisonOperator!;
+              if (op === "IS NULL" || op === "IS NOT NULL") return `${leftName} ${op}`;
+              return `${leftName} ${op} ${formatExpression(e.right!)}`;
+            }
+            case "in":
+              return `${formatExpression(e.left!)} IN ${formatExpression(e.list!)}`;
+            case "listComprehension":
+              // Nested comprehension in naming
+              return this.getExpressionName(e);
+            default:
+              return this.getExpressionName(e);
+          }
+        };
+
+        const formatCondition = (c: WhereCondition): string => {
+          switch (c.type) {
+            case "comparison":
+              if (c.left && c.right && c.operator) {
+                return `${formatExpression(c.left)} ${c.operator} ${formatExpression(c.right)}`;
+              }
+              return "expr";
+            case "and":
+              return (c.conditions ?? []).map(formatCondition).join(" AND ");
+            case "or":
+              return (c.conditions ?? []).map(formatCondition).join(" OR ");
+            case "not":
+              return c.condition ? `NOT ${formatCondition(c.condition)}` : "expr";
+            case "isNull":
+              return c.left ? `${formatExpression(c.left)} IS NULL` : "expr";
+            case "isNotNull":
+              return c.left ? `${formatExpression(c.left)} IS NOT NULL` : "expr";
+            case "in":
+              return c.left && c.list ? `${formatExpression(c.left)} IN ${formatExpression(c.list)}` : "expr";
+            default:
+              return "expr";
+          }
+        };
+
+        const listExprName = formatExpression(expr.listExpr!);
+        const wherePart = expr.filterCondition ? ` WHERE ${formatCondition(expr.filterCondition)}` : "";
+        const mapPart = expr.mapExpr ? ` | ${formatExpression(expr.mapExpr)}` : "";
+        return `[${expr.variable} IN ${listExprName}${wherePart}${mapPart}]`;
+      }
+
       default:
         return "expr";
     }

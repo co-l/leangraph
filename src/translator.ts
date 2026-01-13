@@ -10741,11 +10741,12 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     if (expr.operator === "+" && !leftIsList && rightIsList) {
       // scalar + list: prepend scalar to list (only for non-property scalars)
       // Use json_quote() to properly convert any scalar (including strings) to JSON
+      // Use jsonEachWithBooleans to preserve boolean types in the list
       const leftScalarSql = leftResult.sql;
       const rightArraySql = this.wrapForArray(expr.right!, rightResult.sql);
       
       return {
-        sql: `(SELECT json_group_array(value) FROM (SELECT json_quote(${leftScalarSql}) as value UNION ALL SELECT value FROM json_each(${rightArraySql})))`,
+        sql: `(SELECT json_group_array(value) FROM (SELECT json_quote(${leftScalarSql}) as value UNION ALL ${jsonEachWithBooleans(rightArraySql)}))`,
         tables,
         params,
       };
@@ -10837,10 +10838,11 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       if (containsFloat(expr.left) || containsFloat(expr.right)) {
         // Float modulo: a - trunc(a/b) * b
         // SQLite doesn't have TRUNC, use CAST to INTEGER which truncates toward zero
+        // Note: leftSql is used twice and rightSql is used twice, so duplicate params
         return {
           sql: `(${leftSql} - CAST((${leftSql} * 1.0 / ${rightSql}) AS INTEGER) * ${rightSql})`,
           tables,
-          params,
+          params: [...leftResult.params, ...leftResult.params, ...rightResult.params, ...rightResult.params],
         };
       }
     }

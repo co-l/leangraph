@@ -5232,5 +5232,41 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].r).toBeCloseTo(-0.86, 10);
     });
+
+    it("handles power operator with map property access and modulo", async () => {
+      // Bug: "Too few parameter values were provided" error
+      // Power operator with map property access combined with modulo
+      const result = await exec("RETURN ((52.55) ^ ({a: 1, b: 2}.a)) % (5) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBeCloseTo(2.55, 10);
+    });
+
+    it("handles power operator with null and modulo", async () => {
+      // Bug: "Too few parameter values were provided" error
+      // Power with null combined with modulo and subtraction
+      const result = await exec("RETURN (((null) ^ (84.16)) % (3)) - ([1, 2, 3][0]) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe(null);
+    });
+
+    it("preserves booleans in nested list concatenation", async () => {
+      // Bug: false becomes 0 in nested list concat
+      // Neo4j: [55, 6, false, 51.35], LeanGraph: [55, 6, 0, 51.35]
+      const result = await exec("WITH (55) + ((6) + ([false, 51.35])) AS x RETURN x");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].x).toEqual([55, 6, false, 51.35]);
+    });
+
+    it("returns null for negative base with non-integer exponent", async () => {
+      // Negative number to non-integer power is undefined (complex number)
+      // Neo4j returns null for this case
+      const result = await exec("WITH (-30.43) ^ (53.34) AS x RETURN x");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].x).toBe(null);
+    });
   });
 });

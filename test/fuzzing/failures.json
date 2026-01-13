@@ -1,31 +1,44 @@
 [
   {
-    "query": "WITH true = 1 AS x, 10 AS y RETURN x, y",
-    "category": "clause",
-    "feature": "with",
+    "query": "RETURN ((52.55) ^ ({a: 1, b: 2}.a)) % (5)",
+    "category": "expression",
+    "feature": "expressions",
     "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "x": false,
-          "y": 10
+          "((52.55) ^ ({a: 1, b: 2}.a)) % (5)": 2.549999999999997
         }
       ]
     },
     "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "x": true,
-          "y": 10
-        }
-      ]
+      "success": false,
+      "error": "Too few parameter values were provided"
     },
-    "mismatch": "No matching row found for Neo4j row 0: {\"x\":false,\"y\":10}"
+    "mismatch": "Leangraph error: Too few parameter values were provided"
   },
   {
-    "query": "WITH ((-62.86) % (7)) % (2) AS x, [85, [true, 9]] AS y RETURN x, y",
+    "query": "RETURN (((null) ^ (84.16)) % (3)) - ([1, 2, 3][0])",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "resolved",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "(((null) ^ (84.16)) % (3)) - ([1, 2, 3][0])": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": false,
+      "error": "Too few parameter values were provided"
+    },
+    "mismatch": "Leangraph error: Too few parameter values were provided"
+  },
+  {
+    "query": "WITH (55) + ((6) + ([false, 51.35])) AS x RETURN x",
     "category": "clause",
     "feature": "with",
     "status": "resolved",
@@ -33,13 +46,11 @@
       "success": true,
       "data": [
         {
-          "x": -0.8599999999999994,
-          "y": [
-            85,
-            [
-              true,
-              9
-            ]
+          "x": [
+            55,
+            6,
+            false,
+            51.35
           ]
         }
       ]
@@ -48,17 +59,39 @@
       "success": true,
       "data": [
         {
-          "x": 0,
-          "y": [
-            85,
-            [
-              true,
-              9
-            ]
+          "x": [
+            55,
+            6,
+            0,
+            51.35
           ]
         }
       ]
     },
-    "mismatch": "No matching row found for Neo4j row 0: {\"x\":-0.8599999999999994,\"y\":[85,[true,9]]}"
+    "mismatch": "No matching row found for Neo4j row 0: {\"x\":[55,6,false,51.35]}"
+  },
+  {
+    "query": "WITH (-30.43) ^ (53.34) AS x RETURN x",
+    "category": "clause",
+    "feature": "with",
+    "status": "wontfix",
+    "note": "False positive - both Neo4j and LeanGraph return null correctly",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "x": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "x": null
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"x\":null}"
   }
 ]

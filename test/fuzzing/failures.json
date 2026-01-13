@@ -424,7 +424,7 @@
     "query": "RETURN null <> [false, 'world']",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -815,7 +815,7 @@
     "query": "RETURN [44.66, 'world']",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -837,7 +837,7 @@
     "query": "RETURN [10, 'test']",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -859,7 +859,7 @@
     "query": "RETURN [['foo', true], [16.12, 'test']]",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -887,7 +887,7 @@
     "query": "RETURN ['test', [38, null]]",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1871,7 +1871,7 @@
     "query": "RETURN ['test', [null, [-45, -89.14]]]",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2161,7 +2161,7 @@
     "query": "RETURN ['test', true] <> {a: [{a: 25, b: 'hello'}, 'test'], b: 0}",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

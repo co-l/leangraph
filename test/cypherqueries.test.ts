@@ -4958,5 +4958,30 @@ describe("CypherQueries.json Patterns", () => {
         expect(typeof result.data[0]["n.active"]).toBe("boolean");
       });
     });
+
+    describe("Array literals with strings", () => {
+      it("supports array literals containing string values without alias", async () => {
+        // RETURN [44.66, 'world'] should return an array with number and string
+        const result = await exec("RETURN [44.66, 'world']");
+
+        expect(result.data).toHaveLength(1);
+        // The column name uses double quotes and no spaces (JSON-style)
+        expect(result.data[0]['[44.66,"world"]']).toEqual([44.66, "world"]);
+      });
+
+      it("supports array literals with only strings", async () => {
+        const result = await exec("RETURN ['hello', 'world']");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]['["hello","world"]']).toEqual(["hello", "world"]);
+      });
+
+      it("supports nested arrays with strings", async () => {
+        const result = await exec("RETURN ['test', [38, null]]");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]['["test",[38,null]]']).toEqual(["test", [38, null]]);
+      });
+    });
   });
 });

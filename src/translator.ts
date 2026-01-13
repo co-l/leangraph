@@ -14898,7 +14898,9 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
    */
   private quoteAlias(alias: string): string {
     // SQLite uses double quotes for identifiers
-    return `"${alias}"`;
+    // Double quotes inside the identifier must be escaped by doubling them
+    const escaped = alias.replace(/"/g, '""');
+    return `"${escaped}"`;
   }
 
   private expressionReferencesGraphVariables(

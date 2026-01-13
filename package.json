@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "prepare": "[ -d .git ] && cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit || true",
+    "prepare": "husky",
     "build": "tsc",
     "test": "vitest run",
     "test:remote": "./scripts/test-remote.sh",
@@ -59,6 +59,7 @@
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^4.0.16",
     "better-sqlite3": "^12.6.0",
+    "husky": "^9.1.7",
     "neo4j-driver": "^6.0.1",
     "tsx": "^4.0.0",
     "typescript": "^5.3.0",

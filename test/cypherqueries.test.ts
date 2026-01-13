@@ -5059,6 +5059,13 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]["CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END"]).toBe("five");
       });
 
+      it("supports CASE WHEN null IS NULL column naming", async () => {
+        const result = await exec("RETURN CASE WHEN null IS NULL THEN 'null' ELSE 'not null' END");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["CASE WHEN null IS NULL THEN 'null' ELSE 'not null' END"]).toBe("null");
+      });
+
       it("supports list comprehension column naming", async () => {
         const result = await exec("RETURN [x IN ['a', 'b', 'c'] | toUpper(x)]");
 

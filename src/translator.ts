@@ -10775,6 +10775,44 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       };
     }
 
+    // Handle division with proper integer division semantics
+    // In Cypher, integer / integer = integer (truncated toward zero)
+    // SQLite's -> operator returns TEXT which causes float division
+    // We use CAST to ensure integer division when both operands are integers
+    if (expr.operator === "/") {
+      // Check if both operands could be integers at compile time
+      const leftIsIntegerLiteral = expr.left?.type === "literal" && 
+        typeof expr.left.value === "number" && Number.isInteger(expr.left.value);
+      const rightIsIntegerLiteral = expr.right?.type === "literal" && 
+        typeof expr.right.value === "number" && Number.isInteger(expr.right.value);
+      const leftIsIntegerArrayIndex = expr.left?.type === "function" && 
+        expr.left.functionName === "INDEX" &&
+        expr.left.args?.[0]?.type === "literal" && 
+        Array.isArray(expr.left.args[0].value) &&
+        (expr.left.args[0].value as unknown[]).every(v => typeof v === "number" && Number.isInteger(v as number));
+      const rightIsIntegerArrayIndex = expr.right?.type === "function" && 
+        expr.right.functionName === "INDEX" &&
+        expr.right.args?.[0]?.type === "literal" && 
+        Array.isArray(expr.right.args[0].value) &&
+        (expr.right.args[0].value as unknown[]).every(v => typeof v === "number" && Number.isInteger(v as number));
+      
+      // If both operands are statically known to be integers, use CAST to ensure integer division
+      const leftIsStaticInt = leftIsIntegerLiteral || leftIsIntegerArrayIndex;
+      const rightIsStaticInt = rightIsIntegerLiteral || rightIsIntegerArrayIndex;
+      
+      if (leftIsStaticInt && rightIsStaticInt) {
+        // Both operands are integers, use CAST to ensure integer division
+        // CAST(left AS INTEGER) / CAST(right AS INTEGER) ensures SQLite does integer division
+        const leftCast = leftIsIntegerArrayIndex ? `CAST(${leftSql} AS INTEGER)` : leftSql;
+        const rightCast = rightIsIntegerArrayIndex ? `CAST(${rightSql} AS INTEGER)` : rightSql;
+        return {
+          sql: `(${leftCast} / ${rightCast})`,
+          tables,
+          params,
+        };
+      }
+    }
+
     return {
       sql: `(${leftSql} ${expr.operator} ${rightSql})`,
       tables,
@@ -15498,7 +15536,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         case "+": return leftNum + rightNum;
         case "-": return leftNum - rightNum;
         case "*": return leftNum * rightNum;
-        case "/": return leftNum / rightNum;
+        case "/": {
+          // Cypher integer division: if both operands are integers, truncate toward zero
+          if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+            return Math.trunc(leftNum / rightNum);
+          }
+          return leftNum / rightNum;
+        }
         case "%": return leftNum % rightNum;
         case "^": return Math.pow(leftNum, rightNum);
         default: throw new Error("Unknown operator");

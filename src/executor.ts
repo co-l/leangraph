@@ -4524,7 +4524,13 @@ export class Executor {
       case "+": return leftNum + rightNum;
       case "-": return leftNum - rightNum;
       case "*": return leftNum * rightNum;
-      case "/": return leftNum / rightNum;
+      case "/": {
+        // Cypher integer division: if both operands are integers, truncate toward zero
+        if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+          return Math.trunc(leftNum / rightNum);
+        }
+        return leftNum / rightNum;
+      }
       case "%": return leftNum % rightNum;
       case "^": return Math.pow(leftNum, rightNum);
       default: return null;
@@ -4567,7 +4573,13 @@ export class Executor {
         case "+": return leftNum + rightNum;
         case "-": return leftNum - rightNum;
         case "*": return leftNum * rightNum;
-        case "/": return leftNum / rightNum;
+        case "/": {
+          // Cypher integer division: if both operands are integers, truncate toward zero
+          if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+            return Math.trunc(leftNum / rightNum);
+          }
+          return leftNum / rightNum;
+        }
         case "%": return leftNum % rightNum;
         case "^": return Math.pow(leftNum, rightNum);
         default: return null;
@@ -5396,13 +5408,21 @@ export class Executor {
     } else if (expr.type === "binary") {
       const left = this.evaluateExpressionWithPropertyAliases(expr.left!, resolvedIds, capturedPropertyValues, propertyAliasMap, params);
       const right = this.evaluateExpressionWithPropertyAliases(expr.right!, resolvedIds, capturedPropertyValues, propertyAliasMap, params);
+      const leftNum = left as number;
+      const rightNum = right as number;
       
       switch (expr.operator) {
-        case "+": return (left as number) + (right as number);
-        case "-": return (left as number) - (right as number);
-        case "*": return (left as number) * (right as number);
-        case "/": return (left as number) / (right as number);
-        case "%": return (left as number) % (right as number);
+        case "+": return leftNum + rightNum;
+        case "-": return leftNum - rightNum;
+        case "*": return leftNum * rightNum;
+        case "/": {
+          // Cypher integer division: if both operands are integers, truncate toward zero
+          if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+            return Math.trunc(leftNum / rightNum);
+          }
+          return leftNum / rightNum;
+        }
+        case "%": return leftNum % rightNum;
         default: return null;
       }
     } else if (expr.type === "parameter") {
@@ -5454,13 +5474,21 @@ export class Executor {
     } else if (expr.type === "binary") {
       const left = this.evaluateExpressionForFilter(expr.left!, createdIds, params);
       const right = this.evaluateExpressionForFilter(expr.right!, createdIds, params);
+      const leftNum = left as number;
+      const rightNum = right as number;
       
       switch (expr.operator) {
-        case "+": return (left as number) + (right as number);
-        case "-": return (left as number) - (right as number);
-        case "*": return (left as number) * (right as number);
-        case "/": return (left as number) / (right as number);
-        case "%": return (left as number) % (right as number);
+        case "+": return leftNum + rightNum;
+        case "-": return leftNum - rightNum;
+        case "*": return leftNum * rightNum;
+        case "/": {
+          // Cypher integer division: if both operands are integers, truncate toward zero
+          if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+            return Math.trunc(leftNum / rightNum);
+          }
+          return leftNum / rightNum;
+        }
+        case "%": return leftNum % rightNum;
         default: return null;
       }
     } else if (expr.type === "parameter") {
@@ -6229,7 +6257,13 @@ export class Executor {
         case "+": return left + right;
         case "-": return left - right;
         case "*": return left * right;
-        case "/": return left / right;
+        case "/": {
+          // Cypher integer division: if both operands are integers, truncate toward zero
+          if (Number.isInteger(left) && Number.isInteger(right)) {
+            return Math.trunc(left / right);
+          }
+          return left / right;
+        }
         case "%": return left % right;
         case "^": return Math.pow(left, right);
         default: throw new Error(`Unsupported operator: ${expr.operator}`);
@@ -6314,7 +6348,13 @@ export class Executor {
           case "+": return leftNum + rightNum;
           case "-": return leftNum - rightNum;
           case "*": return leftNum * rightNum;
-          case "/": return leftNum / rightNum;
+          case "/": {
+            // Cypher integer division: if both operands are integers, truncate toward zero
+            if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+              return Math.trunc(leftNum / rightNum);
+            }
+            return leftNum / rightNum;
+          }
           case "%": return leftNum % rightNum;
           case "^": return Math.pow(leftNum, rightNum);
           default: return null;
@@ -8388,7 +8428,13 @@ export class Executor {
         case "+": return leftNum + rightNum;
         case "-": return leftNum - rightNum;
         case "*": return leftNum * rightNum;
-        case "/": return leftNum / rightNum;
+        case "/": {
+          // Cypher integer division: if both operands are integers, truncate toward zero
+          if (Number.isInteger(leftNum) && Number.isInteger(rightNum)) {
+            return Math.trunc(leftNum / rightNum);
+          }
+          return leftNum / rightNum;
+        }
         case "%": return leftNum % rightNum;
         default: return null;
       }

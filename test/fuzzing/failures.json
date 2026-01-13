@@ -1058,7 +1058,7 @@
     "query": "WITH ([1, 2, 3][2]) / (7) AS x RETURN x",
     "category": "clause",
     "feature": "with",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

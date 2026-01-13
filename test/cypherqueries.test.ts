@@ -4983,5 +4983,37 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0]['["test",[38,null]]']).toEqual(["test", [38, null]]);
       });
     });
+
+    describe("Integer division", () => {
+      it("uses integer division when both operands are integers", async () => {
+        // In Cypher, 3 / 7 = 0 (integer division), not 0.428...
+        // [1, 2, 3][2] is 3 (0-indexed), so 3 / 7 = 0
+        const result = await exec("WITH ([1, 2, 3][2]) / (7) AS x RETURN x");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].x).toBe(0);
+      });
+
+      it("uses float division when dividend is float", async () => {
+        const result = await exec("RETURN 3.0 / 7 AS x");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].x).toBeCloseTo(0.42857, 4);
+      });
+
+      it("uses float division when divisor is float", async () => {
+        const result = await exec("RETURN 3 / 7.0 AS x");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].x).toBeCloseTo(0.42857, 4);
+      });
+
+      it("performs simple integer division", async () => {
+        const result = await exec("RETURN 10 / 3 AS x");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0].x).toBe(3);
+      });
+    });
   });
 });

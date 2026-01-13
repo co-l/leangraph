@@ -1,14 +1,15 @@
 [
   {
-    "query": "RETURN round(-6.50)",
-    "category": "function",
-    "feature": "functions",
-    "status": "resolved",
+    "query": "RETURN (-32) ^ (61.23)",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "wontfix",
+    "note": "False positive - both Neo4j and LeanGraph return null correctly",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "round(-6.50)": -6
+          "(-32) ^ (61.23)": null
         }
       ]
     },
@@ -16,10 +17,33 @@
       "success": true,
       "data": [
         {
-          "round(-6.50)": -7
+          "(-32) ^ (61.23)": null
         }
       ]
     },
-    "mismatch": "No matching row found for Neo4j row 0: {\"round(-6.50)\":-6}"
+    "mismatch": "No matching row found for Neo4j row 0: {\"(-32) ^ (61.23)\":null}"
+  },
+  {
+    "query": "RETURN (((28) / (10)) - ([1, 2, 3][2])) / (3)",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "resolved",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "(((28) / (10)) - ([1, 2, 3][2])) / (3)": 0
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "(((28) / (10)) - ([1, 2, 3][2])) / (3)": -0.3333333333333333
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"(((28) / (10)) - ([1, 2, 3][2])) / (3)\":0}"
   }
 ]

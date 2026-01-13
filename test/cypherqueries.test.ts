@@ -5277,5 +5277,15 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].r).toBe(-6);
     });
+
+    it("uses integer division for nested integer expressions with list index", async () => {
+      // Bug: ((28/10) - [1,2,3][2]) / 3 returns -0.333... instead of 0
+      // All operands are integers, so result should be integer division
+      // 28/10 = 2 (int), [1,2,3][2] = 3, 2-3 = -1, -1/3 = 0 (int div)
+      const result = await exec("RETURN (((28) / (10)) - ([1, 2, 3][2])) / (3) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe(0);
+    });
   });
 });

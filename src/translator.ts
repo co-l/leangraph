@@ -10886,7 +10886,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
         // Binary expression where result is integer (both operands are integers and op preserves integerality)
         if (e.type === "binary" && e.left && e.right) {
-          const integerOps = ["+", "-", "*", "%"]; // These preserve integer type
+          // Include "/" because integer/integer = integer in Cypher
+          const integerOps = ["+", "-", "*", "%", "/"]; // These preserve integer type
           if (integerOps.includes(e.operator!) && isIntegerExpression(e.left) && isIntegerExpression(e.right)) {
             return true;
           }

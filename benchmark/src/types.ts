@@ -50,8 +50,7 @@ export interface DatabaseResult {
   version: string;
   totalDurationSeconds: number;
   load: LoadResult;
-  beforeQueries: ResourceUsage;
-  afterQueries: ResourceUsage;
+  resources: ResourceUsage;  // LeanGraph: delta from baseline, Docker: max of samples
   coldStartMs: number;
   queries: QueryResult[];
 }

@@ -104,16 +104,16 @@ export function calculateGlobalScore(results: BenchmarkResult): GlobalScore | nu
 
   addMetric(
     "RAM usage",
-    leangraph.afterQueries.ramBytes,
-    (c) => c.afterQueries.ramBytes,
+    leangraph.resources.ramBytes,
+    (c) => c.resources.ramBytes,
     true,  // lowerIsBetter
     false  // isTimeMetric (it's a size metric)
   );
 
   addMetric(
     "Disk usage",
-    leangraph.afterQueries.diskBytes,
-    (c) => c.afterQueries.diskBytes,
+    leangraph.resources.diskBytes,
+    (c) => c.resources.diskBytes,
     true,  // lowerIsBetter
     false  // isTimeMetric (it's a size metric)
   );
@@ -214,10 +214,8 @@ export function generateMarkdown(results: BenchmarkResult): string {
   lines.push("| Version | " + results.databases.map((d) => d.version).join(" | ") + " |");
   lines.push("| **Total Duration** | " + results.databases.map((d) => `**${formatSeconds(d.totalDurationSeconds)}**`).join(" | ") + " |");
   lines.push("| Load Time | " + results.databases.map((d) => formatSeconds(d.load.timeSeconds)).join(" | ") + " |");
-  lines.push("| Disk (before) | " + results.databases.map((d) => formatBytes(d.beforeQueries.diskBytes)).join(" | ") + " |");
-  lines.push("| Disk (after) | " + results.databases.map((d) => formatBytes(d.afterQueries.diskBytes)).join(" | ") + " |");
-  lines.push("| RAM (before) | " + results.databases.map((d) => formatBytes(d.beforeQueries.ramBytes)).join(" | ") + " |");
-  lines.push("| RAM (after) | " + results.databases.map((d) => formatBytes(d.afterQueries.ramBytes)).join(" | ") + " |");
+  lines.push("| Disk | " + results.databases.map((d) => formatBytes(d.resources.diskBytes)).join(" | ") + " |");
+  lines.push("| RAM | " + results.databases.map((d) => formatBytes(d.resources.ramBytes)).join(" | ") + " |");
   lines.push("| Cold Start | " + results.databases.map((d) => formatMs(d.coldStartMs)).join(" | ") + " |");
   lines.push("");
 
@@ -270,11 +268,9 @@ export function generateMarkdown(results: BenchmarkResult): string {
  * Generate HTML report
  */
 export function generateHtml(results: BenchmarkResult): string {
-  // Find best values for highlighting (use afterQueries for final state)
-  const bestDiskBefore = Math.min(...results.databases.map((d) => d.beforeQueries.diskBytes || Infinity));
-  const bestDiskAfter = Math.min(...results.databases.map((d) => d.afterQueries.diskBytes || Infinity));
-  const bestRamBefore = Math.min(...results.databases.map((d) => d.beforeQueries.ramBytes || Infinity));
-  const bestRamAfter = Math.min(...results.databases.map((d) => d.afterQueries.ramBytes || Infinity));
+  // Find best values for highlighting
+  const bestDisk = Math.min(...results.databases.map((d) => d.resources.diskBytes || Infinity));
+  const bestRam = Math.min(...results.databases.map((d) => d.resources.ramBytes || Infinity));
 
   let html = `<!DOCTYPE html>
 <html>
@@ -327,20 +323,12 @@ export function generateHtml(results: BenchmarkResult): string {
         ${results.databases.map((d) => `<td>${formatSeconds(d.load.timeSeconds)}</td>`).join("\n        ")}
       </tr>
       <tr>
-        <td class="metric">Disk (before)</td>
-        ${results.databases.map((d) => `<td${d.beforeQueries.diskBytes === bestDiskBefore ? ' class="best"' : ''}>${formatBytes(d.beforeQueries.diskBytes)}</td>`).join("\n        ")}
+        <td class="metric">Disk</td>
+        ${results.databases.map((d) => `<td${d.resources.diskBytes === bestDisk ? ' class="best"' : ''}>${formatBytes(d.resources.diskBytes)}</td>`).join("\n        ")}
       </tr>
       <tr>
-        <td class="metric">Disk (after)</td>
-        ${results.databases.map((d) => `<td${d.afterQueries.diskBytes === bestDiskAfter ? ' class="best"' : ''}>${formatBytes(d.afterQueries.diskBytes)}</td>`).join("\n        ")}
-      </tr>
-      <tr>
-        <td class="metric">RAM (before)</td>
-        ${results.databases.map((d) => `<td${d.beforeQueries.ramBytes === bestRamBefore ? ' class="best"' : ''}>${formatBytes(d.beforeQueries.ramBytes)}</td>`).join("\n        ")}
-      </tr>
-      <tr>
-        <td class="metric">RAM (after)</td>
-        ${results.databases.map((d) => `<td${d.afterQueries.ramBytes === bestRamAfter ? ' class="best"' : ''}>${formatBytes(d.afterQueries.ramBytes)}</td>`).join("\n        ")}
+        <td class="metric">RAM</td>
+        ${results.databases.map((d) => `<td${d.resources.ramBytes === bestRam ? ' class="best"' : ''}>${formatBytes(d.resources.ramBytes)}</td>`).join("\n        ")}
       </tr>
       <tr>
         <td class="metric">Cold Start</td>
@@ -485,8 +473,8 @@ export function generateSnippet(results: BenchmarkResult): string {
     return bestDb;
   };
 
-  const bestDisk = findBest((d) => d.afterQueries.diskBytes);
-  const bestRam = findBest((d) => d.afterQueries.ramBytes);
+  const bestDisk = findBest((d) => d.resources.diskBytes);
+  const bestRam = findBest((d) => d.resources.ramBytes);
 
   // Get average p50 for lookups
   const getAvgLookupP50 = (db: typeof results.databases[0]) => {
@@ -516,11 +504,11 @@ ${results.databases.map((d) => `      <th>${d.database.charAt(0).toUpperCase() +
   <tbody>
     <tr>
       <td>Disk Usage (${results.scale})</td>
-${results.databases.map((d) => `      <td${d.database === bestDisk ? ' class="check"' : ''}>${formatBytes(d.afterQueries.diskBytes)}</td>`).join("\n")}
+${results.databases.map((d) => `      <td${d.database === bestDisk ? ' class="check"' : ''}>${formatBytes(d.resources.diskBytes)}</td>`).join("\n")}
     </tr>
     <tr>
       <td>RAM Usage</td>
-${results.databases.map((d) => `      <td${d.database === bestRam ? ' class="check"' : ''}>${formatBytes(d.afterQueries.ramBytes)}</td>`).join("\n")}
+${results.databases.map((d) => `      <td${d.database === bestRam ? ' class="check"' : ''}>${formatBytes(d.resources.ramBytes)}</td>`).join("\n")}
     </tr>
     <tr>
       <td>Lookup Query p50</td>

@@ -314,8 +314,8 @@ function analyzeSingleRun(name: string, topN: number = 5): void {
 
   // Resource usage
   printHeader("RESOURCES");
-  console.log(`  Disk:       ${formatBytes(lg.afterQueries.diskBytes)}`);
-  console.log(`  RAM:        ${formatBytes(lg.afterQueries.ramBytes)}`);
+  console.log(`  Disk:       ${formatBytes(lg.resources.diskBytes)}`);
+  console.log(`  RAM:        ${formatBytes(lg.resources.ramBytes)}`);
   console.log(`  Cold start: ${formatMs(lg.coldStartMs)}`);
   console.log(`  Load time:  ${lg.load.timeSeconds.toFixed(1)}s`);
 

@@ -35,6 +35,33 @@ Queries are routed to SQL (not hybrid) if they have:
 - Relationship property predicates
 - WHERE on multiple nodes
 
+## Benchmark Optimization Targets
+
+From 170K node benchmark (`npm run benchmark -- -s quick`):
+
+### Pattern Queries (>10ms)
+| Query | p50 | Notes |
+|-------|-----|-------|
+| `user_items` | 31.3ms | 1-hop, candidate for optimization |
+| `user_events` | 63.5ms | 1-hop pattern |
+
+### Aggregation Queries (>10ms)
+| Query | p50 | Notes |
+|-------|-----|-------|
+| `user_item_counts` | 88.3ms | COUNT + GROUP BY |
+| `user_event_summary` | 62.9ms | Multi-column aggregation |
+| `event_type_counts` | 59.2ms | COUNT + GROUP BY |
+| `category_stats` | 43.9ms | AVG/COUNT + GROUP BY |
+
+### Already Optimized (hybrid engine)
+| Query | p50 |
+|-------|-----|
+| `related_items_depth1` | 154µs |
+| `related_items_depth2` | 548µs |
+| `related_items_depth3` | 1.3ms |
+
+---
+
 ## Future Work
 
 ### P0: Subgraph Caching

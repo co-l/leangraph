@@ -44,18 +44,33 @@ export function getProcessRam(): number {
 }
 
 /**
- * Get RAM usage of a Docker container in bytes
+ * Get RAM usage of a Docker container in bytes.
+ * Takes multiple samples and returns the max for stability.
  */
-export async function getDockerRam(containerName: string): Promise<number> {
-  try {
-    const output = execSync(
-      `docker stats ${containerName} --no-stream --format '{{.MemUsage}}'`,
-      { encoding: "utf-8" }
-    );
-    return parseDockerMemory(output.trim());
-  } catch {
-    return 0;
+export async function getDockerRam(containerName: string, samples: number = 3): Promise<number> {
+  const values: number[] = [];
+  
+  for (let i = 0; i < samples; i++) {
+    try {
+      const output = execSync(
+        `docker stats ${containerName} --no-stream --format '{{.MemUsage}}'`,
+        { encoding: "utf-8" }
+      );
+      const value = parseDockerMemory(output.trim());
+      if (value > 0) {
+        values.push(value);
+      }
+    } catch {
+      // Ignore individual sample failures
+    }
+    
+    // Small delay between samples
+    if (i < samples - 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
+  
+  return values.length > 0 ? Math.max(...values) : 0;
 }
 
 /**

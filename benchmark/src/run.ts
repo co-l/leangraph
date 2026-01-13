@@ -60,21 +60,24 @@ function cleanupLeanGraphDb(): void {
 }
 
 // Helper to measure resources for a database
-async function measureResources(db: DatabaseType): Promise<ResourceUsage> {
+// For LeanGraph: measures delta from baseline (isolates DB footprint from harness)
+// For Docker: takes max of multiple samples for stability
+async function measureResources(db: DatabaseType, baselineRam?: number): Promise<ResourceUsage> {
   if (db === "leangraph") {
+    const currentRam = getProcessRam();
     return {
       diskBytes: getDiskUsage(BENCHMARK_CONFIG.leangraphDataPath),
-      ramBytes: getProcessRam(),
+      ramBytes: baselineRam ? Math.max(0, currentRam - baselineRam) : currentRam,
     };
   } else if (db === "neo4j") {
     return {
       diskBytes: getDiskUsage(BENCHMARK_CONFIG.neo4jDataPath),
-      ramBytes: await getDockerRam("benchmark-neo4j"),
+      ramBytes: await getDockerRam("benchmark-neo4j", 5),  // 5 samples, take max
     };
   } else {
     return {
       diskBytes: getDiskUsage(BENCHMARK_CONFIG.memgraphDataPath),
-      ramBytes: await getDockerRam("benchmark-memgraph"),
+      ramBytes: await getDockerRam("benchmark-memgraph", 5),  // 5 samples, take max
     };
   }
 }
@@ -186,6 +189,10 @@ async function benchmarkDatabase(
 
   const isDockerDb = db === "neo4j" || db === "memgraph";
   const dbStartTime = performance.now();
+  
+  // Capture baseline RAM for LeanGraph (before DB is created)
+  // This isolates DB memory from benchmark harness overhead
+  const baselineRam = db === "leangraph" ? getProcessRam() : undefined;
 
   try {
     // Start Docker container if needed
@@ -231,10 +238,10 @@ async function benchmarkDatabase(
     const coldStartMs = performance.now() - connectStart;
     const version = await runner.getVersion();
 
-    // Measure resources BEFORE queries
-    const beforeQueries = await measureResources(db);
+    // Measure resources after load (captures DB footprint)
+    const resources = await measureResources(db, baselineRam);
     console.log(`  Version: ${version}`);
-    console.log(`  Before queries - Disk: ${formatBytes(beforeQueries.diskBytes)}, RAM: ${formatBytes(beforeQueries.ramBytes)}`);
+    console.log(`  Disk: ${formatBytes(resources.diskBytes)}, RAM: ${formatBytes(resources.ramBytes)}`);
     console.log(`  Cold start: ${formatMs(coldStartMs)}`);
 
     // Run queries
@@ -341,10 +348,6 @@ async function benchmarkDatabase(
       }
     }
 
-    // Measure resources AFTER queries
-    const afterQueries = await measureResources(db);
-    console.log(`  After queries - Disk: ${formatBytes(afterQueries.diskBytes)}, RAM: ${formatBytes(afterQueries.ramBytes)}`);
-
     // Close connection
     console.log("  Closing connection...");
     await runner.disconnect();
@@ -371,8 +374,7 @@ async function benchmarkDatabase(
         nodesLoaded: getTotalNodes(config),
         edgesLoaded: getTotalEdges(config),
       },
-      beforeQueries,
-      afterQueries,
+      resources,
       coldStartMs,
       queries: queryResults,
     };
@@ -430,8 +432,8 @@ runBenchmark()
       console.log(`  ${db.database}: (total: ${formatSeconds(db.totalDurationSeconds)})`);
       console.log(`    Version: ${db.version}`);
       console.log(`    Load time: ${formatSeconds(db.load.timeSeconds)}`);
-      console.log(`    Disk: ${formatBytes(db.beforeQueries.diskBytes)} -> ${formatBytes(db.afterQueries.diskBytes)}`);
-      console.log(`    RAM: ${formatBytes(db.beforeQueries.ramBytes)} -> ${formatBytes(db.afterQueries.ramBytes)}`);
+      console.log(`    Disk: ${formatBytes(db.resources.diskBytes)}`);
+      console.log(`    RAM: ${formatBytes(db.resources.ramBytes)}`);
       console.log(`    Cold start: ${formatMs(db.coldStartMs)}`);
 
       // Average p50 by category

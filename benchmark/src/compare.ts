@@ -176,8 +176,8 @@ function compare(baseName: string, targetName: string): void {
     const summaryData = [
       ["Total Duration", formatSeconds(baseDb.totalDurationSeconds), formatSeconds(targetDb.totalDurationSeconds), percentChange(baseDb.totalDurationSeconds, targetDb.totalDurationSeconds)],
       ["Load Time", formatSeconds(baseDb.load.timeSeconds), formatSeconds(targetDb.load.timeSeconds), percentChange(baseDb.load.timeSeconds, targetDb.load.timeSeconds)],
-      ["Disk Usage", formatBytes(baseDb.afterQueries.diskBytes), formatBytes(targetDb.afterQueries.diskBytes), percentChange(baseDb.afterQueries.diskBytes, targetDb.afterQueries.diskBytes)],
-      ["RAM Usage", formatBytes(baseDb.afterQueries.ramBytes), formatBytes(targetDb.afterQueries.ramBytes), percentChange(baseDb.afterQueries.ramBytes, targetDb.afterQueries.ramBytes)],
+      ["Disk Usage", formatBytes(baseDb.resources.diskBytes), formatBytes(targetDb.resources.diskBytes), percentChange(baseDb.resources.diskBytes, targetDb.resources.diskBytes)],
+      ["RAM Usage", formatBytes(baseDb.resources.ramBytes), formatBytes(targetDb.resources.ramBytes), percentChange(baseDb.resources.ramBytes, targetDb.resources.ramBytes)],
       ["Cold Start", formatMs(baseDb.coldStartMs), formatMs(targetDb.coldStartMs), percentChange(baseDb.coldStartMs, targetDb.coldStartMs)],
     ];
     

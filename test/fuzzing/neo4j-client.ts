@@ -70,10 +70,34 @@ export class Neo4jClient {
   }
 
   /**
-   * Clear all test data (nodes with LGT_ prefix labels).
+   * Clear all test data and reset session for isolation.
    */
   async cleanup(): Promise<void> {
-    await this.execute("MATCH (n) DETACH DELETE n");
+    // Delete all nodes with write transaction
+    if (!this.session) return;
+    
+    // Use explicit write transaction for guaranteed commit
+    const txc = this.session.beginTransaction();
+    try {
+      await txc.run("MATCH (n) DETACH DELETE n");
+      await txc.commit();
+    } catch (err) {
+      await txc.rollback();
+      throw err;
+    }
+    
+    // Close and reopen session to ensure fresh state
+    await this.session.close();
+    this.session = this.driver!.session();
+    
+    // Verify cleanup worked (optional, for debugging)
+    const countResult = await this.execute("MATCH (n) RETURN count(n) AS cnt");
+    if (countResult.success && countResult.data && countResult.data[0]) {
+      const cnt = (countResult.data[0] as { cnt: number }).cnt;
+      if (cnt > 0) {
+        throw new Error(`Cleanup failed: ${cnt} nodes still exist`);
+      }
+    }
   }
 
   async close(): Promise<void> {

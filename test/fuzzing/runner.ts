@@ -143,8 +143,13 @@ async function main(): Promise<void> {
     try {
       await neo4j.cleanup();
       leangraph.reset();
-    } catch {
-      // Ignore cleanup errors
+    } catch (err) {
+      // Cleanup failed - skip this test to avoid data contamination
+      if (options.verbose) {
+        console.log(`⚠ Cleanup failed, skipping test: ${err instanceof Error ? err.message : err}`);
+      }
+      skipCount++;
+      continue;
     }
 
     // Run setup queries if needed

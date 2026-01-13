@@ -1057,8 +1057,9 @@ describe("Translator", () => {
       `);
 
       const sql = result.statements[0].sql;
-      expect((sql.match(/WHEN/g) || []).length).toBe(2);
-      expect((sql.match(/THEN/g) || []).length).toBe(2);
+      const selectExpr = (sql.match(/SELECT\s+([\s\S]+?)\s+AS\s+/i) || [])[1] ?? sql;
+      expect((selectExpr.match(/\bWHEN\b/g) || []).length).toBe(2);
+      expect((selectExpr.match(/\bTHEN\b/g) || []).length).toBe(2);
     });
 
     it("generates CASE without ELSE", () => {
@@ -1089,7 +1090,8 @@ describe("Translator", () => {
       const sql = result.statements[0].sql;
       expect(sql).toContain("CASE");
       expect(sql).toContain("WHEN");
-      expect((sql.match(/WHEN/g) || []).length).toBe(2);
+      const selectExpr = (sql.match(/SELECT\s+([\s\S]+?)\s+AS\s+/i) || [])[1] ?? sql;
+      expect((selectExpr.match(/\bWHEN\b/g) || []).length).toBe(2);
     });
 
     it("handles CASE with property access in THEN", () => {

@@ -5047,5 +5047,16 @@ describe("CypherQueries.json Patterns", () => {
         expect(titles).toEqual([1, 2]);
       });
     });
+
+    describe("Pending Cypher Features", () => {
+      it("supports simple CASE expression column naming", async () => {
+        const result = await exec(
+          "WITH 5 AS x RETURN CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END"
+        );
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END"]).toBe("five");
+      });
+    });
   });
 });

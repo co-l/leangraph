@@ -15863,6 +15863,63 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         const operandName = this.getExpressionName(expr.operand!);
         return `${expr.operator} ${operandName}`;
       }
+      case "case": {
+        const parts: string[] = ["CASE"];
+
+        // Simple form: CASE <expr> WHEN <value> THEN <result> ...
+        if (expr.expression) {
+          parts.push(this.getExpressionName(expr.expression));
+        }
+
+        const whens = expr.whens ?? [];
+        for (const whenClause of whens) {
+          parts.push("WHEN");
+
+          // If we have a simple-form CASE, the WHEN condition is stored as equality
+          // against the CASE expression. For naming, reconstruct the original WHEN value.
+          if (
+            expr.expression &&
+            whenClause.condition.type === "comparison" &&
+            whenClause.condition.operator === "=" &&
+            whenClause.condition.right
+          ) {
+            parts.push(this.getExpressionName(whenClause.condition.right));
+          } else {
+            // Best-effort stringification for searched CASE conditions
+            const cond = whenClause.condition;
+            if (cond.type === "comparison" && cond.left && cond.right && cond.operator) {
+              parts.push(`${this.getExpressionName(cond.left)} ${cond.operator} ${this.getExpressionName(cond.right)}`);
+            } else if (cond.type === "and" && cond.conditions) {
+              parts.push(cond.conditions.map(c => (c.type === "comparison" && c.left && c.right && c.operator)
+                ? `${this.getExpressionName(c.left)} ${c.operator} ${this.getExpressionName(c.right)}`
+                : "expr").join(" AND "));
+            } else if (cond.type === "or" && cond.conditions) {
+              parts.push(cond.conditions.map(c => (c.type === "comparison" && c.left && c.right && c.operator)
+                ? `${this.getExpressionName(c.left)} ${c.operator} ${this.getExpressionName(c.right)}`
+                : "expr").join(" OR "));
+            } else if (cond.type === "not" && cond.condition) {
+              parts.push(`NOT ${"expr"}`);
+            } else if (cond.type === "isNull" && cond.left) {
+              parts.push(`${this.getExpressionName(cond.left)} IS NULL`);
+            } else if (cond.type === "isNotNull" && cond.left) {
+              parts.push(`${this.getExpressionName(cond.left)} IS NOT NULL`);
+            } else {
+              parts.push("expr");
+            }
+          }
+
+          parts.push("THEN");
+          parts.push(this.getExpressionName(whenClause.result));
+        }
+
+        if (expr.elseExpr) {
+          parts.push("ELSE");
+          parts.push(this.getExpressionName(expr.elseExpr));
+        }
+
+        parts.push("END");
+        return parts.join(" ");
+      }
       default:
         return "expr";
     }

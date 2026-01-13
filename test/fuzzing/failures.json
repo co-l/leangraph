@@ -1,31 +1,220 @@
 [
   {
-    "query": "WITH {a: -55, b: false} AS x WHERE x IS NOT NULL RETURN x",
-    "category": "clause",
-    "feature": "with",
-    "status": "resolved",
+    "query": "WITH 5 AS x RETURN CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END",
+    "category": "expression",
+    "feature": "case",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "x": {
-            "a": -55,
-            "b": false
+          "CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END": "five"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": "five"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"CASE x WHEN 1 THEN 'one' WHEN 5 THEN 'five' ELSE 'other' END\":\"five\"}"
+  },
+  {
+    "query": "RETURN [x IN ['a', 'b', 'c'] | toUpper(x)]",
+    "category": "expression",
+    "feature": "comprehensions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[x IN ['a', 'b', 'c'] | toUpper(x)]": [
+            "A",
+            "B",
+            "C"
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": [
+            "A",
+            "B",
+            "C"
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[x IN ['a', 'b', 'c'] | toUpper(x)]\":[\"A\",\"B\",\"C\"]}"
+  },
+  {
+    "query": "CREATE (a:Director)-[r:WORKS_FOR]->(b:Director) RETURN a, r, b",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {}
+          },
+          "r": {
+            "_type": "relationship",
+            "type": "WORKS_FOR",
+            "properties": {}
+          },
+          "b": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {}
           }
         }
       ]
     },
     "leangraphResult": {
-      "success": false,
-      "error": "Unknown expression type in WHERE: object"
+      "success": true,
+      "data": [
+        {
+          "a": {},
+          "r": {
+            "_type": "relationship",
+            "type": "WORKS_FOR",
+            "properties": {}
+          },
+          "b": {}
+        }
+      ]
     },
-    "mismatch": "Leangraph error: Unknown expression type in WHERE: object"
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{}},\"r\":{\"_type\":\"relationship\",\"type\":\"WORKS_FOR\",\"properties\":{}},\"b\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{}}}"
+  },
+  {
+    "query": "WITH [1, 2, 3, 4, 5] AS list RETURN [x IN list WHERE x > 2]",
+    "category": "expression",
+    "feature": "comprehensions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[x IN list WHERE x > 2]": [
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": [
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[x IN list WHERE x > 2]\":[3,4,5]}"
+  },
+  {
+    "query": "RETURN toLower('TEST')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toLower('TEST')": "test"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tolower('TEST')": "test"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toLower('TEST')\":\"test\"}"
+  },
+  {
+    "query": "MATCH (m:Movie) RETURN m SKIP 1 LIMIT 2",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "m": {
+            "_type": "node",
+            "labels": [
+              "Movie"
+            ],
+            "properties": {
+              "name": 2
+            }
+          }
+        },
+        {
+          "m": {
+            "_type": "node",
+            "labels": [
+              "Movie"
+            ],
+            "properties": {
+              "name": 3
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "m": {
+            "name": 2,
+            "_nf_id": "8bc2b259-a760-426d-876c-e7405b261dc8"
+          }
+        },
+        {
+          "m": {
+            "name": 3,
+            "_nf_id": "6c35c334-8afe-4103-9e01-96a2430c794b"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"m\":{\"_type\":\"node\",\"labels\":[\"Movie\"],\"properties\":{\"name\":2}}}",
+    "setup": [
+      "CREATE (:Movie {name: 1})",
+      "CREATE (:Movie {name: 2})",
+      "CREATE (:Movie {name: 3})"
+    ]
   },
   {
     "query": "RETURN CASE WHEN null IS NULL THEN 'null' ELSE 'not null' END",
     "category": "expression",
     "feature": "case",
-    "status": "resolved",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -38,25 +227,22 @@
       "success": true,
       "data": [
         {
-          "expr": null
+          "expr": "null"
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Null mismatch: \"null\" vs null"
+    "mismatch": "No matching row found for Neo4j row 0: {\"CASE WHEN null IS NULL THEN 'null' ELSE 'not null' END\":\"null\"}"
   },
   {
-    "query": "MATCH (n:Company) RETURN DISTINCT n.title",
-    "category": "aggregation",
-    "feature": "aggregations",
-    "status": "resolved",
+    "query": "RETURN coalesce(null, null, 'default')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "n.title": 2
-        },
-        {
-          "n.title": 1
+          "coalesce(null, null, 'default')": "default"
         }
       ]
     },
@@ -64,179 +250,189 @@
       "success": true,
       "data": [
         {
-          "n.title": 1
-        },
-        {
-          "n.title": 2
+          "coalesce(NULL, NULL, 'default')": "default"
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Number mismatch: 2 vs 1",
-    "setup": [
-      "CREATE (:Company {title: 1})",
-      "CREATE (:Company {title: 1})",
-      "CREATE (:Company {title: 2})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"coalesce(null, null, 'default')\":\"default\"}"
   },
   {
-    "query": "CREATE (a:Company)-[r:KNOWS]->(b:Company) RETURN a, r, b",
+    "query": "RETURN [x IN range(1, 5) WHERE x % 2 = 0]",
+    "category": "expression",
+    "feature": "comprehensions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[x IN range(1, 5) WHERE x % 2 = 0]": [
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": [
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[x IN range(1, 5) WHERE x % 2 = 0]\":[2,4]}"
+  },
+  {
+    "query": "CREATE (x:Director {active: -55.70}) RETURN x",
     "category": "clause",
     "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "KNOWS",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Person)-[r:FRIENDS_WITH]->(b:Person) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "FRIENDS_WITH",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Actor)-[r:WORKS_FOR]->(b:Actor) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "WORKS_FOR",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (n:Director {active: true, active: true}) RETURN n.active",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n.active": true
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n.active": 1
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
-  },
-  {
-    "query": "WITH {a: null, b: true} AS x WHERE x IS NOT NULL RETURN x",
-    "category": "clause",
-    "feature": "with",
-    "status": "resolved",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
           "x": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {
+              "active": -55.7
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "x": {
+            "active": -55.7
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"x\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{\"active\":-55.7}}}"
+  },
+  {
+    "query": "RETURN coalesce(null, 1, 2)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "coalesce(null, 1, 2)": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "coalesce(NULL, 1, 2)": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"coalesce(null, 1, 2)\":1}"
+  },
+  {
+    "query": "WITH [1, 2, 3] AS list RETURN CASE WHEN size(list) > 0 THEN head(list) ELSE null END",
+    "category": "expression",
+    "feature": "case",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "CASE WHEN size(list) > 0 THEN head(list) ELSE null END": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"CASE WHEN size(list) > 0 THEN head(list) ELSE null END\":1}"
+  },
+  {
+    "query": "MATCH (r:Company) RETURN r.name, r",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "r.name": null,
+          "r": {
+            "_type": "node",
+            "labels": [
+              "Company"
+            ],
+            "properties": {}
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "r.name": null,
+          "r": {
+            "_nf_id": "d9da32a5-b212-4b8c-9909-234f9b96e110"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"r.name\":null,\"r\":{\"_type\":\"node\",\"labels\":[\"Company\"],\"properties\":{}}}",
+    "setup": [
+      "CREATE (:Company {name: null})"
+    ]
+  },
+  {
+    "query": "RETURN CASE WHEN true THEN 1 ELSE 0 END",
+    "category": "expression",
+    "feature": "case",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "CASE WHEN true THEN 1 ELSE 0 END": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"CASE WHEN true THEN 1 ELSE 0 END\":1}"
+  },
+  {
+    "query": "RETURN {a: null, b: true}",
+    "category": "literal",
+    "feature": "literals",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "{a: null, b: true}": {
             "a": null,
             "b": true
           }
@@ -244,77 +440,28 @@
       ]
     },
     "leangraphResult": {
-      "success": false,
-      "error": "Unknown expression type in WHERE: object"
-    },
-    "mismatch": "Leangraph error: Unknown expression type in WHERE: object"
-  },
-  {
-    "query": "MATCH (q:Person) RETURN q SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
       "success": true,
       "data": [
         {
-          "q": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {
-              "score": 3
-            }
-          }
-        },
-        {
-          "q": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {
-              "score": 1
-            }
+          "expr": {
+            "a": null,
+            "b": true
           }
         }
       ]
     },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "q": {
-            "score": 2,
-            "_nf_id": "8b08a465-bcd1-4766-a183-e722433bde3e"
-          }
-        },
-        {
-          "q": {
-            "score": 3,
-            "_nf_id": "0229eac6-40e7-4768-91b0-4bb05b7d9f21"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"score\": Number mismatch: 3 vs 2",
-    "setup": [
-      "CREATE (:Person {score: 1})",
-      "CREATE (:Person {score: 2})",
-      "CREATE (:Person {score: 3})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: null, b: true}\":{\"a\":null,\"b\":true}}"
   },
   {
-    "query": "RETURN floor(-8.92)",
+    "query": "RETURN abs(4.60)",
     "category": "function",
     "feature": "functions",
-    "status": "resolved",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "floor(-8.92)": -9
+          "abs(4.60)": 4.6
         }
       ]
     },
@@ -322,134 +469,65 @@
       "success": true,
       "data": [
         {
-          "floor(-8.92)": -8
+          "abs(4.6)": 4.6
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Number mismatch: -9 vs -8"
+    "mismatch": "No matching row found for Neo4j row 0: {\"abs(4.60)\":4.6}"
   },
   {
-    "query": "RETURN ceil(-1.34)",
-    "category": "function",
-    "feature": "functions",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "ceil(-1.34)": -1
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "ceil(-1.34)": 0
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: -1 vs 0"
-  },
-  {
-    "query": "RETURN floor(-8.54)",
-    "category": "function",
-    "feature": "functions",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "floor(-8.54)": -9
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "floor(-8.54)": -8
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: -9 vs -8"
-  },
-  {
-    "query": "RETURN ceil(-1.87)",
-    "category": "function",
-    "feature": "functions",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "ceil(-1.87)": -1
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "ceil(-1.87)": 0
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: -1 vs 0"
-  },
-  {
-    "query": "RETURN floor(-4.20)",
-    "category": "function",
-    "feature": "functions",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "floor(-4.20)": -5
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "floor(-4.2)": -4
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: -5 vs -4"
-  },
-  {
-    "query": "RETURN null <> [false, 'world']",
+    "query": "RETURN [x IN [1, 2, 3] | x * 2]",
     "category": "expression",
-    "feature": "expressions",
-    "status": "resolved",
+    "feature": "comprehensions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "null <> [false, 'world']": null
+          "[x IN [1, 2, 3] | x * 2]": [
+            2,
+            4,
+            6
+          ]
         }
       ]
     },
     "leangraphResult": {
-      "success": false,
-      "error": "near \"world\": syntax error"
+      "success": true,
+      "data": [
+        {
+          "expr": [
+            2,
+            4,
+            6
+          ]
+        }
+      ]
     },
-    "mismatch": "Leangraph error: near \"world\": syntax error"
+    "mismatch": "No matching row found for Neo4j row 0: {\"[x IN [1, 2, 3] | x * 2]\":[2,4,6]}"
   },
   {
-    "query": "MATCH (n:Movie) RETURN n.title, n",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
+    "query": "CREATE (a:Movie)-[r:DIRECTED]->(b:Movie) RETURN a, r, b",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "n.title": null,
-          "n": {
+          "a": {
+            "_type": "node",
+            "labels": [
+              "Movie"
+            ],
+            "properties": {}
+          },
+          "r": {
+            "_type": "relationship",
+            "type": "DIRECTED",
+            "properties": {}
+          },
+          "b": {
             "_type": "node",
             "labels": [
               "Movie"
@@ -463,46 +541,35 @@
       "success": true,
       "data": [
         {
-          "n.title": null,
-          "n": {
-            "title": null,
-            "_nf_id": "c03c48c2-f083-4c27-b534-f948b6659c06"
-          }
+          "a": {},
+          "r": {
+            "_type": "relationship",
+            "type": "DIRECTED",
+            "properties": {}
+          },
+          "b": {}
         }
       ]
     },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
-    "setup": [
-      "CREATE (:Movie {title: null})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Movie\"],\"properties\":{}},\"r\":{\"_type\":\"relationship\",\"type\":\"DIRECTED\",\"properties\":{}},\"b\":{\"_type\":\"node\",\"labels\":[\"Movie\"],\"properties\":{}}}"
   },
   {
-    "query": "MATCH (y:Actor) RETURN y SKIP 1 LIMIT 2",
+    "query": "MATCH (x:Company) RETURN x.title, x",
     "category": "pattern",
     "feature": "match",
-    "status": "resolved",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "y": {
+          "x.title": false,
+          "x": {
             "_type": "node",
             "labels": [
-              "Actor"
+              "Company"
             ],
             "properties": {
-              "title": 1
-            }
-          }
-        },
-        {
-          "y": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {
-              "title": 2
+              "title": false
             }
           }
         }
@@ -512,53 +579,81 @@
       "success": true,
       "data": [
         {
-          "y": {
-            "title": 2,
-            "_nf_id": "52808fb7-fbcc-4b88-bd91-0f1ed08f3007"
-          }
-        },
-        {
-          "y": {
-            "title": 3,
-            "_nf_id": "5405160e-815a-4e19-bb75-fed5d345b961"
+          "x.title": false,
+          "x": {
+            "title": false,
+            "_nf_id": "5b87f60f-32f1-4ea6-9c18-b824b17729f0"
           }
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Property \"title\": Number mismatch: 1 vs 2",
+    "mismatch": "No matching row found for Neo4j row 0: {\"x.title\":false,\"x\":{\"_type\":\"node\",\"labels\":[\"Company\"],\"properties\":{\"title\":false}}}",
     "setup": [
-      "CREATE (:Actor {title: 1})",
-      "CREATE (:Actor {title: 2})",
-      "CREATE (:Actor {title: 3})"
+      "CREATE (:Company {title: false})"
     ]
   },
   {
-    "query": "MATCH (q:Director) RETURN q SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
+    "query": "RETURN type(null)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "q": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {
-              "age": 3
-            }
-          }
-        },
+          "type(null)": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
         {
-          "q": {
+          "type(NULL)": null
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"type(null)\":null}"
+  },
+  {
+    "query": "RETURN CASE WHEN 1 > 2 THEN 'a' WHEN 2 > 1 THEN 'b' ELSE 'c' END",
+    "category": "expression",
+    "feature": "case",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "CASE WHEN 1 > 2 THEN 'a' WHEN 2 > 1 THEN 'b' ELSE 'c' END": "b"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": "b"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"CASE WHEN 1 > 2 THEN 'a' WHEN 2 > 1 THEN 'b' ELSE 'c' END\":\"b\"}"
+  },
+  {
+    "query": "CREATE (a:Company {title: 'bar'}) RETURN a",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {
             "_type": "node",
             "labels": [
-              "Director"
+              "Company"
             ],
             "properties": {
-              "age": 2
+              "title": "bar"
             }
           }
         }
@@ -568,96 +663,39 @@
       "success": true,
       "data": [
         {
-          "q": {
-            "age": 2,
-            "_nf_id": "f3f9258d-c592-4ffb-a78d-0a365f5097ca"
-          }
-        },
-        {
-          "q": {
-            "age": 3,
-            "_nf_id": "19074be4-554f-4d0a-8fcc-91220875a71f"
+          "a": {
+            "title": "bar"
           }
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Property \"age\": Number mismatch: 3 vs 2",
-    "setup": [
-      "CREATE (:Director {age: 1})",
-      "CREATE (:Director {age: 2})",
-      "CREATE (:Director {age: 3})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Company\"],\"properties\":{\"title\":\"bar\"}}}"
   },
   {
-    "query": "MATCH (p:Director) RETURN p SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
+    "query": "CREATE (a:Person)-[r:FRIENDS_WITH]->(b:Person) RETURN a, r, b",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "p": {
+          "a": {
             "_type": "node",
             "labels": [
-              "Director"
+              "Person"
             ],
-            "properties": {
-              "score": 1
-            }
-          }
-        },
-        {
-          "p": {
+            "properties": {}
+          },
+          "r": {
+            "_type": "relationship",
+            "type": "FRIENDS_WITH",
+            "properties": {}
+          },
+          "b": {
             "_type": "node",
             "labels": [
-              "Director"
-            ],
-            "properties": {
-              "score": 2
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "score": 2,
-            "_nf_id": "20778102-b365-4ce6-b25a-9573500d4082"
-          }
-        },
-        {
-          "p": {
-            "score": 3,
-            "_nf_id": "dd39f25a-de9c-4fcd-b645-32f4d01d0aa0"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"score\": Number mismatch: 1 vs 2",
-    "setup": [
-      "CREATE (:Director {score: 1})",
-      "CREATE (:Director {score: 2})",
-      "CREATE (:Director {score: 3})"
-    ]
-  },
-  {
-    "query": "MATCH (y:Actor) RETURN y.year, y",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "y.year": null,
-          "y": {
-            "_type": "node",
-            "labels": [
-              "Actor"
+              "Person"
             ],
             "properties": {}
           }
@@ -668,32 +706,292 @@
       "success": true,
       "data": [
         {
-          "y.year": null,
-          "y": {
-            "year": null,
-            "_nf_id": "6c373186-82d5-4ea4-b27b-46d3e31960e3"
-          }
+          "a": {},
+          "r": {
+            "_type": "relationship",
+            "type": "FRIENDS_WITH",
+            "properties": {}
+          },
+          "b": {}
         }
       ]
     },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
-    "setup": [
-      "CREATE (:Actor {year: null})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Person\"],\"properties\":{}},\"r\":{\"_type\":\"relationship\",\"type\":\"FRIENDS_WITH\",\"properties\":{}},\"b\":{\"_type\":\"node\",\"labels\":[\"Person\"],\"properties\":{}}}"
   },
   {
-    "query": "MATCH (n:Person) RETURN n SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
+    "query": "RETURN null",
+    "category": "literal",
+    "feature": "literals",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "n": {
+          "null": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "NULL": null
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"null\":null}"
+  },
+  {
+    "query": "MATCH (a:Director) RETURN a.score, a",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "a.score": -47,
+          "a": {
             "_type": "node",
             "labels": [
-              "Person"
+              "Director"
+            ],
+            "properties": {
+              "score": -47
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "a.score": -47,
+          "a": {
+            "score": -47,
+            "_nf_id": "b628e741-2ef3-40e8-bd30-a7a1ce178f1d"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"a.score\":-47,\"a\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{\"score\":-47}}}",
+    "setup": [
+      "CREATE (:Director {score: -47})"
+    ]
+  },
+  {
+    "query": "CREATE (a:Director)-[r:DIRECTED]->(b:Director) RETURN a, r, b",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {}
+          },
+          "r": {
+            "_type": "relationship",
+            "type": "DIRECTED",
+            "properties": {}
+          },
+          "b": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {}
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {},
+          "r": {
+            "_type": "relationship",
+            "type": "DIRECTED",
+            "properties": {}
+          },
+          "b": {}
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{}},\"r\":{\"_type\":\"relationship\",\"type\":\"DIRECTED\",\"properties\":{}},\"b\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{}}}"
+  },
+  {
+    "query": "MATCH (r:Movie) RETURN r.year, r",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "r.year": "hello",
+          "r": {
+            "_type": "node",
+            "labels": [
+              "Movie"
+            ],
+            "properties": {
+              "year": "hello"
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "r.year": "hello",
+          "r": {
+            "year": "hello",
+            "_nf_id": "c3530ec1-153f-4292-8e69-cccf6cebc842"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"r.year\":\"hello\",\"r\":{\"_type\":\"node\",\"labels\":[\"Movie\"],\"properties\":{\"year\":\"hello\"}}}",
+    "setup": [
+      "CREATE (:Movie {year: 'hello'})"
+    ]
+  },
+  {
+    "query": "RETURN tail([1, 2, 3, 4, 5])",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "tail([1, 2, 3, 4, 5])": [
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tail([1,2,3,4,5])": [
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"tail([1, 2, 3, 4, 5])\":[2,3,4,5]}"
+  },
+  {
+    "query": "RETURN size([1, 2, 3, 4, 5])",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "size([1, 2, 3, 4, 5])": 5
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "size([1,2,3,4,5])": 5
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"size([1, 2, 3, 4, 5])\":5}"
+  },
+  {
+    "query": "RETURN ([[{a: 'foo', b: [5, {a: 'foo', b: {a: 3, b: -50.37}}]}, [[-90, [84, 9]], {a: [2, 0], b: 'bar'}]], -1.80]) + ([1, 2, 3][2])",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "([[{a: 'foo', b: [5, {a: 'foo', b: {a: 3, b: -50.37}}]}, [[-90, [84, 9]], {a: [2, 0], b: 'bar'}]], -1.80]) + ([1, 2, 3][2])": [
+            [
+              {
+                "a": "foo",
+                "b": [
+                  5,
+                  {
+                    "a": "foo",
+                    "b": {
+                      "a": 3,
+                      "b": -50.37
+                    }
+                  }
+                ]
+              },
+              [
+                [
+                  -90,
+                  [
+                    84,
+                    9
+                  ]
+                ],
+                {
+                  "a": [
+                    2,
+                    0
+                  ],
+                  "b": "bar"
+                }
+              ]
+            ],
+            -1.8,
+            3
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "list(list(expr, list([-90,[84,9]], expr)), -1.8) + [1,2,3][2]": 3
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"([[{a: 'foo', b: [5, {a: 'foo', b: {a: 3, b: -50.37}}]}, [[-90, [84, 9]], {a: [2, 0], b: 'bar'}]], -1.80]) + ([1, 2, 3][2])\":[[{\"a\":\"foo\",\"b\":[5,{\"a\":\"foo\",\"b\":{\"a\":3,\"b\":-50.37}}]},[[-90,[84,9]],{\"a\":[2,0],\"b\":\"bar\"}]],-1.8,3]}"
+  },
+  {
+    "query": "MATCH (x:Director) RETURN x SKIP 1 LIMIT 2",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "x": {
+            "_type": "node",
+            "labels": [
+              "Director"
             ],
             "properties": {
               "rating": 1
@@ -701,10 +999,10 @@
           }
         },
         {
-          "n": {
+          "x": {
             "_type": "node",
             "labels": [
-              "Person"
+              "Director"
             ],
             "properties": {
               "rating": 3
@@ -717,42 +1015,54 @@
       "success": true,
       "data": [
         {
-          "n": {
+          "x": {
             "rating": 2,
-            "_nf_id": "ac913931-75ec-4d81-9308-0e66769227e3"
+            "_nf_id": "7c1482b0-9b1e-4bf9-b118-72259c4db647"
           }
         },
         {
-          "n": {
+          "x": {
             "rating": 3,
-            "_nf_id": "3407f195-e06d-4fec-9c87-3de5a53115bc"
+            "_nf_id": "f3bd3b6e-4189-466d-84cc-69bbdb56c382"
           }
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Property \"rating\": Number mismatch: 1 vs 2",
+    "mismatch": "No matching row found for Neo4j row 0: {\"x\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{\"rating\":1}}}",
     "setup": [
-      "CREATE (:Person {rating: 1})",
-      "CREATE (:Person {rating: 2})",
-      "CREATE (:Person {rating: 3})"
+      "CREATE (:Director {rating: 1})",
+      "CREATE (:Director {rating: 2})",
+      "CREATE (:Director {rating: 3})"
     ]
   },
   {
-    "query": "MATCH (p:Movie) RETURN p.rating, p",
+    "query": "MATCH (y:Person) RETURN y SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "resolved",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "p.rating": null,
-          "p": {
+          "y": {
             "_type": "node",
             "labels": [
-              "Movie"
+              "Person"
             ],
-            "properties": {}
+            "properties": {
+              "score": 3
+            }
+          }
+        },
+        {
+          "y": {
+            "_type": "node",
+            "labels": [
+              "Person"
+            ],
+            "properties": {
+              "score": 1
+            }
           }
         }
       ]
@@ -761,35 +1071,95 @@
       "success": true,
       "data": [
         {
-          "p.rating": null,
-          "p": {
-            "rating": null,
-            "_nf_id": "849eaea4-5c28-4b2a-aca9-37e91ddf2b8f"
+          "y": {
+            "score": 2,
+            "_nf_id": "61b18cd9-eb2e-4177-bb96-5b4cbcaeba90"
+          }
+        },
+        {
+          "y": {
+            "score": 3,
+            "_nf_id": "78601d71-0ee4-48d1-b48f-2909347059f8"
           }
         }
       ]
     },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
+    "mismatch": "No matching row found for Neo4j row 0: {\"y\":{\"_type\":\"node\",\"labels\":[\"Person\"],\"properties\":{\"score\":3}}}",
     "setup": [
-      "CREATE (:Movie {rating: null})"
+      "CREATE (:Person {score: 1})",
+      "CREATE (:Person {score: 2})",
+      "CREATE (:Person {score: 3})"
     ]
   },
   {
-    "query": "MATCH (q:Movie) RETURN q.rating, q",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
+    "query": "RETURN [x IN [1, 2, 3] WHERE x > 1 | x * x]",
+    "category": "expression",
+    "feature": "comprehensions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "q.rating": null,
-          "q": {
+          "[x IN [1, 2, 3] WHERE x > 1 | x * x]": [
+            4,
+            9
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": [
+            4,
+            9
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[x IN [1, 2, 3] WHERE x > 1 | x * x]\":[4,9]}"
+  },
+  {
+    "query": "RETURN head([1, 2, 3, 4, 5])",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "head([1, 2, 3, 4, 5])": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "head([1,2,3,4,5])": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"head([1, 2, 3, 4, 5])\":1}"
+  },
+  {
+    "query": "MATCH (a:Actor) WHERE a.active IS NOT NULL RETURN a",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {
             "_type": "node",
             "labels": [
-              "Movie"
+              "Actor"
             ],
-            "properties": {}
+            "properties": {
+              "active": 7
+            }
           }
         }
       ]
@@ -798,1412 +1168,1276 @@
       "success": true,
       "data": [
         {
-          "q.rating": null,
-          "q": {
-            "rating": null,
-            "_nf_id": "5466ccce-6839-44e8-b1fe-2ce0082a835b"
+          "a": {
+            "active": 7,
+            "_nf_id": "b054e9c3-977b-4b5f-bcad-964e82001f9f"
           }
         }
       ]
     },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Actor\"],\"properties\":{\"active\":7}}}",
     "setup": [
-      "CREATE (:Movie {rating: null})"
+      "CREATE (:Actor {active: 7})"
     ]
   },
   {
-    "query": "RETURN [44.66, 'world']",
-    "category": "literal",
-    "feature": "literals",
-    "status": "resolved",
+    "query": "MATCH (b:Person) WHERE b.name IS NOT NULL RETURN b",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "[44.66, 'world']": [
-            44.66,
+          "b": {
+            "_type": "node",
+            "labels": [
+              "Person"
+            ],
+            "properties": {
+              "name": 9
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "b": {
+            "name": 9,
+            "_nf_id": "64fd2cc6-bc69-415d-9aa9-4c22c0d1d4db"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"b\":{\"_type\":\"node\",\"labels\":[\"Person\"],\"properties\":{\"name\":9}}}",
+    "setup": [
+      "CREATE (:Person {name: 9})"
+    ]
+  },
+  {
+    "query": "CREATE (r:Company {active: 82.08}) RETURN r",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "r": {
+            "_type": "node",
+            "labels": [
+              "Company"
+            ],
+            "properties": {
+              "active": 82.08
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "r": {
+            "active": 82.08
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"r\":{\"_type\":\"node\",\"labels\":[\"Company\"],\"properties\":{\"active\":82.08}}}"
+  },
+  {
+    "query": "MATCH (a:Person) WHERE a.age IS NOT NULL RETURN a",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {
+            "_type": "node",
+            "labels": [
+              "Person"
+            ],
+            "properties": {
+              "age": "test"
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "a": {
+            "age": "test",
+            "_nf_id": "9cb7f559-ad65-42c2-904a-69c849783032"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"a\":{\"_type\":\"node\",\"labels\":[\"Person\"],\"properties\":{\"age\":\"test\"}}}",
+    "setup": [
+      "CREATE (:Person {age: 'test'})"
+    ]
+  },
+  {
+    "query": "CREATE (b:Movie {name: true}) RETURN b",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "b": {
+            "_type": "node",
+            "labels": [
+              "Movie"
+            ],
+            "properties": {
+              "name": true
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "b": {
+            "name": true
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"b\":{\"_type\":\"node\",\"labels\":[\"Movie\"],\"properties\":{\"name\":true}}}"
+  },
+  {
+    "query": "RETURN round(-9.20)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "round(-9.20)": -9
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "round(-9.2)": -9
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"round(-9.20)\":-9}"
+  },
+  {
+    "query": "CREATE (x:Person {year: 65}) RETURN x",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "x": {
+            "_type": "node",
+            "labels": [
+              "Person"
+            ],
+            "properties": {
+              "year": 65
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "x": {
+            "year": 65
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"x\":{\"_type\":\"node\",\"labels\":[\"Person\"],\"properties\":{\"year\":65}}}"
+  },
+  {
+    "query": "CREATE (c:Movie {name: true}) RETURN c",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "c": {
+            "_type": "node",
+            "labels": [
+              "Movie"
+            ],
+            "properties": {
+              "name": true
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "c": {
+            "name": true
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"c\":{\"_type\":\"node\",\"labels\":[\"Movie\"],\"properties\":{\"name\":true}}}"
+  },
+  {
+    "query": "MATCH (m:Director) RETURN m.year, m",
+    "category": "pattern",
+    "feature": "match",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "m.year": false,
+          "m": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {
+              "year": false
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "m.year": false,
+          "m": {
+            "year": false,
+            "_nf_id": "83d7019c-b991-495e-b31a-2a5bdab7cf33"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"m.year\":false,\"m\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{\"year\":false}}}",
+    "setup": [
+      "CREATE (:Director {year: false})"
+    ]
+  },
+  {
+    "query": "RETURN [1, 2, 3][1]",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[1, 2, 3][1]": 2
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "[1,2,3][1]": 2
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[1, 2, 3][1]\":2}"
+  },
+  {
+    "query": "RETURN [1, 2, 3][0]",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[1, 2, 3][0]": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "[1,2,3][0]": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[1, 2, 3][0]\":1}"
+  },
+  {
+    "query": "RETURN toInteger(2.55)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toInteger(2.55)": 2
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tointeger(2.55)": 2
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toInteger(2.55)\":2}"
+  },
+  {
+    "query": "RETURN {a: 1, b: 2}.a",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "{a: 1, b: 2}.a": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "(expr).a": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: 1, b: 2}.a\":1}"
+  },
+  {
+    "query": "CREATE (r:Director {name: 69}) RETURN r",
+    "category": "clause",
+    "feature": "create",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "r": {
+            "_type": "node",
+            "labels": [
+              "Director"
+            ],
+            "properties": {
+              "name": 69
+            }
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "r": {
+            "name": 69
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"r\":{\"_type\":\"node\",\"labels\":[\"Director\"],\"properties\":{\"name\":69}}}"
+  },
+  {
+    "query": "RETURN rand()",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "rand()": 0.6554698302153519
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "rand()": 0.3307359128807469
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"rand()\":0.6554698302153519}"
+  },
+  {
+    "query": "RETURN reverse([1, 2, 3, 4, 5])",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "reverse([1, 2, 3, 4, 5])": [
+            5,
+            4,
+            3,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "reverse([1,2,3,4,5])": [
+            5,
+            4,
+            3,
+            2,
+            1
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"reverse([1, 2, 3, 4, 5])\":[5,4,3,2,1]}"
+  },
+  {
+    "query": "RETURN toUpper('world')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toUpper('world')": "WORLD"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "toupper('world')": "WORLD"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toUpper('world')\":\"WORLD\"}"
+  },
+  {
+    "query": "RETURN toFloat(-9)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toFloat(-9)": -9
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tofloat(-9)": -9
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toFloat(-9)\":-9}"
+  },
+  {
+    "query": "RETURN last([1, 2, 3, 4, 5])",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "last([1, 2, 3, 4, 5])": 5
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "last([1,2,3,4,5])": 5
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"last([1, 2, 3, 4, 5])\":5}"
+  },
+  {
+    "query": "RETURN sin(-2.20)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "sin(-2.20)": -0.8084964038195901
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "sin(-2.2)": -0.8084964038195901
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"sin(-2.20)\":-0.8084964038195901}"
+  },
+  {
+    "query": "RETURN abs(-2.40)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "abs(-2.40)": 2.4
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "abs(-2.4)": 2.4
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"abs(-2.40)\":2.4}"
+  },
+  {
+    "query": "RETURN toInteger(0.85)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toInteger(0.85)": 0
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tointeger(0.85)": 0
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toInteger(0.85)\":0}"
+  },
+  {
+    "query": "RETURN toInteger(-1.87)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toInteger(-1.87)": -1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tointeger(-1.87)": -1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toInteger(-1.87)\":-1}"
+  },
+  {
+    "query": "RETURN keys({a: 1, b: 2, c: 3})",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "keys({a: 1, b: 2, c: 3})": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "keys(expr)": [
+            "a",
+            "b",
+            "c"
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"keys({a: 1, b: 2, c: 3})\":[\"a\",\"b\",\"c\"]}"
+  },
+  {
+    "query": "RETURN toLower('  spaces  ')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toLower('  spaces  ')": "  spaces  "
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tolower('  spaces  ')": "  spaces  "
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toLower('  spaces  ')\":\"  spaces  \"}"
+  },
+  {
+    "query": "RETURN toInteger(-8.70)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toInteger(-8.70)": -8
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tointeger(-8.7)": -8
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toInteger(-8.70)\":-8}"
+  },
+  {
+    "query": "RETURN toUpper('  spaces  ')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toUpper('  spaces  ')": "  SPACES  "
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "toupper('  spaces  ')": "  SPACES  "
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toUpper('  spaces  ')\":\"  SPACES  \"}"
+  },
+  {
+    "query": "RETURN toUpper('foo bar')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toUpper('foo bar')": "FOO BAR"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "toupper('foo bar')": "FOO BAR"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toUpper('foo bar')\":\"FOO BAR\"}"
+  },
+  {
+    "query": "RETURN tan(2.80)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "tan(2.80)": -0.3555298316511761
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tan(2.8)": -0.3555298316511761
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"tan(2.80)\":-0.3555298316511761}"
+  },
+  {
+    "query": "RETURN toFloat(-1)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toFloat(-1)": -1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tofloat(-1)": -1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toFloat(-1)\":-1}"
+  },
+  {
+    "query": "RETURN toString('TEST')",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toString('TEST')": "TEST"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tostring('TEST')": "TEST"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toString('TEST')\":\"TEST\"}"
+  },
+  {
+    "query": "RETURN toFloat(-10)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toFloat(-10)": -10
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tofloat(-10)": -10
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toFloat(-10)\":-10}"
+  },
+  {
+    "query": "RETURN toFloat(10)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "toFloat(10)": 10
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "tofloat(10)": 10
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"toFloat(10)\":10}"
+  },
+  {
+    "query": "RETURN atan2(6.53, 0.60)",
+    "category": "function",
+    "feature": "functions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "atan2(6.53, 0.60)": 1.4791699895291774
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "atan2(6.53, 0.6)": 1.4791699895291774
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"atan2(6.53, 0.60)\":1.4791699895291774}"
+  },
+  {
+    "query": "RETURN [1, 2, 3][2]",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[1, 2, 3][2]": 3
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "[1,2,3][2]": 3
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[1, 2, 3][2]\":3}"
+  },
+  {
+    "query": "RETURN {a: 1, b: 2}.b",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "{a: 1, b: 2}.b": 2
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "(expr).b": 2
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: 1, b: 2}.b\":2}"
+  },
+  {
+    "query": "RETURN ({a: 1, b: 2}.b) + (-20.25)",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "({a: 1, b: 2}.b) + (-20.25)": -18.25
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "(expr).b + -20.25": -18.25
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"({a: 1, b: 2}.b) + (-20.25)\":-18.25}"
+  },
+  {
+    "query": "RETURN {a: -50, b: 17.74} = 'world'",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "{a: -50, b: 17.74} = 'world'": false
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr = 'world'": false
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: -50, b: 17.74} = 'world'\":false}"
+  },
+  {
+    "query": "RETURN [92.15, null] = 6",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[92.15, null] = 6": false
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "[92.15,null] = 6": false
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"[92.15, null] = 6\":false}"
+  },
+  {
+    "query": "RETURN -71 <> null",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "-71 <> null": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "-71 <> NULL": null
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"-71 <> null\":null}"
+  },
+  {
+    "query": "RETURN ([1, 2, 3][1]) + ({a: 1, b: 2}.a)",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "([1, 2, 3][1]) + ({a: 1, b: 2}.a)": 3
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "[1,2,3][1] + (expr).a": 3
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"([1, 2, 3][1]) + ({a: 1, b: 2}.a)\":3}"
+  },
+  {
+    "query": "RETURN null >= 93",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "null >= 93": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "NULL >= 93": null
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"null >= 93\":null}"
+  },
+  {
+    "query": "RETURN (({a: 1, b: 2}.b) / (4)) ^ ({a: 1, b: 2}.a)",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "(({a: 1, b: 2}.b) / (4)) ^ ({a: 1, b: 2}.a)": 0
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "(expr).b / 4 ^ (expr).a": 0
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"(({a: 1, b: 2}.b) / (4)) ^ ({a: 1, b: 2}.a)\":0}"
+  },
+  {
+    "query": "RETURN ([1, 2, 3][0]) * ([1, 2, 3][0])",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "([1, 2, 3][0]) * ([1, 2, 3][0])": 1
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "[1,2,3][0] * [1,2,3][0]": 1
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"([1, 2, 3][0]) * ([1, 2, 3][0])\":1}"
+  },
+  {
+    "query": "RETURN {a: null, b: [-87.48, -9]}",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "{a: null, b: [-87.48, -9]}": {
+            "a": null,
+            "b": [
+              -87.48,
+              -9
+            ]
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": {
+            "a": null,
+            "b": [
+              -87.48,
+              -9
+            ]
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: null, b: [-87.48, -9]}\":{\"a\":null,\"b\":[-87.48,-9]}}"
+  },
+  {
+    "query": "RETURN null < null",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "null < null": null
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "NULL < NULL": null
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"null < null\":null}"
+  },
+  {
+    "query": "RETURN {a: 8, b: 'foo'}",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "{a: 8, b: 'foo'}": {
+            "a": 8,
+            "b": "foo"
+          }
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "expr": {
+            "a": 8,
+            "b": "foo"
+          }
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: 8, b: 'foo'}\":{\"a\":8,\"b\":\"foo\"}}"
+  },
+  {
+    "query": "RETURN [null, 'world']",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "[null, 'world']": [
+            null,
             "world"
           ]
         }
       ]
     },
     "leangraphResult": {
-      "success": false,
-      "error": "near \"world\": syntax error"
-    },
-    "mismatch": "Leangraph error: near \"world\": syntax error"
-  },
-  {
-    "query": "RETURN [10, 'test']",
-    "category": "literal",
-    "feature": "literals",
-    "status": "resolved",
-    "neo4jResult": {
       "success": true,
       "data": [
         {
-          "[10, 'test']": [
-            10,
-            "test"
+          "[null,\"world\"]": [
+            null,
+            "world"
           ]
         }
       ]
     },
-    "leangraphResult": {
-      "success": false,
-      "error": "near \"test\": syntax error"
-    },
-    "mismatch": "Leangraph error: near \"test\": syntax error"
+    "mismatch": "No matching row found for Neo4j row 0: {\"[null, 'world']\":[null,\"world\"]}"
   },
   {
-    "query": "RETURN [['foo', true], [16.12, 'test']]",
-    "category": "literal",
-    "feature": "literals",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "[['foo', true], [16.12, 'test']]": [
-            [
-              "foo",
-              true
-            ],
-            [
-              16.12,
-              "test"
-            ]
-          ]
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": false,
-      "error": "near \"foo\": syntax error"
-    },
-    "mismatch": "Leangraph error: near \"foo\": syntax error"
-  },
-  {
-    "query": "RETURN ['test', [38, null]]",
-    "category": "literal",
-    "feature": "literals",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "['test', [38, null]]": [
-            "test",
-            [
-              38,
-              null
-            ]
-          ]
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": false,
-      "error": "near \"test\": syntax error"
-    },
-    "mismatch": "Leangraph error: near \"test\": syntax error"
-  },
-  {
-    "query": "CREATE (p:Director {year: null}) RETURN p",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "year": null
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property count mismatch: 0 vs 1"
-  },
-  {
-    "query": "CREATE (a:Company)-[r:WORKS_FOR]->(b:Company) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "WORKS_FOR",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (n:Person {name: null}) RETURN n",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n": {
-            "name": null
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property count mismatch: 0 vs 1"
-  },
-  {
-    "query": "CREATE (a:Company)-[r:FRIENDS_WITH]->(b:Company) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "FRIENDS_WITH",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "WITH ([1, 2, 3][2]) / (7) AS x RETURN x",
-    "category": "clause",
-    "feature": "with",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "x": 0
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "x": 0.42857142857142855
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: 0 vs 0.42857142857142855"
-  },
-  {
-    "query": "CREATE (x:Director {age: false, active: true}) RETURN x.age",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "x.age": false
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "x.age": 0
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
-  },
-  {
-    "query": "CREATE (a:Movie)-[r:FRIENDS_WITH]->(b:Movie) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "FRIENDS_WITH",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Actor)-[r:DIRECTED]->(b:Actor) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "DIRECTED",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (m:Actor {age: true, active: true}) RETURN m.age",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "m.age": true
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "m.age": 1
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
-  },
-  {
-    "query": "CREATE (x:Company {active: 'foo', active: true}) RETURN x.active",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "x.active": true
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "x.active": 1
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
-  },
-  {
-    "query": "CREATE (a:Person)-[r:DIRECTED]->(b:Person) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "DIRECTED",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Person)-[r:WORKS_FOR]->(b:Person) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "WORKS_FOR",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Person)-[r:ACTED_IN]->(b:Person) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "ACTED_IN",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Person)-[r:KNOWS]->(b:Person) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "KNOWS",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "WITH {a: null, b: [{a: null, b: 'world'}, false]} AS x WHERE x IS NOT NULL RETURN x",
-    "category": "clause",
-    "feature": "with",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "x": {
-            "a": null,
-            "b": [
-              {
-                "a": null,
-                "b": "world"
-              },
-              false
-            ]
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": false,
-      "error": "Unknown expression type in WHERE: object"
-    },
-    "mismatch": "Leangraph error: Unknown expression type in WHERE: object"
-  },
-  {
-    "query": "CREATE (a:Movie)-[r:KNOWS]->(b:Movie) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "KNOWS",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (x:Company {active: null}) RETURN x",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "x": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "x": {
-            "active": null
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property count mismatch: 0 vs 1"
-  },
-  {
-    "query": "CREATE (a:Company)-[r:ACTED_IN]->(b:Company) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "ACTED_IN",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Director)-[r:DIRECTED]->(b:Director) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "DIRECTED",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (q:Person {year: null}) RETURN q",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "q": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "q": {
-            "year": null
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property count mismatch: 0 vs 1"
-  },
-  {
-    "query": "CREATE (p:Person {rating: true, active: true}) RETURN p.rating",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "p.rating": true
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "p.rating": 1
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
-  },
-  {
-    "query": "CREATE (a:Director)-[r:ACTED_IN]->(b:Director) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "ACTED_IN",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "CREATE (a:Actor)-[r:FRIENDS_WITH]->(b:Actor) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "FRIENDS_WITH",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {},
-          "b": {}
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
-  },
-  {
-    "query": "MATCH (n:Company) RETURN n SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {
-              "year": 1
-            }
-          }
-        },
-        {
-          "n": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {
-              "year": 2
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n": {
-            "year": 2,
-            "_nf_id": "dc16f945-c4ae-4c7c-bcab-89f8139703c9"
-          }
-        },
-        {
-          "n": {
-            "year": 3,
-            "_nf_id": "c424f3e8-7fd6-4571-84c6-ad3695a4f386"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"year\": Number mismatch: 1 vs 2",
-    "setup": [
-      "CREATE (:Company {year: 1})",
-      "CREATE (:Company {year: 2})",
-      "CREATE (:Company {year: 3})"
-    ]
-  },
-  {
-    "query": "MATCH (p:Actor) RETURN p SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {
-              "age": 1
-            }
-          }
-        },
-        {
-          "p": {
-            "_type": "node",
-            "labels": [
-              "Actor"
-            ],
-            "properties": {
-              "age": 2
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "age": 2,
-            "_nf_id": "f41b2c34-3ebe-4813-af76-820b09bba897"
-          }
-        },
-        {
-          "p": {
-            "age": 3,
-            "_nf_id": "9bef7a61-90c9-4b72-af62-3d48cbcb46c5"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"age\": Number mismatch: 1 vs 2",
-    "setup": [
-      "CREATE (:Actor {age: 1})",
-      "CREATE (:Actor {age: 2})",
-      "CREATE (:Actor {age: 3})"
-    ]
-  },
-  {
-    "query": "MATCH (n:Movie) RETURN DISTINCT n.score",
-    "category": "aggregation",
-    "feature": "aggregations",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n.score": 2
-        },
-        {
-          "n.score": 1
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n.score": 1
-        },
-        {
-          "n.score": 2
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: 2 vs 1",
-    "setup": [
-      "CREATE (:Movie {score: 1})",
-      "CREATE (:Movie {score: 1})",
-      "CREATE (:Movie {score: 2})"
-    ]
-  },
-  {
-    "query": "RETURN ['test', [null, [-45, -89.14]]]",
-    "category": "literal",
-    "feature": "literals",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "['test', [null, [-45, -89.14]]]": [
-            "test",
-            [
-              null,
-              [
-                -45,
-                -89.14
-              ]
-            ]
-          ]
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": false,
-      "error": "near \"test\": syntax error"
-    },
-    "mismatch": "Leangraph error: near \"test\": syntax error"
-  },
-  {
-    "query": "WITH {a: 81.66, b: 32} AS x WHERE x IS NOT NULL RETURN x",
-    "category": "clause",
-    "feature": "with",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "x": {
-            "a": 81.66,
-            "b": 32
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": false,
-      "error": "Unknown expression type in WHERE: object"
-    },
-    "mismatch": "Leangraph error: Unknown expression type in WHERE: object"
-  },
-  {
-    "query": "MATCH (n:Person) RETURN DISTINCT n.name",
-    "category": "aggregation",
-    "feature": "aggregations",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n.name": 2
-        },
-        {
-          "n.name": 1
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n.name": 1
-        },
-        {
-          "n.name": 2
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: 2 vs 1",
-    "setup": [
-      "CREATE (:Person {name: 1})",
-      "CREATE (:Person {name: 1})",
-      "CREATE (:Person {name: 2})"
-    ]
-  },
-  {
-    "query": "CREATE (m:Director {active: true, active: true}) RETURN m.active",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "m.active": true
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "m.active": 1
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
-  },
-  {
-    "query": "MATCH (m:Person) RETURN m SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "m": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {
-              "rating": 3
-            }
-          }
-        },
-        {
-          "m": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {
-              "rating": 2
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "m": {
-            "rating": 2,
-            "_nf_id": "e2d560a1-421c-4ab9-9b88-a2434e2fe7ab"
-          }
-        },
-        {
-          "m": {
-            "rating": 3,
-            "_nf_id": "78d93415-29fc-4b74-a041-cd458b26f88a"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"rating\": Number mismatch: 3 vs 2",
-    "setup": [
-      "CREATE (:Person {rating: 1})",
-      "CREATE (:Person {rating: 2})",
-      "CREATE (:Person {rating: 3})"
-    ]
-  },
-  {
-    "query": "MATCH (c:Director) RETURN c SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "c": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {
-              "age": 3
-            }
-          }
-        },
-        {
-          "c": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {
-              "age": 2
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "c": {
-            "age": 2,
-            "_nf_id": "6a32470e-f628-446e-85c8-cd316ef70391"
-          }
-        },
-        {
-          "c": {
-            "age": 3,
-            "_nf_id": "16280c1b-7a6b-4d07-8c76-c78bc2d388d3"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"age\": Number mismatch: 3 vs 2",
-    "setup": [
-      "CREATE (:Director {age: 1})",
-      "CREATE (:Director {age: 2})",
-      "CREATE (:Director {age: 3})"
-    ]
-  },
-  {
-    "query": "MATCH (m:Company) RETURN m.age, m",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "m.age": null,
-          "m": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "m.age": null,
-          "m": {
-            "age": null,
-            "_nf_id": "0a5597f5-470f-41d8-8748-e4e768d9745e"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
-    "setup": [
-      "CREATE (:Company {age: null})"
-    ]
-  },
-  {
-    "query": "MATCH (n:Director) RETURN DISTINCT n.name",
-    "category": "aggregation",
-    "feature": "aggregations",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n.name": 2
-        },
-        {
-          "n.name": 1
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n.name": 1
-        },
-        {
-          "n.name": 2
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Number mismatch: 2 vs 1",
-    "setup": [
-      "CREATE (:Director {name: 1})",
-      "CREATE (:Director {name: 1})",
-      "CREATE (:Director {name: 2})"
-    ]
-  },
-  {
-    "query": "RETURN ['test', true] <> {a: [{a: 25, b: 'hello'}, 'test'], b: 0}",
+    "query": "RETURN {a: -13, b: 'bar'}",
     "category": "expression",
     "feature": "expressions",
-    "status": "resolved",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "['test', true] <> {a: [{a: 25, b: 'hello'}, 'test'], b: 0}": true
+          "{a: -13, b: 'bar'}": {
+            "a": -13,
+            "b": "bar"
+          }
         }
       ]
     },
     "leangraphResult": {
-      "success": false,
-      "error": "near \"test\": syntax error"
+      "success": true,
+      "data": [
+        {
+          "expr": {
+            "a": -13,
+            "b": "bar"
+          }
+        }
+      ]
     },
-    "mismatch": "Leangraph error: near \"test\": syntax error"
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: -13, b: 'bar'}\":{\"a\":-13,\"b\":\"bar\"}}"
   },
   {
-    "query": "CREATE (a:Director)-[r:WORKS_FOR]->(b:Director) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
+    "query": "RETURN null > 'test'",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "WORKS_FOR",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          }
+          "null > 'test'": null
         }
       ]
     },
@@ -2211,28 +2445,22 @@
       "success": true,
       "data": [
         {
-          "a": {},
-          "b": {}
+          "NULL > 'test'": null
         }
       ]
     },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
+    "mismatch": "No matching row found for Neo4j row 0: {\"null > 'test'\":null}"
   },
   {
-    "query": "MATCH (n:Director) RETURN n.type, count(*) AS cnt",
-    "category": "aggregation",
-    "feature": "aggregations",
-    "status": "resolved",
+    "query": "RETURN null = 'foo'",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "n.type": "B",
-          "cnt": 1
-        },
-        {
-          "n.type": "A",
-          "cnt": 2
+          "null = 'foo'": null
         }
       ]
     },
@@ -2240,32 +2468,22 @@
       "success": true,
       "data": [
         {
-          "n.type": "A",
-          "cnt": 2
-        },
-        {
-          "n.type": "B",
-          "cnt": 1
+          "NULL = 'foo'": null
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: String mismatch: \"B\" vs \"A\"",
-    "setup": [
-      "CREATE (:Director {type: 'A'})",
-      "CREATE (:Director {type: 'A'})",
-      "CREATE (:Director {type: 'B'})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"null = 'foo'\":null}"
   },
   {
-    "query": "CREATE (b:Company {year: false, active: true}) RETURN b.year",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
+    "query": "RETURN null > null",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "b.year": false
+          "null > null": null
         }
       ]
     },
@@ -2273,39 +2491,24 @@
       "success": true,
       "data": [
         {
-          "b.year": 0
+          "NULL > NULL": null
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: Type mismatch: boolean vs number"
+    "mismatch": "No matching row found for Neo4j row 0: {\"null > null\":null}"
   },
   {
-    "query": "CREATE (a:Director)-[r:FRIENDS_WITH]->(b:Director) RETURN a, r, b",
-    "category": "clause",
-    "feature": "create",
-    "status": "resolved",
+    "query": "RETURN {a: true, b: null}",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
-          },
-          "r": {
-            "_type": "relationship",
-            "type": "FRIENDS_WITH",
-            "properties": {}
-          },
-          "b": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {}
+          "{a: true, b: null}": {
+            "a": true,
+            "b": null
           }
         }
       ]
@@ -2314,28 +2517,25 @@
       "success": true,
       "data": [
         {
-          "a": {},
-          "b": {}
+          "expr": {
+            "a": true,
+            "b": null
+          }
         }
       ]
     },
-    "mismatch": "Row 0: Column count mismatch: Neo4j=3, Leangraph=2"
+    "mismatch": "No matching row found for Neo4j row 0: {\"{a: true, b: null}\":{\"a\":true,\"b\":null}}"
   },
   {
-    "query": "MATCH (n:Person) RETURN n.type, count(*) AS cnt",
-    "category": "aggregation",
-    "feature": "aggregations",
-    "status": "resolved",
+    "query": "RETURN [null, 'foo'] = true",
+    "category": "expression",
+    "feature": "expressions",
+    "status": "fail",
     "neo4jResult": {
       "success": true,
       "data": [
         {
-          "n.type": "B",
-          "cnt": 1
-        },
-        {
-          "n.type": "A",
-          "cnt": 2
+          "[null, 'foo'] = true": false
         }
       ]
     },
@@ -2343,243 +2543,10 @@
       "success": true,
       "data": [
         {
-          "n.type": "A",
-          "cnt": 2
-        },
-        {
-          "n.type": "B",
-          "cnt": 1
+          "[null,\"foo\"] = true": false
         }
       ]
     },
-    "mismatch": "Row 0: Column 0: String mismatch: \"B\" vs \"A\"",
-    "setup": [
-      "CREATE (:Person {type: 'A'})",
-      "CREATE (:Person {type: 'A'})",
-      "CREATE (:Person {type: 'B'})"
-    ]
-  },
-  {
-    "query": "MATCH (y:Company) RETURN y.year, y",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "y.year": null,
-          "y": {
-            "_type": "node",
-            "labels": [
-              "Company"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "y.year": null,
-          "y": {
-            "year": null,
-            "_nf_id": "077fa80e-0d27-4d29-97c5-6f97db3feeda"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
-    "setup": [
-      "CREATE (:Company {year: null})"
-    ]
-  },
-  {
-    "query": "MATCH (p:Movie) RETURN p SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {
-              "score": 1
-            }
-          }
-        },
-        {
-          "p": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {
-              "score": 3
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "p": {
-            "score": 2,
-            "_nf_id": "c33246ae-0607-4a8b-9c98-a76af05d152b"
-          }
-        },
-        {
-          "p": {
-            "score": 3,
-            "_nf_id": "6c80bbb5-4507-475d-9e1e-278b126a3b0e"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"score\": Number mismatch: 1 vs 2",
-    "setup": [
-      "CREATE (:Movie {score: 1})",
-      "CREATE (:Movie {score: 2})",
-      "CREATE (:Movie {score: 3})"
-    ]
-  },
-  {
-    "query": "MATCH (n:Person) RETURN n.name, n",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "n.name": null,
-          "n": {
-            "_type": "node",
-            "labels": [
-              "Person"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "n.name": null,
-          "n": {
-            "name": null,
-            "_nf_id": "4ce06531-8a8b-4244-81d5-3699f74b1b6e"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
-    "setup": [
-      "CREATE (:Person {name: null})"
-    ]
-  },
-  {
-    "query": "MATCH (r:Movie) RETURN r.age, r",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "r.age": null,
-          "r": {
-            "_type": "node",
-            "labels": [
-              "Movie"
-            ],
-            "properties": {}
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "r.age": null,
-          "r": {
-            "age": null,
-            "_nf_id": "9e3c78f5-33cb-4603-9fd7-ec25a10d4321"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 1: Property count mismatch: 0 vs 1",
-    "setup": [
-      "CREATE (:Movie {age: null})"
-    ]
-  },
-  {
-    "query": "MATCH (a:Director) RETURN a SKIP 1 LIMIT 2",
-    "category": "pattern",
-    "feature": "match",
-    "status": "resolved",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {
-              "age": 3
-            }
-          }
-        },
-        {
-          "a": {
-            "_type": "node",
-            "labels": [
-              "Director"
-            ],
-            "properties": {
-              "age": 1
-            }
-          }
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "a": {
-            "age": 2,
-            "_nf_id": "6c377ac9-5d59-4991-94b3-61d4a70866ce"
-          }
-        },
-        {
-          "a": {
-            "age": 3,
-            "_nf_id": "71bd8ffc-e6a0-4d33-8db2-ef056aab7291"
-          }
-        }
-      ]
-    },
-    "mismatch": "Row 0: Column 0: Property \"age\": Number mismatch: 3 vs 2",
-    "setup": [
-      "CREATE (:Director {age: 1})",
-      "CREATE (:Director {age: 2})",
-      "CREATE (:Director {age: 3})"
-    ]
+    "mismatch": "No matching row found for Neo4j row 0: {\"[null, 'foo'] = true\":false}"
   }
 ]

@@ -18,6 +18,14 @@ export interface ComparisonResult {
 }
 
 /**
+ * Check if a query has an explicit ORDER BY clause.
+ */
+function hasOrderBy(query: string): boolean {
+  // Case-insensitive check for ORDER BY
+  return /\bORDER\s+BY\b/i.test(query);
+}
+
+/**
  * Compare results from Neo4j and leangraph.
  */
 export function compareResults(
@@ -57,7 +65,9 @@ export function compareResults(
   }
 
   // Both succeeded - compare data
-  const dataMatch = compareData(neo4j.data!, leangraph.data!);
+  // If no ORDER BY, compare as unordered sets (order doesn't matter)
+  const requireOrder = hasOrderBy(query);
+  const dataMatch = compareData(neo4j.data!, leangraph.data!, requireOrder);
   if (!dataMatch.match) {
     return {
       query,
@@ -89,8 +99,13 @@ interface DataComparison {
 
 /**
  * Compare two result data arrays.
+ * If requireOrder is false, compare as unordered sets.
  */
-function compareData(neo4j: unknown[], leangraph: unknown[]): DataComparison {
+function compareData(
+  neo4j: unknown[],
+  leangraph: unknown[],
+  requireOrder: boolean
+): DataComparison {
   // Check row count
   if (neo4j.length !== leangraph.length) {
     return {
@@ -99,14 +114,38 @@ function compareData(neo4j: unknown[], leangraph: unknown[]): DataComparison {
     };
   }
 
-  // Compare each row
-  for (let i = 0; i < neo4j.length; i++) {
-    const rowMatch = compareValues(neo4j[i], leangraph[i]);
-    if (!rowMatch.match) {
-      return {
-        match: false,
-        reason: `Row ${i}: ${rowMatch.reason}`,
-      };
+  if (requireOrder) {
+    // Compare each row in order
+    for (let i = 0; i < neo4j.length; i++) {
+      const rowMatch = compareValues(neo4j[i], leangraph[i]);
+      if (!rowMatch.match) {
+        return {
+          match: false,
+          reason: `Row ${i}: ${rowMatch.reason}`,
+        };
+      }
+    }
+  } else {
+    // Compare as unordered sets - each Neo4j row must have a matching Leangraph row
+    const usedIndices = new Set<number>();
+
+    for (let i = 0; i < neo4j.length; i++) {
+      let found = false;
+      for (let j = 0; j < leangraph.length; j++) {
+        if (usedIndices.has(j)) continue;
+        const rowMatch = compareValues(neo4j[i], leangraph[j]);
+        if (rowMatch.match) {
+          usedIndices.add(j);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return {
+          match: false,
+          reason: `No matching row found for Neo4j row ${i}: ${JSON.stringify(neo4j[i])}`,
+        };
+      }
     }
   }
 

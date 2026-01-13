@@ -4939,5 +4939,24 @@ describe("CypherQueries.json Patterns", () => {
         expect(rel.type).toBe("KNOWS");
       });
     });
+
+    describe("Boolean type preservation", () => {
+      it("preserves boolean type when returning node property", async () => {
+        // Boolean values should be returned as true/false, not 1/0
+        const result = await exec("CREATE (n:TestBool {active: true}) RETURN n.active");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["n.active"]).toBe(true);
+        expect(typeof result.data[0]["n.active"]).toBe("boolean");
+      });
+
+      it("preserves false boolean type", async () => {
+        const result = await exec("CREATE (n:TestBool {active: false}) RETURN n.active");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["n.active"]).toBe(false);
+        expect(typeof result.data[0]["n.active"]).toBe("boolean");
+      });
+    });
   });
 });

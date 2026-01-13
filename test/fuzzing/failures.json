@@ -208,7 +208,7 @@
     "query": "CREATE (n:Director {active: true, active: true}) RETURN n.active",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1081,7 +1081,7 @@
     "query": "CREATE (x:Director {age: false, active: true}) RETURN x.age",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1188,7 +1188,7 @@
     "query": "CREATE (m:Actor {age: true, active: true}) RETURN m.age",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1211,7 +1211,7 @@
     "query": "CREATE (x:Company {active: 'foo', active: true}) RETURN x.active",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1618,7 +1618,7 @@
     "query": "CREATE (p:Person {rating: true, active: true}) RETURN p.rating",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1955,7 +1955,7 @@
     "query": "CREATE (m:Director {active: true, active: true}) RETURN m.active",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2260,7 +2260,7 @@
     "query": "CREATE (b:Company {year: false, active: true}) RETURN b.year",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

@@ -6813,23 +6813,30 @@ export class Executor {
         const id = createdIds.get(variable);
         
         if (id) {
-          // Try nodes first
+          // Try nodes first - fetch full properties to preserve boolean types
+          // (SQLite's json_extract returns 0/1 for booleans, losing type info)
           const nodeResult = this.db.execute(
-            `SELECT json_extract(properties, '$.${property}') as value FROM nodes WHERE id = ?`,
+            `SELECT properties FROM nodes WHERE id = ?`,
             [id]
           );
           
           if (nodeResult.rows.length > 0) {
-            resultRow[alias] = this.deepParseJson(nodeResult.rows[0].value);
+            const props = typeof nodeResult.rows[0].properties === "string"
+              ? JSON.parse(nodeResult.rows[0].properties)
+              : nodeResult.rows[0].properties || {};
+            resultRow[alias] = props[property];
           } else {
             // Try edges if not found in nodes
             const edgeResult = this.db.execute(
-              `SELECT json_extract(properties, '$.${property}') as value FROM edges WHERE id = ?`,
+              `SELECT properties FROM edges WHERE id = ?`,
               [id]
             );
             
             if (edgeResult.rows.length > 0) {
-              resultRow[alias] = this.deepParseJson(edgeResult.rows[0].value);
+              const props = typeof edgeResult.rows[0].properties === "string"
+                ? JSON.parse(edgeResult.rows[0].properties)
+                : edgeResult.rows[0].properties || {};
+              resultRow[alias] = props[property];
             }
           }
         }

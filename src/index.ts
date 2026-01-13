@@ -76,6 +76,19 @@ export type { BackupResult, BackupStatus, BackupAllOptions } from "./backup.js";
 export { ApiKeyStore, authMiddleware, generateApiKey } from "./auth.js";
 export type { ApiKeyConfig, ValidationResult, KeyInfo } from "./auth.js";
 
+// Hybrid Engine (experimental)
+export { MemoryGraph, SubgraphLoader, HybridExecutor } from "./engine/index.js";
+export type {
+  Direction,
+  Path,
+  MemoryNode,
+  MemoryEdge,
+  SubgraphBounds,
+  PropertyFilter,
+  VarLengthPatternParams,
+  PatternResult,
+} from "./engine/index.js";
+
 // ============================================================================
 // Version
 // ============================================================================

@@ -23,7 +23,12 @@ src/
 ├── auth.ts        # API key authentication
 ├── backup.ts      # Backup utilities
 ├── cli.ts         # CLI entry point
-└── cli-helpers.ts # CLI utilities
+├── cli-helpers.ts # CLI utilities
+└── engine/        # Hybrid execution engine (experimental)
+    ├── memory-graph.ts      # In-memory graph structure
+    ├── subgraph-loader.ts   # SQL → memory loading
+    ├── hybrid-executor.ts   # Pattern matching engine
+    └── index.ts             # Public exports
 ```
 
 ## Development
@@ -88,6 +93,22 @@ cd benchmark && npm run benchmark -- -s micro -d leangraph
 - Translator maintains context (`ctx`) to track variables, aliases, patterns
 - Executor uses multi-phase execution for MATCH+CREATE/SET/DELETE queries
 - Tests mirror source structure: `test/parser.test.ts`, `test/translator.test.ts`, etc.
+
+## Hybrid Engine (Experimental)
+
+The `src/engine/` directory contains an experimental hybrid execution approach:
+- **SQL** for indexed anchor lookups and bulk data fetching
+- **In-memory traversal** for variable-length paths and pattern matching
+
+This achieves 5-17x speedup over pure SQL for multi-hop queries. See `src/engine/README.md` for details.
+
+```bash
+# Run engine tests
+npm test -- test/engine/
+
+# Run hybrid vs SQL benchmark
+npx tsx bench/hybrid-vs-sql.ts --nodes 5000
+```
 
 ## Implementation Notes
 

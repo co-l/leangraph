@@ -61,13 +61,32 @@ describe("QueryPlanner", () => {
       expect(isHybridCompatiblePattern(query)).toBe(true);
     });
 
-    it("accepts multi-hop pattern without var-length edge", () => {
-      // Multi-hop patterns benefit from hybrid even without var-length edges
+    it("accepts multi-hop pattern with anchor filter", () => {
+      // Multi-hop patterns benefit from hybrid when anchor is filtered
+      const query = parseQuery(`
+        MATCH (a:Person {id: 'p1'})-[:KNOWS]->(b:Person)-[:WORKS_AT]->(c:Company)
+        RETURN a, b, c
+      `);
+      expect(isHybridCompatiblePattern(query)).toBe(true);
+    });
+
+    it("accepts multi-hop pattern with WHERE anchor filter", () => {
+      // Multi-hop patterns benefit from hybrid when anchor is filtered via WHERE
+      const query = parseQuery(`
+        MATCH (a:Person)-[:KNOWS]->(b:Person)-[:WORKS_AT]->(c:Company)
+        WHERE a.id = 'p1'
+        RETURN a, b, c
+      `);
+      expect(isHybridCompatiblePattern(query)).toBe(true);
+    });
+
+    it("rejects multi-hop pattern without anchor filter", () => {
+      // Multi-hop without filter would load too many anchors
       const query = parseQuery(`
         MATCH (a:Person)-[:KNOWS]->(b:Person)-[:WORKS_AT]->(c:Company)
         RETURN a, b, c
       `);
-      expect(isHybridCompatiblePattern(query)).toBe(true);
+      expect(isHybridCompatiblePattern(query)).toBe(false);
     });
 
     it("accepts pattern with only one var-length relationship", () => {

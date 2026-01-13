@@ -224,6 +224,33 @@ function collectReferencedVars(condition: WhereCondition, vars: Set<string>): vo
 }
 
 /**
+ * Check if WHERE contains an equality filter on the anchor variable.
+ * This indicates the anchor set will be small (good for hybrid).
+ */
+function hasAnchorEqualityFilter(where: WhereCondition, anchorVar: string): boolean {
+  // Check if this condition is an equality comparison on the anchor
+  if (where.type === "comparison" && where.operator === "=") {
+    const leftIsAnchor = where.left?.type === "property" && where.left.variable === anchorVar;
+    const rightIsAnchor = where.right?.type === "property" && where.right.variable === anchorVar;
+    
+    // One side should be anchor property, other side should be a value/param
+    if (leftIsAnchor && where.right?.type !== "property") {
+      return true;
+    }
+    if (rightIsAnchor && where.left?.type !== "property") {
+      return true;
+    }
+  }
+  
+  // Check AND conditions (any equality filter is sufficient)
+  if (where.type === "and" && where.conditions) {
+    return where.conditions.some(c => hasAnchorEqualityFilter(c, anchorVar));
+  }
+  
+  return false;
+}
+
+/**
  * Convert edge direction from parser format to Direction type.
  */
 function edgeDirectionToDirection(direction: "left" | "right" | "none"): Direction {
@@ -328,15 +355,36 @@ export function isHybridCompatiblePattern(query: Query): boolean {
     return false;
   }
 
-  // Suitable for hybrid if:
-  // - Has at least one variable-length edge, OR
-  // - Has 2+ relationship patterns (multi-hop traversal benefits from hybrid)
+  // Suitable for hybrid if has at least one variable-length edge
   const hasVarLength = relPatterns.some(
     (rel) => rel.edge.minHops !== undefined || rel.edge.maxHops !== undefined
   );
+  
+  // Multi-hop fixed-length patterns (2+ hops) benefit from hybrid ONLY if
+  // the anchor node is filtered (otherwise SQL join is more efficient)
   const isMultiHop = relPatterns.length >= 2;
+  
   if (!hasVarLength && !isMultiHop) {
     return false;
+  }
+  
+  // For multi-hop without var-length, require anchor filtering
+  if (isMultiHop && !hasVarLength) {
+    const anchorNode = relPatterns[0].source;
+    const anchorVar = anchorNode.variable;
+    
+    // Check for inline property filter on anchor
+    const hasInlineFilter = anchorNode.properties && Object.keys(anchorNode.properties).length > 0;
+    
+    // Check for WHERE clause filtering anchor with equality
+    let hasWhereFilter = false;
+    if (matchClause.where && anchorVar) {
+      hasWhereFilter = hasAnchorEqualityFilter(matchClause.where, anchorVar);
+    }
+    
+    if (!hasInlineFilter && !hasWhereFilter) {
+      return false;
+    }
   }
 
   // Must not have relationship property predicates (not supported in hybrid)

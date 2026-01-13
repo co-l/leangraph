@@ -22,6 +22,10 @@ export interface PropertyFilter {
   [key: string]: unknown;
 }
 
+// SQLite default limit is 999 variables per query
+// Use a conservative batch size to leave room for other params
+const SQL_VARIABLE_BATCH_SIZE = 400;
+
 export class SubgraphLoader {
   constructor(private db: GraphDatabase) {}
 
@@ -72,37 +76,81 @@ export class SubgraphLoader {
       return MemoryGraph.fromRows([], []);
     }
 
-    // Bulk fetch nodes
+    // Bulk fetch nodes (in batches to avoid SQLite variable limit)
     const nodeIdArray = Array.from(nodeIds);
-    const nodePlaceholders = nodeIdArray.map(() => "?").join(",");
-    const nodeResult = this.db.execute(
-      `SELECT id, label, properties FROM nodes WHERE id IN (${nodePlaceholders})`,
-      nodeIdArray
-    );
-    const nodeRows: MemNodeRow[] = nodeResult.rows.map((row) => {
-      const r = row as unknown as NodeRow;
-      return { id: r.id, label: r.label, properties: r.properties };
-    });
+    const nodeRows: MemNodeRow[] = [];
+    
+    for (let i = 0; i < nodeIdArray.length; i += SQL_VARIABLE_BATCH_SIZE) {
+      const batch = nodeIdArray.slice(i, i + SQL_VARIABLE_BATCH_SIZE);
+      const placeholders = batch.map(() => "?").join(",");
+      const result = this.db.execute(
+        `SELECT id, label, properties FROM nodes WHERE id IN (${placeholders})`,
+        batch
+      );
+      for (const row of result.rows) {
+        const r = row as unknown as NodeRow;
+        nodeRows.push({ id: r.id, label: r.label, properties: r.properties });
+      }
+    }
 
-    // Bulk fetch edges between loaded nodes
-    // Only include edges where both endpoints are in our subgraph
-    const edgeResult = this.db.execute(
-      `SELECT id, type, source_id, target_id, properties 
-       FROM edges 
-       WHERE source_id IN (${nodePlaceholders}) 
-         AND target_id IN (${nodePlaceholders})`,
-      [...nodeIdArray, ...nodeIdArray]
-    );
-    const edgeRows: MemEdgeRow[] = edgeResult.rows.map((row) => {
-      const r = row as unknown as EdgeRow;
-      return {
-        id: r.id,
-        type: r.type,
-        source_id: r.source_id,
-        target_id: r.target_id,
-        properties: r.properties,
-      };
-    });
+    // Bulk fetch edges between loaded nodes (in batches)
+    // Use temp table approach for large sets to avoid O(n^2) batching
+    const edgeRows: MemEdgeRow[] = [];
+    
+    if (nodeIdArray.length <= SQL_VARIABLE_BATCH_SIZE) {
+      // Small set: simple IN clause
+      const placeholders = nodeIdArray.map(() => "?").join(",");
+      const result = this.db.execute(
+        `SELECT id, type, source_id, target_id, properties 
+         FROM edges 
+         WHERE source_id IN (${placeholders}) 
+           AND target_id IN (${placeholders})`,
+        [...nodeIdArray, ...nodeIdArray]
+      );
+      for (const row of result.rows) {
+        const r = row as unknown as EdgeRow;
+        edgeRows.push({
+          id: r.id,
+          type: r.type,
+          source_id: r.source_id,
+          target_id: r.target_id,
+          properties: r.properties,
+        });
+      }
+    } else {
+      // Large set: use temp table to avoid variable limit
+      this.db.execute(`CREATE TEMP TABLE IF NOT EXISTS _subgraph_nodes (id TEXT PRIMARY KEY)`, []);
+      this.db.execute(`DELETE FROM _subgraph_nodes`, []);
+      
+      // Insert node IDs in batches
+      for (let i = 0; i < nodeIdArray.length; i += SQL_VARIABLE_BATCH_SIZE) {
+        const batch = nodeIdArray.slice(i, i + SQL_VARIABLE_BATCH_SIZE);
+        const placeholders = batch.map(() => "(?)").join(",");
+        this.db.execute(
+          `INSERT INTO _subgraph_nodes (id) VALUES ${placeholders}`,
+          batch
+        );
+      }
+      
+      // Query edges using temp table join
+      const result = this.db.execute(
+        `SELECT e.id, e.type, e.source_id, e.target_id, e.properties 
+         FROM edges e
+         INNER JOIN _subgraph_nodes s ON e.source_id = s.id
+         INNER JOIN _subgraph_nodes t ON e.target_id = t.id`,
+        []
+      );
+      for (const row of result.rows) {
+        const r = row as unknown as EdgeRow;
+        edgeRows.push({
+          id: r.id,
+          type: r.type,
+          source_id: r.source_id,
+          target_id: r.target_id,
+          properties: r.properties,
+        });
+      }
+    }
 
     return MemoryGraph.fromRows(nodeRows, edgeRows);
   }

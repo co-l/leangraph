@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-set -o pipefail
-# Pre-commit hook: run build and tests before committing
 
-echo "Running build..."
-npm run build 2>&1 | tail -8 || { echo "Build failed. Commit aborted."; exit 1; }
+run_step() {
+  local name="$1"
+  local cmd="$2"
+  printf "%s... " "$name"
+  if output=$(eval "$cmd" 2>&1); then
+    echo "✓"
+  else
+    echo "✗"
+    echo "$output" | tail -20
+    exit 1
+  fi
+}
 
-echo "Running local tests..."
-npm test 2>&1 | tail -8 || { echo "Local tests failed. Commit aborted."; exit 1; }
-
-echo "Running remote tests..."
-npm run test:remote 2>&1 | tail -8 || { echo "Remote tests failed. Commit aborted."; exit 1; }
-
-echo "All tests passed."
+run_step "Build" "npm run build"
+run_step "Tests" "npm test"
+run_step "Remote tests" "npm run test:remote"

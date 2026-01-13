@@ -2110,4 +2110,67 @@ describe("Parser", () => {
       expect(err.message).toContain("Unterminated block comment");
     });
   });
+
+  describe("CREATE INDEX", () => {
+    it("parses CREATE INDEX ON (property)", () => {
+      const query = expectSuccess("CREATE INDEX ON (id)");
+      expect(query.clauses).toHaveLength(1);
+      expect(query.clauses[0]).toEqual({
+        type: "CREATE_INDEX",
+        property: "id",
+        indexName: null,
+      });
+    });
+
+    it("parses CREATE INDEX ON :Label(property)", () => {
+      const query = expectSuccess("CREATE INDEX ON :User(id)");
+      expect(query.clauses[0]).toEqual({
+        type: "CREATE_INDEX",
+        property: "id",
+        indexName: null,
+      });
+    });
+
+    it("parses CREATE INDEX name ON (property)", () => {
+      const query = expectSuccess("CREATE INDEX myIdx ON (email)");
+      expect(query.clauses[0]).toEqual({
+        type: "CREATE_INDEX",
+        property: "email",
+        indexName: "myIdx",
+      });
+    });
+
+    it("parses CREATE INDEX name ON :Label(property)", () => {
+      const query = expectSuccess("CREATE INDEX idx_user_email ON :User(email)");
+      expect(query.clauses[0]).toEqual({
+        type: "CREATE_INDEX",
+        property: "email",
+        indexName: "idx_user_email",
+      });
+    });
+
+    it("handles lowercase keywords", () => {
+      const query = expectSuccess("create index on (name)");
+      expect(query.clauses[0].type).toBe("CREATE_INDEX");
+    });
+  });
+
+  describe("DROP INDEX", () => {
+    it("parses DROP INDEX name", () => {
+      const query = expectSuccess("DROP INDEX idx_id");
+      expect(query.clauses).toHaveLength(1);
+      expect(query.clauses[0]).toEqual({
+        type: "DROP_INDEX",
+        indexName: "idx_id",
+      });
+    });
+
+    it("handles lowercase keywords", () => {
+      const query = expectSuccess("drop index myIndex");
+      expect(query.clauses[0]).toEqual({
+        type: "DROP_INDEX",
+        indexName: "myIndex",
+      });
+    });
+  });
 });

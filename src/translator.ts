@@ -14,6 +14,8 @@ import {
   UnwindClause,
   UnionClause,
   CallClause,
+  CreateIndexClause,
+  DropIndexClause,
   NodePattern,
   RelationshipPattern,
   EdgePattern,
@@ -248,6 +250,10 @@ export class Translator {
         return this.translateUnion(clause as UnionClause);
       case "CALL":
         return this.translateCall(clause as CallClause);
+      case "CREATE_INDEX":
+        return { statements: this.translateCreateIndex(clause as CreateIndexClause) };
+      case "DROP_INDEX":
+        return { statements: this.translateDropIndex(clause as DropIndexClause) };
       default:
         throw new Error(`Unknown clause type: ${(clause as Clause).type}`);
     }
@@ -404,6 +410,31 @@ export class Translator {
     });
 
     return statements;
+  }
+
+  // ============================================================================
+  // CREATE INDEX / DROP INDEX
+  // ============================================================================
+
+  /**
+   * Translate CREATE INDEX to SQL.
+   * Creates a global index on a JSON property (not filtered by label).
+   * 
+   * Syntax: CREATE INDEX [name] ON [:Label](property)
+   * The :Label is optional and ignored (global index) - only used if no custom name provided.
+   */
+  private translateCreateIndex(clause: CreateIndexClause): SqlStatement[] {
+    const indexName = clause.indexName || `idx_${clause.property}`;
+    const sql = `CREATE INDEX IF NOT EXISTS ${indexName} ON nodes(json_extract(properties, '$.${clause.property}'))`;
+    return [{ sql, params: [] }];
+  }
+
+  /**
+   * Translate DROP INDEX to SQL.
+   */
+  private translateDropIndex(clause: DropIndexClause): SqlStatement[] {
+    const sql = `DROP INDEX IF EXISTS ${clause.indexName}`;
+    return [{ sql, params: [] }];
   }
 
   // ============================================================================

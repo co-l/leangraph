@@ -78,3 +78,30 @@ export interface Loader {
   name: DatabaseType;
   load(config: ScaleConfig, onProgress?: (msg: string) => void): Promise<LoadResult>;
 }
+
+// Global Score Types
+export type ScoreCategory = "advantage" | "competitive" | "tradeoff";
+
+export interface MetricComparison {
+  metric: string;
+  category: ScoreCategory;
+  leangraphValue: number;
+  comparisons: {
+    database: DatabaseType;
+    value: number;
+    ratio: number; // >1 means LeanGraph is better
+    formatted: string; // e.g., "2.3x faster"
+  }[];
+}
+
+export interface GlobalScore {
+  advantages: MetricComparison[]; // LeanGraph >2x better
+  competitive: MetricComparison[]; // Within 0.5x-2x
+  tradeoffs: MetricComparison[]; // LeanGraph >2x worse
+  summary: {
+    wins: number;
+    competitive: number;
+    tradeoffs: number;
+    total: number;
+  };
+}

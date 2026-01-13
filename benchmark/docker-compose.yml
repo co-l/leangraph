@@ -3,8 +3,8 @@ services:
     image: neo4j:3.5
     container_name: benchmark-neo4j
     ports:
-      - "7474:7474"  # HTTP (browser)
-      - "7687:7687"  # Bolt
+      - "17474:7474"  # HTTP (browser) - avoid conflict with local Neo4j
+      - "17687:7687"  # Bolt - avoid conflict with local Neo4j
     environment:
       NEO4J_AUTH: neo4j/benchmark123
       # Neo4j 3.5 uses underscores in env vars, not dots
@@ -24,7 +24,7 @@ services:
     image: memgraph/memgraph:2.18.0
     container_name: benchmark-memgraph
     ports:
-      - "7688:7687"  # Bolt on different port
+      - "17688:7687"  # Bolt - avoid conflict with local Neo4j
     volumes:
       - ./benchmark-data/memgraph:/var/lib/memgraph
     healthcheck:

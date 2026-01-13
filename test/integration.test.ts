@@ -2680,4 +2680,99 @@ describe("Integration Tests", () => {
       expect(result.data).toHaveLength(2);
     });
   });
+
+  describe("CREATE INDEX and DROP INDEX", () => {
+    it("creates index and verifies it exists", async () => {
+      const db = client.getDatabase();
+      if (!db) return; // Skip in remote mode - requires direct SQLite access
+
+      const result = await client.execute("CREATE INDEX ON (id)");
+      expect(result.success).toBe(true);
+
+      // Verify index was created by checking sqlite_master
+      const indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_id'"
+      );
+      expect(indexes.rows.length).toBe(1);
+    });
+
+    it("creates index with custom name", async () => {
+      const db = client.getDatabase();
+      if (!db) return; // Skip in remote mode - requires direct SQLite access
+
+      const result = await client.execute("CREATE INDEX my_custom_idx ON (email)");
+      expect(result.success).toBe(true);
+
+      const indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='my_custom_idx'"
+      );
+      expect(indexes.rows.length).toBe(1);
+    });
+
+    it("creates index with label syntax (label ignored)", async () => {
+      const db = client.getDatabase();
+      if (!db) return; // Skip in remote mode - requires direct SQLite access
+
+      const result = await client.execute("CREATE INDEX ON :User(name)");
+      expect(result.success).toBe(true);
+
+      // Index should be named idx_name (not idx_User_name)
+      const indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_name'"
+      );
+      expect(indexes.rows.length).toBe(1);
+    });
+
+    it("drops index", async () => {
+      const db = client.getDatabase();
+      if (!db) return; // Skip in remote mode - requires direct SQLite access
+
+      // Create first
+      await client.execute("CREATE INDEX idx_to_drop ON (test_prop)");
+
+      // Verify it exists
+      let indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_to_drop'"
+      );
+      expect(indexes.rows.length).toBe(1);
+
+      // Drop it
+      const result = await client.execute("DROP INDEX idx_to_drop");
+      expect(result.success).toBe(true);
+
+      // Verify it's gone
+      indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_to_drop'"
+      );
+      expect(indexes.rows.length).toBe(0);
+    });
+
+    it("improves query performance with index", async () => {
+      // Create many nodes
+      for (let i = 0; i < 1000; i++) {
+        await client.execute(`CREATE (n:User {id: 'user-${i}', name: 'User ${i}'})`);
+      }
+
+      // Query without index - measure time
+      const startNoIndex = performance.now();
+      for (let i = 0; i < 10; i++) {
+        await client.execute("MATCH (u:User {id: 'user-500'}) RETURN u");
+      }
+      const timeNoIndex = performance.now() - startNoIndex;
+
+      // Create index
+      await client.execute("CREATE INDEX ON (id)");
+
+      // Query with index - measure time
+      const startWithIndex = performance.now();
+      for (let i = 0; i < 10; i++) {
+        await client.execute("MATCH (u:User {id: 'user-500'}) RETURN u");
+      }
+      const timeWithIndex = performance.now() - startWithIndex;
+
+      // Index should provide significant speedup (at least 2x faster)
+      // Note: This is a rough test, actual speedup varies
+      expect(timeWithIndex).toBeLessThan(timeNoIndex);
+    });
+  });
 });

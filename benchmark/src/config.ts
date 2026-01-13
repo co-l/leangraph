@@ -45,13 +45,13 @@ export const BENCHMARK_CONFIG = {
 
   // Connection settings
   neo4j: {
-    uri: "bolt://localhost:7687",
+    uri: "bolt://localhost:17687",
     user: "neo4j",
     password: "benchmark123",
   },
 
   memgraph: {
-    uri: "bolt://localhost:7688",
+    uri: "bolt://localhost:17688",
     user: "",
     password: "",
   },

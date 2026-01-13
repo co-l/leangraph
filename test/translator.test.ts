@@ -2525,4 +2525,48 @@ describe("Translator", () => {
       });
     });
   });
+
+  describe("CREATE INDEX", () => {
+    it("generates global index SQL without label", () => {
+      const result = translateCypher("CREATE INDEX ON (id)");
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toBe(
+        "CREATE INDEX IF NOT EXISTS idx_id ON nodes(json_extract(properties, '$.id'))"
+      );
+    });
+
+    it("generates global index SQL with label (label ignored)", () => {
+      const result = translateCypher("CREATE INDEX ON :User(id)");
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toBe(
+        "CREATE INDEX IF NOT EXISTS idx_id ON nodes(json_extract(properties, '$.id'))"
+      );
+    });
+
+    it("uses custom index name when provided", () => {
+      const result = translateCypher("CREATE INDEX myIdx ON (email)");
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toBe(
+        "CREATE INDEX IF NOT EXISTS myIdx ON nodes(json_extract(properties, '$.email'))"
+      );
+    });
+
+    it("handles property names with special characters", () => {
+      const result = translateCypher("CREATE INDEX ON (user_id)");
+      expect(result.statements[0].sql).toContain("$.user_id");
+    });
+  });
+
+  describe("DROP INDEX", () => {
+    it("generates DROP INDEX SQL", () => {
+      const result = translateCypher("DROP INDEX idx_id");
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toBe("DROP INDEX IF EXISTS idx_id");
+    });
+
+    it("handles index names with underscores", () => {
+      const result = translateCypher("DROP INDEX idx_user_email");
+      expect(result.statements[0].sql).toBe("DROP INDEX IF EXISTS idx_user_email");
+    });
+  });
 });

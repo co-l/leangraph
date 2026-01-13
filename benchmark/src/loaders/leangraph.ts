@@ -258,6 +258,14 @@ export async function loadLeanGraph(
     }
   }
 
+  // Create property indexes for fair comparison with Neo4j/Memgraph
+  // These match the indexes created in neo4j.ts and memgraph.ts loaders
+  log("LeanGraph: Creating property indexes...");
+  const executor = new Executor(db);
+  executor.execute("CREATE INDEX ON (id)");
+  executor.execute("CREATE INDEX ON (email)");
+  executor.execute("CREATE INDEX ON (category)");
+
   db.close();
 
   const timeSeconds = (performance.now() - startTime) / 1000;

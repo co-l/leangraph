@@ -32,7 +32,7 @@ import type {
   Runner,
   ResourceUsage,
 } from "./types.js";
-import { writeReports, formatTimestamp } from "./report-generators.js";
+import { writeReports, formatTimestamp, calculateGlobalScore, formatGlobalScoreText } from "./report-generators.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -444,6 +444,14 @@ runBenchmark()
         const avg = times.reduce((a, b) => a + b, 0) / times.length;
         console.log(`    ${cat} avg p50: ${formatMs(avg)}`);
       }
+    }
+
+    // Print global score if we have competitors
+    const score = calculateGlobalScore(results);
+    if (score) {
+      console.log();
+      console.log("LeanGraph Score:");
+      console.log(formatGlobalScoreText(score).split('\n').map(l => '  ' + l).join('\n'));
     }
 
     // Save results and generate reports

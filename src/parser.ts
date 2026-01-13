@@ -299,6 +299,17 @@ export interface ForeachClause {
   body: Clause[]; // The clauses to execute for each item
 }
 
+export interface CreateIndexClause {
+  type: "CREATE_INDEX";
+  property: string; // The property to index
+  indexName: string | null; // Optional custom index name
+}
+
+export interface DropIndexClause {
+  type: "DROP_INDEX";
+  indexName: string; // The index name to drop
+}
+
 export type Clause =
   | CreateClause
   | MatchClause
@@ -311,7 +322,9 @@ export type Clause =
   | UnwindClause
   | UnionClause
   | CallClause
-  | ForeachClause;
+  | ForeachClause
+  | CreateIndexClause
+  | DropIndexClause;
 
 export interface Query {
   clauses: Clause[];
@@ -429,6 +442,8 @@ const KEYWORDS = new Set([
   "FOREACH",
   "EXPLAIN",
   "PROFILE",
+  "INDEX",
+  "DROP",
 ]);
 
 class Tokenizer {
@@ -1160,13 +1175,21 @@ export class Parser {
         return this.parseCall();
       case "FOREACH":
         return this.parseForeach();
+      case "DROP":
+        return this.parseDropIndex();
       default:
         throw new Error(`Unexpected keyword '${token.value}'`);
     }
   }
 
-  private parseCreate(): CreateClause {
+  private parseCreate(): CreateClause | CreateIndexClause {
     this.expect("KEYWORD", "CREATE");
+    
+    // Check if this is CREATE INDEX
+    if (this.check("KEYWORD") && this.peek().value === "INDEX") {
+      return this.parseCreateIndex();
+    }
+    
     const patterns: (NodePattern | RelationshipPattern)[] = [];
 
     const prevAllowParamMap = this.allowParameterMapInNodePattern;
@@ -1203,6 +1226,65 @@ export class Parser {
     }
 
     return { type: "CREATE", patterns };
+  }
+
+  /**
+   * Parse CREATE INDEX statement
+   * Syntax: CREATE INDEX [name] ON [:Label](property)
+   */
+  private parseCreateIndex(): CreateIndexClause {
+    this.expect("KEYWORD", "INDEX");
+    
+    let indexName: string | null = null;
+    
+    // Check if there's a custom index name before ON
+    if (this.check("IDENTIFIER")) {
+      indexName = this.advance().value;
+    }
+    
+    this.expect("KEYWORD", "ON");
+    
+    // Optional :Label - we parse it but don't use it (global index)
+    if (this.check("COLON")) {
+      this.advance(); // consume :
+      if (this.check("IDENTIFIER") || this.check("KEYWORD")) {
+        this.advance(); // consume label name, but we ignore it
+      }
+    }
+    
+    // Parse (property)
+    this.expect("LPAREN");
+    const propertyToken = this.advance();
+    if (propertyToken.type !== "IDENTIFIER" && propertyToken.type !== "KEYWORD") {
+      throw new Error(`Expected property name, got ${propertyToken.type}`);
+    }
+    const property = propertyToken.value;
+    this.expect("RPAREN");
+    
+    return {
+      type: "CREATE_INDEX",
+      property,
+      indexName,
+    };
+  }
+
+  /**
+   * Parse DROP INDEX statement
+   * Syntax: DROP INDEX name
+   */
+  private parseDropIndex(): DropIndexClause {
+    this.expect("KEYWORD", "DROP");
+    this.expect("KEYWORD", "INDEX");
+    
+    const nameToken = this.advance();
+    if (nameToken.type !== "IDENTIFIER" && nameToken.type !== "KEYWORD") {
+      throw new Error(`Expected index name, got ${nameToken.type}`);
+    }
+    
+    return {
+      type: "DROP_INDEX",
+      indexName: nameToken.value,
+    };
   }
 
   private parseMatch(optional: boolean = false): MatchClause {
@@ -1818,12 +1900,12 @@ export class Parser {
   private parseCall(): CallClause {
     this.expect("KEYWORD", "CALL");
 
-    // Parse procedure name (e.g., "db.labels" or "db.relationshipTypes")
-    // Procedure names can have dots, so we parse identifier.identifier...
-    let procedureName = this.expectIdentifier();
+    // Parse procedure name (e.g., "db.labels" or "db.index.fulltext.queryNodes")
+    // Procedure names can have dots and may contain keywords like "index"
+    let procedureName = this.expectIdentifierOrKeyword();
     while (this.check("DOT")) {
       this.advance();
-      procedureName += "." + this.expectIdentifier();
+      procedureName += "." + this.expectIdentifierOrKeyword();
     }
 
     // Parse arguments in parentheses

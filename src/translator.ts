@@ -10695,13 +10695,15 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     if (expr.operator === "+" && leftIsList && !rightIsList) {
       // list + scalar: append scalar to list
       // Use json_quote() to properly convert any scalar (including strings) to JSON
+      // In Cypher, list + null returns null (not [list..., null])
       const leftArraySql = this.wrapForArray(expr.left!, leftResult.sql);
       const rightScalarSql = rightResult.sql;
       
+      // Params order: rightScalarSql (IS NULL) -> leftArraySql -> rightScalarSql (json_quote)
       return {
-        sql: `(SELECT json_group_array(value) FROM (${jsonEachWithBooleans(leftArraySql)} UNION ALL SELECT json_quote(${rightScalarSql})))`,
+        sql: `(CASE WHEN ${rightScalarSql} IS NULL THEN NULL ELSE (SELECT json_group_array(value) FROM (${jsonEachWithBooleans(leftArraySql)} UNION ALL SELECT json_quote(${rightScalarSql}))) END)`,
         tables,
-        params,
+        params: [...rightResult.params, ...leftResult.params, ...rightResult.params],
       };
     }
 
@@ -10751,13 +10753,15 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // scalar + list: prepend scalar to list (only for non-property scalars)
       // Use json_quote() to properly convert any scalar (including strings) to JSON
       // Use jsonEachWithBooleans to preserve boolean types in the list
+      // In Cypher, null + list returns null (not [null, list...])
       const leftScalarSql = leftResult.sql;
       const rightArraySql = this.wrapForArray(expr.right!, rightResult.sql);
       
+      // Params order: leftScalarSql (IS NULL) -> leftScalarSql (json_quote) -> rightArraySql
       return {
-        sql: `(SELECT json_group_array(value) FROM (SELECT json_quote(${leftScalarSql}) as value UNION ALL ${jsonEachWithBooleans(rightArraySql)}))`,
+        sql: `(CASE WHEN ${leftScalarSql} IS NULL THEN NULL ELSE (SELECT json_group_array(value) FROM (SELECT json_quote(${leftScalarSql}) as value UNION ALL ${jsonEachWithBooleans(rightArraySql)})) END)`,
         tables,
-        params,
+        params: [...leftResult.params, ...leftResult.params, ...rightResult.params],
       };
     }
     

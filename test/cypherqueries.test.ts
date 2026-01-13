@@ -5287,5 +5287,15 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].r).toBe(0);
     });
+
+    it("returns null when concatenating list with null value", async () => {
+      // Bug: list + null returns [list..., null] instead of null
+      // In Cypher, list + null should return null (not append null as element)
+      // 2 - null = null, then [-48, null] + null = null
+      const result = await exec("RETURN ([-48, null]) + (([1, 2, 3][1]) - (null)) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe(null);
+    });
   });
 });

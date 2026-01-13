@@ -1,30 +1,6 @@
 [
   {
-    "query": "RETURN (-32) ^ (61.23)",
-    "category": "expression",
-    "feature": "expressions",
-    "status": "wontfix",
-    "note": "False positive - both Neo4j and LeanGraph return null correctly",
-    "neo4jResult": {
-      "success": true,
-      "data": [
-        {
-          "(-32) ^ (61.23)": null
-        }
-      ]
-    },
-    "leangraphResult": {
-      "success": true,
-      "data": [
-        {
-          "(-32) ^ (61.23)": null
-        }
-      ]
-    },
-    "mismatch": "No matching row found for Neo4j row 0: {\"(-32) ^ (61.23)\":null}"
-  },
-  {
-    "query": "RETURN (((28) / (10)) - ([1, 2, 3][2])) / (3)",
+    "query": "RETURN ([-48, null]) + (([1, 2, 3][1]) - (null))",
     "category": "expression",
     "feature": "expressions",
     "status": "resolved",
@@ -32,7 +8,7 @@
       "success": true,
       "data": [
         {
-          "(((28) / (10)) - ([1, 2, 3][2])) / (3)": 0
+          "([-48, null]) + (([1, 2, 3][1]) - (null))": null
         }
       ]
     },
@@ -40,10 +16,14 @@
       "success": true,
       "data": [
         {
-          "(((28) / (10)) - ([1, 2, 3][2])) / (3)": -0.3333333333333333
+          "([-48, null]) + (([1, 2, 3][1]) - (null))": [
+            -48,
+            null,
+            null
+          ]
         }
       ]
     },
-    "mismatch": "No matching row found for Neo4j row 0: {\"(((28) / (10)) - ([1, 2, 3][2])) / (3)\":0}"
+    "mismatch": "No matching row found for Neo4j row 0: {\"([-48, null]) + (([1, 2, 3][1]) - (null))\":null}"
   }
 ]

@@ -1557,11 +1557,12 @@ describe("Translator", () => {
       expect(result.returnColumns).toEqual(["abs(n.balance)"]);
     });
 
-    it("generates ROUND for round()", () => {
+    it("generates round() using floor(x + 0.5) for half-up semantics", () => {
       const result = translateCypher("MATCH (n:Product) RETURN round(n.price)");
 
       expect(result.statements).toHaveLength(1);
-      expect(result.statements[0].sql).toContain("ROUND(");
+      // Uses floor(x + 0.5) pattern with CAST for "round half up" semantics
+      expect(result.statements[0].sql).toMatch(/CAST\(.*AS INTEGER\).*\+ 0\.5/);
       expect(result.returnColumns).toEqual(["round(n.price)"]);
     });
 
@@ -1992,7 +1993,8 @@ describe("Translator", () => {
       expect(setStmts).toHaveLength(2);
       
       expect(setStmts.find((s) => s.sql.includes("ABS("))).toBeDefined();
-      expect(setStmts.find((s) => s.sql.includes("ROUND("))).toBeDefined();
+      // round() uses floor(x + 0.5) pattern with CAST for "round half up" semantics
+      expect(setStmts.find((s) => s.sql.includes("+ 0.5"))).toBeDefined();
     });
 
     it("handles rand() in SET", () => {

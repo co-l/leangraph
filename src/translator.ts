@@ -6549,13 +6549,22 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
           throw new Error("abs requires an argument");
         }
 
-        // ROUND: round to nearest integer
+        // ROUND: round to nearest integer using "round half up" (toward positive infinity)
+        // Neo4j: round(-6.5) = -6, round(6.5) = 7
+        // SQLite's ROUND uses "round half away from zero" which gives -7 for -6.5
+        // We implement floor(x + 0.5) to get "round half up" semantics
         if (expr.functionName === "ROUND") {
           if (expr.args && expr.args.length > 0) {
             const argResult = this.translateFunctionArg(expr.args[0]);
             tables.push(...argResult.tables);
             params.push(...argResult.params);
-            return { sql: `ROUND(${argResult.sql})`, tables, params };
+            // floor(x + 0.5) gives "round half up" semantics
+            // SQLite CAST truncates toward zero, so we need proper floor for negatives
+            return { 
+              sql: `(SELECT CASE WHEN v >= 0 OR v = CAST(v AS INTEGER) THEN CAST(v AS INTEGER) ELSE CAST(v AS INTEGER) - 1 END FROM (SELECT (${argResult.sql} + 0.5) AS v))`,
+              tables, 
+              params 
+            };
           }
           throw new Error("round requires an argument");
         }

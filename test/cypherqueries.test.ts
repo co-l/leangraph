@@ -5268,5 +5268,14 @@ describe("CypherQueries.json Patterns", () => {
       expect(result.data).toHaveLength(1);
       expect(result.data[0].x).toBe(null);
     });
+
+    it("rounds negative half values toward positive infinity", async () => {
+      // Neo4j uses "round half up" (toward positive infinity)
+      // -6.5 rounds to -6 (up toward positive infinity), not -7
+      const result = await exec("RETURN round(-6.50) AS r");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].r).toBe(-6);
+    });
   });
 });

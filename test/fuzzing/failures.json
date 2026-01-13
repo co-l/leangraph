@@ -48,7 +48,7 @@
     "query": "MATCH (n:Company) RETURN DISTINCT n.title",
     "category": "aggregation",
     "feature": "aggregations",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -253,7 +253,7 @@
     "query": "MATCH (q:Person) RETURN q SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -480,7 +480,7 @@
     "query": "MATCH (y:Actor) RETURN y SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -536,7 +536,7 @@
     "query": "MATCH (q:Director) RETURN q SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -592,7 +592,7 @@
     "query": "MATCH (p:Director) RETURN p SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -685,7 +685,7 @@
     "query": "MATCH (n:Person) RETURN n SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1725,7 +1725,7 @@
     "query": "MATCH (n:Company) RETURN n SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1781,7 +1781,7 @@
     "query": "MATCH (p:Actor) RETURN p SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1837,7 +1837,7 @@
     "query": "MATCH (n:Movie) RETURN DISTINCT n.score",
     "category": "aggregation",
     "feature": "aggregations",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1921,7 +1921,7 @@
     "query": "MATCH (n:Person) RETURN DISTINCT n.name",
     "category": "aggregation",
     "feature": "aggregations",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1978,7 +1978,7 @@
     "query": "MATCH (m:Person) RETURN m SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2034,7 +2034,7 @@
     "query": "MATCH (c:Director) RETURN c SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2127,7 +2127,7 @@
     "query": "MATCH (n:Director) RETURN DISTINCT n.name",
     "category": "aggregation",
     "feature": "aggregations",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2222,7 +2222,7 @@
     "query": "MATCH (n:Director) RETURN n.type, count(*) AS cnt",
     "category": "aggregation",
     "feature": "aggregations",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2325,7 +2325,7 @@
     "query": "MATCH (n:Person) RETURN n.type, count(*) AS cnt",
     "category": "aggregation",
     "feature": "aggregations",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2400,7 +2400,7 @@
     "query": "MATCH (p:Movie) RETURN p SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2530,7 +2530,7 @@
     "query": "MATCH (a:Director) RETURN a SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

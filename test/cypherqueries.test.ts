@@ -5028,5 +5028,24 @@ describe("CypherQueries.json Patterns", () => {
         expect(node).not.toHaveProperty("year");
       });
     });
+
+    describe("DISTINCT ordering", () => {
+      it("RETURN DISTINCT returns all unique values (order not guaranteed)", async () => {
+        // Setup: create nodes with duplicate and unique values
+        await exec("CREATE (:TestCompany {title: 1})");
+        await exec("CREATE (:TestCompany {title: 1})");
+        await exec("CREATE (:TestCompany {title: 2})");
+
+        // Query DISTINCT - should return 2 unique values
+        // Note: Cypher does NOT guarantee order without ORDER BY
+        // Both Neo4j [2,1] and LeanGraph [1,2] are valid responses
+        const result = await exec("MATCH (n:TestCompany) RETURN DISTINCT n.title");
+
+        expect(result.data).toHaveLength(2);
+        // Order-independent check: verify both values are present
+        const titles = result.data.map((r) => r["n.title"]).sort();
+        expect(titles).toEqual([1, 2]);
+      });
+    });
   });
 });

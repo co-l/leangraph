@@ -15456,7 +15456,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
     }
 
-    return { json: JSON.stringify(resolved), params };
+    // In Neo4j/Cypher, setting a property to null means the property is not stored.
+    // Filter out properties with null values.
+    const filtered: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(resolved)) {
+      if (value !== null) {
+        filtered[key] = value;
+      }
+    }
+
+    return { json: JSON.stringify(filtered), params };
   }
 
   private isFunctionPropertyValue(value: PropertyValue): value is { type: "function"; name: string; args: PropertyValue[] } {

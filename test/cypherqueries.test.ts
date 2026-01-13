@@ -5015,5 +5015,18 @@ describe("CypherQueries.json Patterns", () => {
         expect(result.data[0].x).toBe(3);
       });
     });
+
+    describe("Null property handling in CREATE", () => {
+      it("does not store properties with null values", async () => {
+        // In Neo4j, setting a property to null during CREATE means the property is not stored
+        // CREATE (p:Director {year: null}) RETURN p should return node with empty properties
+        const result = await exec("CREATE (p:Director {year: null}) RETURN p");
+
+        expect(result.data).toHaveLength(1);
+        const node = result.data[0].p as Record<string, unknown>;
+        // The node should NOT have the 'year' property at all
+        expect(node).not.toHaveProperty("year");
+      });
+    });
   });
 });

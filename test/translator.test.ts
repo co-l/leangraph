@@ -53,13 +53,14 @@ describe("Translator", () => {
       expect(props).toEqual({ name: "Bob", age: 25 });
     });
 
-    it("handles boolean and null values", () => {
+    it("handles boolean values and filters out null", () => {
+      // In Cypher, setting a property to null means the property is not stored
       const result = translateCypher(
         "CREATE (n:Person {active: true, score: null})"
       );
 
       const props = JSON.parse(result.statements[0].params[2] as string);
-      expect(props).toEqual({ active: true, score: null });
+      expect(props).toEqual({ active: true }); // score: null is not stored
     });
 
     it("handles array values", () => {

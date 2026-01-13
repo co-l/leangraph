@@ -443,7 +443,7 @@
     "query": "MATCH (n:Movie) RETURN n.title, n",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -648,7 +648,7 @@
     "query": "MATCH (y:Actor) RETURN y.year, y",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -741,7 +741,7 @@
     "query": "MATCH (p:Movie) RETURN p.rating, p",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -778,7 +778,7 @@
     "query": "MATCH (q:Movie) RETURN q.rating, q",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -912,7 +912,7 @@
     "query": "CREATE (p:Director {year: null}) RETURN p",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -985,7 +985,7 @@
     "query": "CREATE (n:Person {name: null}) RETURN n",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1472,7 +1472,7 @@
     "query": "CREATE (x:Company {active: null}) RETURN x",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1587,7 +1587,7 @@
     "query": "CREATE (q:Person {year: null}) RETURN q",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2090,7 +2090,7 @@
     "query": "MATCH (m:Company) RETURN m.age, m",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2363,7 +2363,7 @@
     "query": "MATCH (y:Company) RETURN y.year, y",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2456,7 +2456,7 @@
     "query": "MATCH (n:Person) RETURN n.name, n",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2493,7 +2493,7 @@
     "query": "MATCH (r:Movie) RETURN r.age, r",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

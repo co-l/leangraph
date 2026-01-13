@@ -6292,6 +6292,7 @@ export class Executor {
 
   /**
    * Resolve properties, including unwind variable references and binary expressions
+   * Note: In Cypher, setting a property to null means the property is not stored.
    */
   private resolvePropertiesWithUnwind(
     props: Record<string, unknown>,
@@ -6300,7 +6301,11 @@ export class Executor {
   ): Record<string, unknown> {
     const resolved: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(props)) {
-      resolved[key] = this.resolvePropertyValueWithUnwind(value, params, unwindContext);
+      const resolvedValue = this.resolvePropertyValueWithUnwind(value, params, unwindContext);
+      // In Cypher, setting a property to null means the property is not stored
+      if (resolvedValue !== null) {
+        resolved[key] = resolvedValue;
+      }
     }
     return resolved;
   }

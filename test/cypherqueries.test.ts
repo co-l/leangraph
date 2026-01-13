@@ -4966,22 +4966,22 @@ describe("CypherQueries.json Patterns", () => {
         const result = await exec("RETURN [44.66, 'world']");
 
         expect(result.data).toHaveLength(1);
-        // The column name uses double quotes and no spaces (JSON-style)
-        expect(result.data[0]['[44.66,"world"]']).toEqual([44.66, "world"]);
+        // Column name matches the exact expression text
+        expect(result.data[0]["[44.66, 'world']"]).toEqual([44.66, "world"]);
       });
 
       it("supports array literals with only strings", async () => {
         const result = await exec("RETURN ['hello', 'world']");
 
         expect(result.data).toHaveLength(1);
-        expect(result.data[0]['["hello","world"]']).toEqual(["hello", "world"]);
+        expect(result.data[0]["['hello', 'world']"]).toEqual(["hello", "world"]);
       });
 
       it("supports nested arrays with strings", async () => {
         const result = await exec("RETURN ['test', [38, null]]");
 
         expect(result.data).toHaveLength(1);
-        expect(result.data[0]['["test",[38,null]]']).toEqual(["test", [38, null]]);
+        expect(result.data[0]["['test', [38, null]]"]).toEqual(["test", [38, null]]);
       });
     });
 
@@ -5085,6 +5085,13 @@ describe("CypherQueries.json Patterns", () => {
 
         expect(result.data).toHaveLength(1);
         expect(result.data[0]["toLower('TEST')"]).toBe("test");
+      });
+
+      it("preserves RETURN expression text casing and spacing in column naming", async () => {
+        const result = await exec("RETURN coalesce(null, nUll, 'default')");
+
+        expect(result.data).toHaveLength(1);
+        expect(result.data[0]["coalesce(null, nUll, 'default')"]).toBe("default");
       });
 
       it("supports CREATE relationship RETURN nodes include _nf_id", async () => {

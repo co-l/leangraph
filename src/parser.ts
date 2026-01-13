@@ -193,6 +193,10 @@ export interface Expression {
 export interface ReturnItem {
   expression: Expression;
   alias?: string;
+  /**
+   * Exact expression text as written in the query (used for unaliased RETURN column names).
+   */
+  rawExpression?: string;
 }
 
 export interface SetAssignment {
@@ -976,6 +980,7 @@ export class Parser {
   private pos: number = 0;
   private anonVarCounter: number = 0;
   private allowParameterMapInNodePattern: boolean = false;
+  private input: string = "";
 
   /**
    * Parse a number string, validating that integers are within int64 range.
@@ -1021,6 +1026,7 @@ export class Parser {
 
   parse(input: string): ParseResult {
     try {
+      this.input = input;
       const tokenizer = new Tokenizer(input);
       this.tokens = tokenizer.tokenize();
       this.pos = 0;
@@ -1565,7 +1571,11 @@ export class Parser {
         }
 
         // Use parseReturnExpression to allow comparisons in RETURN items
+        const expressionStart = this.peek().position;
         const expression = this.parseReturnExpression();
+        const expressionEnd = this.peek().position;
+        const rawExpression = this.input.slice(expressionStart, expressionEnd).trim();
+
         let alias: string | undefined;
 
         if (this.checkKeyword("AS")) {
@@ -1573,7 +1583,7 @@ export class Parser {
           alias = this.expectIdentifierOrKeyword();
         }
 
-        items.push({ expression, alias });
+        items.push({ expression, alias, rawExpression });
       } while (this.check("COMMA"));
     }
 

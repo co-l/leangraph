@@ -195,7 +195,7 @@ describe("Translator", () => {
 
       // COUNT(n) counts nodes by their id
       expect(result.statements[0].sql).toContain("COUNT(");
-      expect(result.returnColumns).toEqual(["count(n)"]);
+      expect(result.returnColumns).toEqual(["COUNT(n)"]);
     });
 
     it("generates ORDER BY clause with single property", () => {
@@ -838,7 +838,7 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("SUM(");
       expect(result.statements[0].sql).toContain("json_extract");
       expect(result.statements[0].sql).toContain("$.amount");
-      expect(result.returnColumns).toEqual(["sum(n.amount)"]);
+      expect(result.returnColumns).toEqual(["SUM(n.amount)"]);
     });
 
     it("generates AVG for property", () => {
@@ -847,7 +847,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("AVG(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["avg(n.amount)"]);
+      expect(result.returnColumns).toEqual(["AVG(n.amount)"]);
     });
 
     it("generates MIN for property", () => {
@@ -856,7 +856,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("MIN(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["min(n.amount)"]);
+      expect(result.returnColumns).toEqual(["MIN(n.amount)"]);
     });
 
     it("generates MAX for property", () => {
@@ -865,7 +865,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toContain("MAX(");
       expect(result.statements[0].sql).toContain("json_extract");
-      expect(result.returnColumns).toEqual(["max(n.amount)"]);
+      expect(result.returnColumns).toEqual(["MAX(n.amount)"]);
     });
 
     it("generates COLLECT with GROUP_CONCAT for property (filters nulls)", () => {
@@ -876,7 +876,7 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toContain("GROUP_CONCAT(");
       expect(result.statements[0].sql).toContain("json_extract");
       expect(result.statements[0].sql).toContain("IS NOT NULL");
-      expect(result.returnColumns).toEqual(["collect(n.name)"]);
+      expect(result.returnColumns).toEqual(["COLLECT(n.name)"]);
     });
 
     it("generates COLLECT with GROUP_CONCAT for variable (filters nulls)", () => {
@@ -885,7 +885,7 @@ describe("Translator", () => {
       expect(result.statements).toHaveLength(1);
       // SQLite uses GROUP_CONCAT with null filtering for COLLECT (Neo4j skips nulls)
       expect(result.statements[0].sql).toContain("GROUP_CONCAT(");
-      expect(result.returnColumns).toEqual(["collect(n)"]);
+      expect(result.returnColumns).toEqual(["COLLECT(n)"]);
     });
 
     it("handles aggregation function with alias", () => {

@@ -237,7 +237,7 @@
     "query": "RETURN coalesce(null, null, 'default')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [

@@ -49,7 +49,7 @@ describe("Real-World Scenarios", () => {
 
       // Count total friendships
       const friendshipCount = await exec("MATCH (a:User)-[:FRIENDS]->(b:User) RETURN COUNT(a)");
-      expect(friendshipCount.data[0]["count(a)"]).toBe(4);
+      expect(friendshipCount.data[0]["COUNT(a)"]).toBe(4);
 
       // Find users who joined in 2021
       const users2021 = await exec("MATCH (u:User) WHERE u.joined = 2021 RETURN u.name");
@@ -138,7 +138,7 @@ describe("Real-World Scenarios", () => {
         MATCH (c:Customer {customerId: 'CUST-001'})-[:PLACED]->(o:Order)
         RETURN COUNT(o)
       `);
-      expect(orderCount.data[0]["count(o)"]).toBe(3);
+      expect(orderCount.data[0]["COUNT(o)"]).toBe(3);
 
       // Find pending orders
       const pending = await exec(`
@@ -184,7 +184,7 @@ describe("Real-World Scenarios", () => {
         MATCH (e:Entity {name: 'Albert Einstein'})-[r]->(target:Entity)
         RETURN COUNT(r)
       `);
-      expect(relCount.data[0]["count(r)"]).toBe(5);
+      expect(relCount.data[0]["COUNT(r)"]).toBe(5);
     });
   });
 
@@ -228,7 +228,7 @@ describe("Real-World Scenarios", () => {
 
       // Count pending tasks
       const pendingCount = await exec("MATCH (t:Task) WHERE t.status = 'pending' RETURN COUNT(t)");
-      expect(pendingCount.data[0]["count(t)"]).toBe(3);
+      expect(pendingCount.data[0]["COUNT(t)"]).toBe(3);
 
       // Find unassigned tasks (tasks with no ASSIGNED_TO edge)
       // This would require a more complex query pattern we haven't implemented
@@ -295,7 +295,7 @@ describe("Real-World Scenarios", () => {
 
       // Count articles per status
       const publishedCount = await exec("MATCH (a:Article) WHERE a.status = 'published' RETURN COUNT(a)");
-      expect(publishedCount.data[0]["count(a)"]).toBe(2);
+      expect(publishedCount.data[0]["COUNT(a)"]).toBe(2);
     });
   });
 

@@ -1503,7 +1503,7 @@ export class Translator {
       tables.forEach((t) => neededTables.add(t));
       exprParams.push(...itemParams);
 
-      const alias = item.alias || this.getExpressionName(item.expression);
+      const alias = this.getReturnItemName(item);
       returnAliasExpressions.set(alias, item.expression);
       selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
       returnColumns.push(alias);
@@ -2651,7 +2651,7 @@ export class Translator {
             // Computed expression - need to translate it
             const { sql: exprSql, params: exprParams } = this.translateExpression(item.expression);
             whereParams.push(...exprParams);
-            const alias = item.alias || this.getExpressionName(item.expression);
+            const alias = this.getReturnItemName(item);
             withSelectParts.push(`${exprSql} AS "${alias}"`);
           } else {
             const varName = item.expression.variable!;
@@ -2899,7 +2899,7 @@ export class Translator {
         // Include ALL WITH items in the CTE (both aggregate and non-aggregate)
         // This is needed so the main query can reference all WITH aliases
         for (const item of lastWithClause.items) {
-          const aliasName = item.alias || this.getExpressionName(item.expression);
+          const aliasName = this.getReturnItemName(item);
 
           // Temporarily clear materializedAggregateAliases to get the actual SQL
           (this.ctx as any).materializedAggregateAliases = undefined;
@@ -2955,13 +2955,13 @@ export class Translator {
         // Store mapping of WITH aliases to CTE column references
         const cteColumnMap = new Map<string, string>();
         for (const item of lastWithClause.items) {
-          const aliasName = item.alias || this.getExpressionName(item.expression);
+          const aliasName = this.getReturnItemName(item);
           cteColumnMap.set(aliasName, `__with_results__."${aliasName}"`);
         }
 
         // Rebuild RETURN expressions using CTE column references
         for (const item of clause.items) {
-          const alias = item.alias || this.getExpressionName(item.expression);
+          const alias = this.getReturnItemName(item);
           // Translate expression with CTE column mapping
           const exprSql = this.translateExpressionWithCTEMapping(item.expression, cteColumnMap, mainParams);
           mainSelectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
@@ -3390,7 +3390,7 @@ export class Translator {
         exprSql = translated.sql;
         params.push(...translated.params);
       }
-      const alias = item.alias || this.getExpressionName(item.expression);
+      const alias = this.getReturnItemName(item);
       selectParts.push(`${exprSql} AS ${this.quoteAlias(alias)}`);
       returnColumns.push(alias);
     }
@@ -10043,7 +10043,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         ).join(' AND ');
         
         return {
-          sql: `(${labelChecks})`,
+          sql: `CASE WHEN ${varInfo.alias}.id IS NULL THEN NULL ELSE cypher_to_json_bool(${labelChecks}) END`,
           tables,
           params,
         };
@@ -15786,6 +15786,10 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     }
   }
 
+  private getReturnItemName(item: ReturnItem): string {
+    return item.alias || item.rawExpression || this.getExpressionName(item.expression);
+  }
+
   private getExpressionName(expr: Expression): string {
     switch (expr.type) {
       case "variable":
@@ -16059,7 +16063,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       }
       
       // Get the column name (alias if provided, otherwise derived from expression)
-      const columnName = item.alias || this.getExpressionName(item.expression);
+      const columnName = this.getReturnItemName(item);
       
       if (seenNames.has(columnName)) {
         throw new Error(`SyntaxError: ColumnNameConflict - Multiple result columns with the same name '${columnName}'`);
@@ -16092,7 +16096,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     
     for (const item of clause.items) {
       // Get the column name
-      const columnName = item.alias || this.getExpressionName(item.expression);
+      const columnName = this.getReturnItemName(item);
       availableColumns.add(columnName);
       returnedExpressions.push(item.expression);
       
@@ -16144,7 +16148,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     const returnedExpressions: Expression[] = [];
     
     for (const item of clause.items) {
-      const columnName = item.alias || this.getExpressionName(item.expression);
+      const columnName = this.getReturnItemName(item);
       availableColumns.add(columnName);
       returnedExpressions.push(item.expression);
     }

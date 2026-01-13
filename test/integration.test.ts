@@ -88,7 +88,7 @@ describe("Integration Tests", () => {
       );
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0]["count(n)"]).toBe(3);
+      expect(result.data[0]["COUNT(n)"]).toBe(3);
     });
 
     it("orders results by property ASC", async () => {
@@ -1468,7 +1468,7 @@ describe("Integration Tests", () => {
       const countResult = expectSuccess(
         await client.execute("MATCH (p:Product) RETURN COUNT(p)")
       );
-      expect(countResult.data[0]["count(p)"]).toBe(0);
+      expect(countResult.data[0]["COUNT(p)"]).toBe(0);
     });
   });
 

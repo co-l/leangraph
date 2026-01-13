@@ -11394,7 +11394,8 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     }
     if (expr.type === "function") {
       // List-returning functions like collect(), range(), etc.
-      const listFunctions = ["COLLECT", "RANGE", "KEYS", "LABELS", "SPLIT", "TAIL", "REVERSE"];
+      // LIST is used by the parser when a list contains complex expressions like objects
+      const listFunctions = ["COLLECT", "RANGE", "KEYS", "LABELS", "SPLIT", "TAIL", "REVERSE", "LIST"];
       return listFunctions.includes(expr.functionName || "");
     }
     if (expr.type === "case") {

@@ -5146,4 +5146,26 @@ describe("CypherQueries.json Patterns", () => {
       });
     });
   });
+
+  /**
+   * Pending Cypher Features - Tests for features not yet implemented
+   * See test/fuzzing/failures.json for the full list
+   */
+  describe("Pending Cypher Features", () => {
+    it("concatenates complex nested list with indexed element using + operator", async () => {
+      // Neo4j: ([[{...}, [...]], -1.80]) + ([1, 2, 3][2]) should append 3 to the list
+      // Currently LeanGraph returns just 3 instead of the concatenated list
+      // The issue is with complex nested objects/maps in the list
+      const result = await exec(`
+        RETURN ([[{a: 'foo', b: [5, {a: 'foo', b: {a: 3, b: -50.37}}]}, [[-90, [84, 9]], {a: [2, 0], b: 'bar'}]], -1.80]) + ([1, 2, 3][2]) AS combined
+      `);
+
+      expect(result.data).toHaveLength(1);
+      // Expected: the original nested list with 3 appended at the end
+      const combined = result.data[0].combined as unknown[];
+      expect(Array.isArray(combined)).toBe(true);
+      expect(combined).toHaveLength(3); // Two nested elements + -1.80 + 3
+      expect(combined[combined.length - 1]).toBe(3); // Last element should be 3
+    });
+  });
 });

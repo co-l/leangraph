@@ -260,7 +260,7 @@
     "query": "RETURN [x IN range(1, 5) WHERE x % 2 = 0]",
     "category": "expression",
     "feature": "comprehensions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -289,7 +289,7 @@
     "query": "CREATE (x:Director {active: -55.70}) RETURN x",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -322,7 +322,7 @@
     "query": "RETURN coalesce(null, 1, 2)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -345,7 +345,7 @@
     "query": "WITH [1, 2, 3] AS list RETURN CASE WHEN size(list) > 0 THEN head(list) ELSE null END",
     "category": "expression",
     "feature": "case",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -368,7 +368,7 @@
     "query": "MATCH (r:Company) RETURN r.name, r",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -404,7 +404,7 @@
     "query": "RETURN CASE WHEN true THEN 1 ELSE 0 END",
     "category": "expression",
     "feature": "case",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -427,7 +427,7 @@
     "query": "RETURN {a: null, b: true}",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -456,7 +456,7 @@
     "query": "RETURN abs(4.60)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -479,7 +479,7 @@
     "query": "RETURN [x IN [1, 2, 3] | x * 2]",
     "category": "expression",
     "feature": "comprehensions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -510,7 +510,7 @@
     "query": "CREATE (a:Movie)-[r:DIRECTED]->(b:Movie) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -557,7 +557,7 @@
     "query": "MATCH (x:Company) RETURN x.title, x",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -596,7 +596,7 @@
     "query": "RETURN type(null)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -619,7 +619,7 @@
     "query": "RETURN CASE WHEN 1 > 2 THEN 'a' WHEN 2 > 1 THEN 'b' ELSE 'c' END",
     "category": "expression",
     "feature": "case",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -642,7 +642,7 @@
     "query": "CREATE (a:Company {title: 'bar'}) RETURN a",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -675,7 +675,7 @@
     "query": "CREATE (a:Person)-[r:FRIENDS_WITH]->(b:Person) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -722,7 +722,7 @@
     "query": "RETURN null",
     "category": "literal",
     "feature": "literals",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -745,7 +745,7 @@
     "query": "MATCH (a:Director) RETURN a.score, a",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -784,7 +784,7 @@
     "query": "CREATE (a:Director)-[r:DIRECTED]->(b:Director) RETURN a, r, b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -831,7 +831,7 @@
     "query": "MATCH (r:Movie) RETURN r.year, r",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -870,7 +870,7 @@
     "query": "RETURN tail([1, 2, 3, 4, 5])",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -903,7 +903,7 @@
     "query": "RETURN size([1, 2, 3, 4, 5])",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -926,7 +926,7 @@
     "query": "RETURN ([[{a: 'foo', b: [5, {a: 'foo', b: {a: 3, b: -50.37}}]}, [[-90, [84, 9]], {a: [2, 0], b: 'bar'}]], -1.80]) + ([1, 2, 3][2])",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "resolved",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -983,7 +983,7 @@
     "query": "MATCH (x:Director) RETURN x SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1039,7 +1039,7 @@
     "query": "MATCH (y:Person) RETURN y SKIP 1 LIMIT 2",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1095,7 +1095,7 @@
     "query": "RETURN [x IN [1, 2, 3] WHERE x > 1 | x * x]",
     "category": "expression",
     "feature": "comprehensions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1124,7 +1124,7 @@
     "query": "RETURN head([1, 2, 3, 4, 5])",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1147,7 +1147,7 @@
     "query": "MATCH (a:Actor) WHERE a.active IS NOT NULL RETURN a",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1184,7 +1184,7 @@
     "query": "MATCH (b:Person) WHERE b.name IS NOT NULL RETURN b",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1221,7 +1221,7 @@
     "query": "CREATE (r:Company {active: 82.08}) RETURN r",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1254,7 +1254,7 @@
     "query": "MATCH (a:Person) WHERE a.age IS NOT NULL RETURN a",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1291,7 +1291,7 @@
     "query": "CREATE (b:Movie {name: true}) RETURN b",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1324,7 +1324,7 @@
     "query": "RETURN round(-9.20)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1347,7 +1347,7 @@
     "query": "CREATE (x:Person {year: 65}) RETURN x",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1380,7 +1380,7 @@
     "query": "CREATE (c:Movie {name: true}) RETURN c",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1413,7 +1413,7 @@
     "query": "MATCH (m:Director) RETURN m.year, m",
     "category": "pattern",
     "feature": "match",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1452,7 +1452,7 @@
     "query": "RETURN [1, 2, 3][1]",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1475,7 +1475,7 @@
     "query": "RETURN [1, 2, 3][0]",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1498,7 +1498,7 @@
     "query": "RETURN toInteger(2.55)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1521,7 +1521,7 @@
     "query": "RETURN {a: 1, b: 2}.a",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1544,7 +1544,7 @@
     "query": "CREATE (r:Director {name: 69}) RETURN r",
     "category": "clause",
     "feature": "create",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1577,7 +1577,7 @@
     "query": "RETURN rand()",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1600,7 +1600,7 @@
     "query": "RETURN reverse([1, 2, 3, 4, 5])",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1635,7 +1635,7 @@
     "query": "RETURN toUpper('world')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1658,7 +1658,7 @@
     "query": "RETURN toFloat(-9)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1681,7 +1681,7 @@
     "query": "RETURN last([1, 2, 3, 4, 5])",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1704,7 +1704,7 @@
     "query": "RETURN sin(-2.20)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1727,7 +1727,7 @@
     "query": "RETURN abs(-2.40)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1750,7 +1750,7 @@
     "query": "RETURN toInteger(0.85)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1773,7 +1773,7 @@
     "query": "RETURN toInteger(-1.87)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1796,7 +1796,7 @@
     "query": "RETURN keys({a: 1, b: 2, c: 3})",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1827,7 +1827,7 @@
     "query": "RETURN toLower('  spaces  ')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1850,7 +1850,7 @@
     "query": "RETURN toInteger(-8.70)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1873,7 +1873,7 @@
     "query": "RETURN toUpper('  spaces  ')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1896,7 +1896,7 @@
     "query": "RETURN toUpper('foo bar')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1919,7 +1919,7 @@
     "query": "RETURN tan(2.80)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1942,7 +1942,7 @@
     "query": "RETURN toFloat(-1)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1965,7 +1965,7 @@
     "query": "RETURN toString('TEST')",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -1988,7 +1988,7 @@
     "query": "RETURN toFloat(-10)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2011,7 +2011,7 @@
     "query": "RETURN toFloat(10)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2034,7 +2034,7 @@
     "query": "RETURN atan2(6.53, 0.60)",
     "category": "function",
     "feature": "functions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2057,7 +2057,7 @@
     "query": "RETURN [1, 2, 3][2]",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2080,7 +2080,7 @@
     "query": "RETURN {a: 1, b: 2}.b",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2103,7 +2103,7 @@
     "query": "RETURN ({a: 1, b: 2}.b) + (-20.25)",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2126,7 +2126,7 @@
     "query": "RETURN {a: -50, b: 17.74} = 'world'",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2149,7 +2149,7 @@
     "query": "RETURN [92.15, null] = 6",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2172,7 +2172,7 @@
     "query": "RETURN -71 <> null",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2195,7 +2195,7 @@
     "query": "RETURN ([1, 2, 3][1]) + ({a: 1, b: 2}.a)",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2218,7 +2218,7 @@
     "query": "RETURN null >= 93",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2241,7 +2241,7 @@
     "query": "RETURN (({a: 1, b: 2}.b) / (4)) ^ ({a: 1, b: 2}.a)",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2264,7 +2264,7 @@
     "query": "RETURN ([1, 2, 3][0]) * ([1, 2, 3][0])",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2287,7 +2287,7 @@
     "query": "RETURN {a: null, b: [-87.48, -9]}",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2322,7 +2322,7 @@
     "query": "RETURN null < null",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2345,7 +2345,7 @@
     "query": "RETURN {a: 8, b: 'foo'}",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2374,7 +2374,7 @@
     "query": "RETURN [null, 'world']",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2403,7 +2403,7 @@
     "query": "RETURN {a: -13, b: 'bar'}",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2432,7 +2432,7 @@
     "query": "RETURN null > 'test'",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2455,7 +2455,7 @@
     "query": "RETURN null = 'foo'",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2478,7 +2478,7 @@
     "query": "RETURN null > null",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2501,7 +2501,7 @@
     "query": "RETURN {a: true, b: null}",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [
@@ -2530,7 +2530,7 @@
     "query": "RETURN [null, 'foo'] = true",
     "category": "expression",
     "feature": "expressions",
-    "status": "fail",
+    "status": "wontfix",
     "neo4jResult": {
       "success": true,
       "data": [

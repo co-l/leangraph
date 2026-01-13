@@ -1,1 +1,146 @@
-[]
+[
+  {
+    "query": "WITH [8, 'world'] AS x WHERE x IS NOT NULL RETURN x",
+    "category": "clause",
+    "feature": "with",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "x": [
+            8,
+            "world"
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": false,
+      "error": "Too many parameter values were provided"
+    },
+    "mismatch": "Leangraph error: Too many parameter values were provided"
+  },
+  {
+    "query": "MATCH (n:Actor) RETURN collect(n.age)",
+    "category": "aggregation",
+    "feature": "aggregations",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "collect(n.age)": [
+            20,
+            10
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "collect(n.age)": [
+            10,
+            20
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"collect(n.age)\":[20,10]}",
+    "setup": [
+      "CREATE (:Actor {age: 10})",
+      "CREATE (:Actor {age: 20})"
+    ]
+  },
+  {
+    "query": "MATCH (n:Person) RETURN collect(n.title)",
+    "category": "aggregation",
+    "feature": "aggregations",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "collect(n.title)": [
+            20,
+            10
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "collect(n.title)": [
+            10,
+            20
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"collect(n.title)\":[20,10]}",
+    "setup": [
+      "CREATE (:Person {title: 10})",
+      "CREATE (:Person {title: 20})"
+    ]
+  },
+  {
+    "query": "WITH ([1, 2, 3][1]) + ('hello' + ' ' + 'world') AS x RETURN x",
+    "category": "clause",
+    "feature": "with",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "x": "2hello world"
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "x": "2.0hello world"
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"x\":\"2hello world\"}"
+  },
+  {
+    "query": "MATCH (n:Person) RETURN collect(n.active)",
+    "category": "aggregation",
+    "feature": "aggregations",
+    "status": "fail",
+    "neo4jResult": {
+      "success": true,
+      "data": [
+        {
+          "collect(n.active)": [
+            20,
+            10
+          ]
+        }
+      ]
+    },
+    "leangraphResult": {
+      "success": true,
+      "data": [
+        {
+          "collect(n.active)": [
+            10,
+            20
+          ]
+        }
+      ]
+    },
+    "mismatch": "No matching row found for Neo4j row 0: {\"collect(n.active)\":[20,10]}",
+    "setup": [
+      "CREATE (:Person {active: 10})",
+      "CREATE (:Person {active: 20})"
+    ]
+  }
+]

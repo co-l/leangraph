@@ -10694,11 +10694,17 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
     // String concatenation: if either side is definitely a string (literal or string concat chain),
     // use || for concatenation instead of + (numeric addition)
+    // Use cypher_to_string to properly format numbers (integers without .0)
     const leftIsStringConcat = this.isStringConcatenation(expr.left!);
     const rightIsStringConcat = this.isStringConcatenation(expr.right!);
     if (expr.operator === "+" && !leftIsList && !rightIsList && (leftIsStringConcat || rightIsStringConcat)) {
-      const leftSql = this.wrapForArithmetic(expr.left!, leftResult.sql);
-      const rightSql = this.wrapForArithmetic(expr.right!, rightResult.sql);
+      // Wrap non-string expressions with cypher_to_string for proper number formatting
+      const leftSql = leftIsStringLiteral || leftIsStringConcat 
+        ? this.wrapForArithmetic(expr.left!, leftResult.sql)
+        : `cypher_to_string(${this.wrapForArithmetic(expr.left!, leftResult.sql)})`;
+      const rightSql = rightIsStringLiteral || rightIsStringConcat
+        ? this.wrapForArithmetic(expr.right!, rightResult.sql)
+        : `cypher_to_string(${this.wrapForArithmetic(expr.right!, rightResult.sql)})`;
       return { sql: `(${leftSql} || ${rightSql})`, tables, params };
     }
 
@@ -14512,7 +14518,16 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
 
       case "literal": {
         // Convert booleans to 1/0 for SQLite
-        const value = expr.value === true ? 1 : expr.value === false ? 0 : expr.value;
+        // Arrays and objects need to be JSON serialized
+        let value = expr.value;
+        if (value === true) {
+          value = 1;
+        } else if (value === false) {
+          value = 0;
+        } else if (Array.isArray(value) || (value !== null && typeof value === "object")) {
+          // For arrays/objects in WHERE expressions, use json() to create proper JSON value
+          return { sql: `json(?)`, params: [JSON.stringify(value)] };
+        }
         return { sql: "?", params: [value] };
       }
 

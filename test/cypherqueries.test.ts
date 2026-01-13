@@ -5168,5 +5168,23 @@ describe("CypherQueries.json Patterns", () => {
       expect(combined).toHaveLength(3); // Two nested elements + -1.80 + 3
       expect(combined[combined.length - 1]).toBe(3); // Last element should be 3
     });
+
+    it("supports WITH + WHERE on list variable", async () => {
+      // Bug: WITH [8, 'world'] AS x WHERE x IS NOT NULL RETURN x
+      // throws "Too many parameter values were provided"
+      const result = await exec("WITH [8, 'world'] AS x WHERE x IS NOT NULL RETURN x");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].x).toEqual([8, "world"]);
+    });
+
+    it("converts integer to string without decimal in concatenation", async () => {
+      // Bug: ([1, 2, 3][1]) + ('hello' + ' ' + 'world') returns "2.0hello world"
+      // Expected: "2hello world" (integer should not have .0)
+      const result = await exec("WITH ([1, 2, 3][1]) + ('hello' + ' ' + 'world') AS x RETURN x");
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].x).toBe("2hello world");
+    });
   });
 });

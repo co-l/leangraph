@@ -38,6 +38,10 @@ function isNonDeterministic(query: string): boolean {
   if (/\bSKIP\b/i.test(query) && !hasOrderBy(query)) {
     return true;
   }
+  // collect() without ORDER BY - result order depends on internal row order
+  if (/\bcollect\s*\(/i.test(query) && !hasOrderBy(query)) {
+    return true;
+  }
   return false;
 }
 

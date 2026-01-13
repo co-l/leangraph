@@ -411,6 +411,29 @@ function registerCypherFunctions(db: Database.Database): void {
     return b ? "true" : "false";  // Returns JSON boolean literal string
   });
 
+  // cypher_to_string: Convert value to string for concatenation
+  // Integers should not have .0 suffix (e.g., 2 -> "2", not "2.0")
+  // Note: JSON extraction in SQLite returns numbers as strings like "2.0"
+  db.function("cypher_to_string", { deterministic: true }, (x: unknown) => {
+    if (x === null || x === undefined) return null;
+    if (typeof x === "string") {
+      // Check if it's a string that looks like an integer with .0 suffix (e.g., "2.0", "-5.0")
+      // This happens when JSON extraction returns integer values
+      if (/^-?\d+\.0$/.test(x)) {
+        return x.replace(/\.0$/, "");
+      }
+      return x;
+    }
+    if (typeof x === "number") {
+      // Format integers without decimal point
+      if (Number.isInteger(x)) return String(Math.trunc(x));
+      return String(x);
+    }
+    if (typeof x === "boolean") return x ? "true" : "false";
+    // For objects/arrays, return JSON representation
+    return JSON.stringify(x);
+  });
+
   // cypher_bool_eq: Boolean-aware equality comparison
   // Handles cases where one side is a JSON boolean string ('true'/'false') and the other is an integer (1/0)
   // Returns: 1 if equal, 0 if not equal, null if either is null

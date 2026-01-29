@@ -5152,6 +5152,74 @@ describe("CypherQueries.json Patterns", () => {
    * Pending Cypher Features - Tests for features not yet implemented
    * See test/fuzzing/failures.json for the full list
    */
+  describe("Multiple property filters in pattern", () => {
+    it("should match node with multiple property filters in pattern syntax", async () => {
+      // Issue: MATCH (a:Application {publicSlug: $slug, isPublic: true}) fails
+      // Workaround: MATCH (a:Application {publicSlug: $slug}) WHERE a.isPublic = true works
+      await exec(`CREATE (a:Application {id: 'app-1', publicSlug: 'my-app', isPublic: true, name: 'My App'})`);
+      await exec(`CREATE (a:Application {id: 'app-2', publicSlug: 'my-app', isPublic: false, name: 'Private App'})`);
+      await exec(`CREATE (a:Application {id: 'app-3', publicSlug: 'other-app', isPublic: true, name: 'Other App'})`);
+
+      // This query should return only app-1 (matching both publicSlug AND isPublic)
+      const result = await exec(
+        `MATCH (a:Application {publicSlug: $slug, isPublic: true})
+         RETURN a.id as id, a.name as name`,
+        { slug: 'my-app' }
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('app-1');
+      expect(result.data[0].name).toBe('My App');
+    });
+
+    it("should match node with multiple property filters using WHERE clause (workaround)", async () => {
+      // This is the workaround that currently works
+      await exec(`CREATE (a:Application {id: 'app-1', publicSlug: 'my-app', isPublic: true, name: 'My App'})`);
+      await exec(`CREATE (a:Application {id: 'app-2', publicSlug: 'my-app', isPublic: false, name: 'Private App'})`);
+      await exec(`CREATE (a:Application {id: 'app-3', publicSlug: 'other-app', isPublic: true, name: 'Other App'})`);
+
+      const result = await exec(
+        `MATCH (a:Application {publicSlug: $slug})
+         WHERE a.isPublic = true
+         RETURN a.id as id, a.name as name`,
+        { slug: 'my-app' }
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('app-1');
+      expect(result.data[0].name).toBe('My App');
+    });
+
+    it("should handle boolean false in pattern property filters", async () => {
+      await exec(`CREATE (a:Application {id: 'app-1', publicSlug: 'my-app', isPublic: true})`);
+      await exec(`CREATE (a:Application {id: 'app-2', publicSlug: 'my-app', isPublic: false})`);
+
+      const result = await exec(
+        `MATCH (a:Application {publicSlug: $slug, isPublic: false})
+         RETURN a.id as id`,
+        { slug: 'my-app' }
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('app-2');
+    });
+
+    it("should handle multiple string property filters in pattern", async () => {
+      await exec(`CREATE (a:User {email: 'test@example.com', status: 'active', name: 'Test User'})`);
+      await exec(`CREATE (a:User {email: 'test@example.com', status: 'inactive', name: 'Inactive User'})`);
+      await exec(`CREATE (a:User {email: 'other@example.com', status: 'active', name: 'Other User'})`);
+
+      const result = await exec(
+        `MATCH (a:User {email: $email, status: 'active'})
+         RETURN a.name as name`,
+        { email: 'test@example.com' }
+      );
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].name).toBe('Test User');
+    });
+  });
+
   describe("Pending Cypher Features", () => {
     it("concatenates complex nested list with indexed element using + operator", async () => {
       // Neo4j: ([[{...}, [...]], -1.80]) + ([1, 2, 3][2]) should append 3 to the list

@@ -1597,6 +1597,274 @@ describe("Integration Tests", () => {
     });
   });
 
+  describe("OPTIONAL MATCH with DELETE", () => {
+    // These tests document a bug where DELETE fails to actually delete nodes
+    // when preceded by OPTIONAL MATCH or WITH clauses after a MATCH
+
+    it("deletes node from MATCH when followed by OPTIONAL MATCH", async () => {
+      // Setup: Create a node with no relationships
+      await client.execute("CREATE (n:TestNode {id: 'test1'})");
+
+      // This pattern should delete the node even though OPTIONAL MATCH finds nothing
+      const result = expectSuccess(
+        await client.execute(`
+          MATCH (n:TestNode {id: 'test1'})
+          OPTIONAL MATCH (n)-[r:FAKE]->()
+          DELETE n
+          RETURN count(*) as deleted
+        `)
+      );
+
+      expect(result.data).toEqual([{ deleted: 1 }]);
+
+      // Verify the node was actually deleted
+      const verify = expectSuccess(
+        await client.execute("MATCH (n:TestNode {id: 'test1'}) RETURN n")
+      );
+      expect(verify.data).toHaveLength(0);
+    });
+
+    it("deletes node from MATCH with WITH before OPTIONAL MATCH", async () => {
+      // Setup
+      await client.execute("CREATE (n:TestNode {id: 'test2'})");
+
+      // Pattern: MATCH -> WITH -> OPTIONAL MATCH -> DELETE
+      const result = expectSuccess(
+        await client.execute(`
+          MATCH (n:TestNode {id: 'test2'})
+          WITH n
+          OPTIONAL MATCH (n)-[r:FAKE]->()
+          DELETE n
+          RETURN count(*) as deleted
+        `)
+      );
+
+      expect(result.data).toEqual([{ deleted: 1 }]);
+
+      // Verify deletion
+      const verify = expectSuccess(
+        await client.execute("MATCH (n:TestNode {id: 'test2'}) RETURN n")
+      );
+      expect(verify.data).toHaveLength(0);
+    });
+
+    it("deletes both nodes from MATCH and OPTIONAL MATCH", async () => {
+      // Setup: Create two connected nodes
+      await client.execute("CREATE (a:NodeA {id: 'a1'})");
+      await client.execute("CREATE (b:NodeB {id: 'b1'})");
+      await client.execute(`
+        MATCH (a:NodeA {id: 'a1'}), (b:NodeB {id: 'b1'})
+        CREATE (a)-[:LINKS]->(b)
+      `);
+
+      // Delete both the main node and the optional match node
+      const result = await client.execute(`
+        MATCH (a:NodeA {id: 'a1'})
+        OPTIONAL MATCH (a)-[:LINKS]->(b:NodeB)
+        DETACH DELETE a, b
+      `);
+
+      expect(result.success).toBe(true);
+
+      // Verify both nodes were deleted
+      const verifyA = expectSuccess(
+        await client.execute("MATCH (a:NodeA {id: 'a1'}) RETURN a")
+      );
+      const verifyB = expectSuccess(
+        await client.execute("MATCH (b:NodeB {id: 'b1'}) RETURN b")
+      );
+      expect(verifyA.data).toHaveLength(0);
+      expect(verifyB.data).toHaveLength(0);
+    });
+
+    it("deletes through chained OPTIONAL MATCH clauses", async () => {
+      // Setup: Create a chain of nodes Project -> Source -> Segment -> Word
+      await client.execute("CREATE (p:Project {id: 'p1', name: 'Test'})");
+      await client.execute("CREATE (s:Source {id: 's1', name: 'Source1'})");
+      await client.execute("CREATE (seg:Segment {id: 'seg1', text: 'Hello'})");
+      await client.execute("CREATE (w:Word {id: 'w1', text: 'Hello'})");
+
+      await client.execute(`
+        MATCH (p:Project {id: 'p1'}), (s:Source {id: 's1'})
+        CREATE (p)-[:HAS_SOURCE]->(s)
+      `);
+      await client.execute(`
+        MATCH (s:Source {id: 's1'}), (seg:Segment {id: 'seg1'})
+        CREATE (s)-[:HAS_SEGMENT]->(seg)
+      `);
+      await client.execute(`
+        MATCH (seg:Segment {id: 'seg1'}), (w:Word {id: 'w1'})
+        CREATE (seg)-[:HAS_WORD]->(w)
+      `);
+
+      // Verify the chain was created correctly (read should work)
+      const readResult = expectSuccess(
+        await client.execute(`
+          MATCH (p:Project {id: 'p1'})
+          OPTIONAL MATCH (p)-[:HAS_SOURCE]->(s:Source)
+          OPTIONAL MATCH (s)-[:HAS_SEGMENT]->(seg:Segment)
+          OPTIONAL MATCH (seg)-[:HAS_WORD]->(w:Word)
+          RETURN p.name, s.name, seg.text, w.text
+        `)
+      );
+      expect(readResult.data).toHaveLength(1);
+      expect(readResult.data[0]).toEqual({
+        "p.name": "Test",
+        "s.name": "Source1",
+        "seg.text": "Hello",
+        "w.text": "Hello",
+      });
+
+      // Now delete all nodes through chained OPTIONAL MATCH
+      const deleteResult = await client.execute(`
+        MATCH (p:Project {id: 'p1'})
+        OPTIONAL MATCH (p)-[:HAS_SOURCE]->(s:Source)
+        OPTIONAL MATCH (s)-[:HAS_SEGMENT]->(seg:Segment)
+        OPTIONAL MATCH (seg)-[:HAS_WORD]->(w:Word)
+        DETACH DELETE p, s, seg, w
+      `);
+
+      expect(deleteResult.success).toBe(true);
+
+      // Verify all nodes were deleted
+      const verifyP = expectSuccess(
+        await client.execute("MATCH (p:Project {id: 'p1'}) RETURN p")
+      );
+      const verifyS = expectSuccess(
+        await client.execute("MATCH (s:Source {id: 's1'}) RETURN s")
+      );
+      const verifySeg = expectSuccess(
+        await client.execute("MATCH (seg:Segment {id: 'seg1'}) RETURN seg")
+      );
+      const verifyW = expectSuccess(
+        await client.execute("MATCH (w:Word {id: 'w1'}) RETURN w")
+      );
+
+      expect(verifyP.data).toHaveLength(0);
+      expect(verifyS.data).toHaveLength(0);
+      expect(verifySeg.data).toHaveLength(0);
+      expect(verifyW.data).toHaveLength(0);
+    });
+
+    it("deletes with multiple independent OPTIONAL MATCH branches", async () => {
+      // Setup: Project with two independent branches (Source and Clip)
+      await client.execute("CREATE (p:Project {id: 'p2', name: 'Test2'})");
+      await client.execute("CREATE (s:Source {id: 's2', name: 'Source2'})");
+      await client.execute("CREATE (c:Clip {id: 'c2', name: 'Clip2'})");
+
+      await client.execute(`
+        MATCH (p:Project {id: 'p2'}), (s:Source {id: 's2'})
+        CREATE (p)-[:HAS_SOURCE]->(s)
+      `);
+      await client.execute(`
+        MATCH (p:Project {id: 'p2'}), (c:Clip {id: 'c2'})
+        CREATE (p)-[:HAS_CLIP]->(c)
+      `);
+
+      // Delete project and both branches
+      const deleteResult = await client.execute(`
+        MATCH (p:Project {id: 'p2'})
+        OPTIONAL MATCH (p)-[:HAS_SOURCE]->(s:Source)
+        OPTIONAL MATCH (p)-[:HAS_CLIP]->(c:Clip)
+        DETACH DELETE p, s, c
+      `);
+
+      expect(deleteResult.success).toBe(true);
+
+      // Verify all deleted
+      const verifyP = expectSuccess(
+        await client.execute("MATCH (p:Project {id: 'p2'}) RETURN p")
+      );
+      const verifyS = expectSuccess(
+        await client.execute("MATCH (s:Source {id: 's2'}) RETURN s")
+      );
+      const verifyC = expectSuccess(
+        await client.execute("MATCH (c:Clip {id: 'c2'}) RETURN c")
+      );
+
+      expect(verifyP.data).toHaveLength(0);
+      expect(verifyS.data).toHaveLength(0);
+      expect(verifyC.data).toHaveLength(0);
+    });
+
+    it("handles DELETE when OPTIONAL MATCH finds nothing", async () => {
+      // Setup: Just a project with no relationships
+      await client.execute("CREATE (p:Project {id: 'p3', name: 'Lonely'})");
+
+      // OPTIONAL MATCH won't find anything, but DELETE should still work on p
+      const deleteResult = await client.execute(`
+        MATCH (p:Project {id: 'p3'})
+        OPTIONAL MATCH (p)-[:HAS_SOURCE]->(s:Source)
+        DETACH DELETE p, s
+      `);
+
+      expect(deleteResult.success).toBe(true);
+
+      // Verify project was deleted
+      const verify = expectSuccess(
+        await client.execute("MATCH (p:Project {id: 'p3'}) RETURN p")
+      );
+      expect(verify.data).toHaveLength(0);
+    });
+
+    it("deletes node with MATCH + WITH + DELETE pattern", async () => {
+      // Setup
+      await client.execute("CREATE (n:TestNode {id: 'test3'})");
+
+      // Simple MATCH -> WITH -> DELETE (no OPTIONAL MATCH)
+      const result = expectSuccess(
+        await client.execute(`
+          MATCH (n:TestNode {id: 'test3'})
+          WITH n
+          DELETE n
+          RETURN count(*) as deleted
+        `)
+      );
+
+      expect(result.data).toEqual([{ deleted: 1 }]);
+
+      // Verify deletion
+      const verify = expectSuccess(
+        await client.execute("MATCH (n:TestNode {id: 'test3'}) RETURN n")
+      );
+      expect(verify.data).toHaveLength(0);
+    });
+
+    it("deletes multiple nodes from single OPTIONAL MATCH with multiple results", async () => {
+      // Setup: One project with multiple sources
+      await client.execute("CREATE (p:Project {id: 'p4'})");
+      await client.execute("CREATE (s1:Source {id: 's4a'})");
+      await client.execute("CREATE (s2:Source {id: 's4b'})");
+      await client.execute("CREATE (s3:Source {id: 's4c'})");
+
+      await client.execute(`
+        MATCH (p:Project {id: 'p4'}), (s:Source)
+        WHERE s.id IN ['s4a', 's4b', 's4c']
+        CREATE (p)-[:HAS_SOURCE]->(s)
+      `);
+
+      // Delete all - should delete project and all 3 sources
+      const deleteResult = await client.execute(`
+        MATCH (p:Project {id: 'p4'})
+        OPTIONAL MATCH (p)-[:HAS_SOURCE]->(s:Source)
+        DETACH DELETE p, s
+      `);
+
+      expect(deleteResult.success).toBe(true);
+
+      // Verify all deleted
+      const verifyP = expectSuccess(
+        await client.execute("MATCH (p:Project {id: 'p4'}) RETURN p")
+      );
+      const verifyS = expectSuccess(
+        await client.execute("MATCH (s:Source) WHERE s.id IN ['s4a', 's4b', 's4c'] RETURN s")
+      );
+
+      expect(verifyP.data).toHaveLength(0);
+      expect(verifyS.data).toHaveLength(0);
+    });
+  });
+
   describe("RETURN DISTINCT", () => {
     it("returns distinct values for a property", async () => {
       await client.execute("CREATE (n:Person {name: 'Alice', city: 'NYC'})");

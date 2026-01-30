@@ -9549,7 +9549,9 @@ export class Executor {
     for (const clause of query.clauses) {
       switch (clause.type) {
         case "MATCH":
-          matchClauses.push(clause);
+        case "OPTIONAL_MATCH":
+          // OPTIONAL_MATCH is stored as MatchClause with isOptional flag
+          matchClauses.push(clause as MatchClause);
           break;
         case "WITH":
           withClauses.push(clause);
@@ -9781,7 +9783,8 @@ export class Executor {
     // });
 
     // If WITH clauses are present but no aliases are used in mutations AND no property aliases in RETURN AND no WITH aggregates in RETURN, use standard execution
-    if (withClauses.length > 0 && !needsWithAliasHandling && !returnUsesPropertyAliases && !returnUsesWithAggregates) {
+    // EXCEPTION: DELETE always needs multi-phase execution to work correctly with WITH
+    if (withClauses.length > 0 && !needsWithAliasHandling && !returnUsesPropertyAliases && !returnUsesWithAggregates && deleteClauses.length === 0) {
       return null;
     }
 
@@ -10971,7 +10974,8 @@ export class Executor {
     for (const variable of deleteClause.variables) {
       const id = resolvedIds[variable];
       if (!id) {
-        throw new Error(`Cannot resolve variable for DELETE: ${variable}`);
+        // Variable is NULL (e.g., from OPTIONAL MATCH that found nothing) - skip deletion
+        continue;
       }
 
       if (deleteClause.detach) {

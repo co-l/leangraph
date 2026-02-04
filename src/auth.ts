@@ -1,6 +1,7 @@
 // API Key Authentication for LeanGraph
 
 import { Context, Next } from "hono";
+import { randomBytes } from "node:crypto";
 
 // ============================================================================
 // Types
@@ -193,12 +194,6 @@ export function authMiddleware(store: ApiKeyStore) {
 // ============================================================================
 
 export function generateApiKey(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let key = "";
-  
-  for (let i = 0; i < 32; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  
-  return key;
+  // Use cryptographically secure random bytes instead of Math.random()
+  return randomBytes(32).toString("base64url");
 }

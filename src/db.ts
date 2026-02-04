@@ -1,6 +1,7 @@
 // Database Wrapper for SQLite
 
 import Database from "better-sqlite3";
+import * as nodePath from "path";
 
 // ============================================================================
 // Types
@@ -601,9 +602,27 @@ function registerCypherFunctions(db: Database.Database): void {
   // cypher_regex: Regex matching for =~ operator
   // Returns: 1 if pattern matches, 0 if not, null if either operand is null
   // Supports inline modifiers like (?i) for case-insensitive matching
+  // Security: Rejects patterns with nested quantifiers that cause catastrophic
+  // backtracking (ReDoS), and limits input string length.
   db.function("cypher_regex", { deterministic: true }, (str: unknown, pattern: unknown) => {
     if (str === null || str === undefined || pattern === null || pattern === undefined) return null;
     if (typeof str !== "string" || typeof pattern !== "string") return 0;
+
+    // Limit input length to mitigate ReDoS via large inputs
+    const MAX_REGEX_INPUT_LENGTH = 10_000;
+    if (str.length > MAX_REGEX_INPUT_LENGTH) {
+      throw new Error(`Regex input exceeds maximum length of ${MAX_REGEX_INPUT_LENGTH} characters`);
+    }
+
+    // Reject patterns with nested quantifiers that cause exponential backtracking.
+    // Detects patterns like (a+)+, (a*)+, (a+)*, (.+)+, etc.
+    // This is a heuristic — it won't catch every ReDoS pattern, but it blocks
+    // the most common and dangerous ones.
+    const NESTED_QUANTIFIER = /([+*]|\{\d+,\d*\})\s*\)([+*]|\{\d+,\d*\})/;
+    if (NESTED_QUANTIFIER.test(pattern)) {
+      throw new Error("Regex pattern rejected: nested quantifiers can cause catastrophic backtracking");
+    }
+
     try {
       // Extract inline modifiers like (?i) (?m) (?s) from pattern start
       // JavaScript doesn't support inline modifiers, so convert to flags
@@ -616,8 +635,9 @@ function registerCypherFunctions(db: Database.Database): void {
       }
       const regex = new RegExp(actualPattern, flags);
       return regex.test(str) ? 1 : 0;
-    } catch {
-      // Invalid regex pattern
+    } catch (e) {
+      // Invalid regex pattern — re-throw length/backtracking errors, suppress others
+      if (e instanceof Error && (e.message.includes("maximum length") || e.message.includes("backtracking"))) throw e;
       return 0;
     }
   });
@@ -886,16 +906,30 @@ export class DatabaseManager {
   }
 
   /**
-   * Get or create a database for a project
+   * Get or create a database for a project.
+   * Validates that the resolved database path stays within the base directory
+   * to prevent path traversal attacks.
    */
   getDatabase(project: string): GraphDatabase {
     if (!this.databases.has(project)) {
-      const path =
-        this.basePath === ":memory:"
-          ? ":memory:"
-          : `${this.basePath}/${project}.db`;
+      let dbPath: string;
 
-      const db = new GraphDatabase(path);
+      if (this.basePath === ":memory:") {
+        dbPath = ":memory:";
+      } else {
+        // Resolve paths to prevent traversal
+        const resolvedBase = nodePath.resolve(this.basePath);
+        const resolvedPath = nodePath.resolve(this.basePath, `${project}.db`);
+
+        // Defense-in-depth: ensure the resolved path is within the base directory
+        if (!resolvedPath.startsWith(resolvedBase + nodePath.sep) && resolvedPath !== resolvedBase) {
+          throw new Error(`Invalid project name: path traversal detected`);
+        }
+
+        dbPath = resolvedPath;
+      }
+
+      const db = new GraphDatabase(dbPath);
       db.initialize();
       this.databases.set(project, db);
     }

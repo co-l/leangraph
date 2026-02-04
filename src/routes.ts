@@ -3,7 +3,6 @@
 import { Hono } from "hono";
 import { DatabaseManager, GraphDatabase } from "./db.js";
 import { Executor, QueryResponse } from "./executor.js";
-import { BackupManager, BackupStatus } from "./backup.js";
 import { ApiKeyStore, authMiddleware } from "./auth.js";
 
 // ============================================================================
@@ -20,16 +19,45 @@ export interface AppContext {
 }
 
 // ============================================================================
+// Security: Project Name Validation
+// ============================================================================
+
+/**
+ * Validate a project name to prevent path traversal and other attacks.
+ * Only allows alphanumeric characters, hyphens, underscores, and dots (not leading).
+ */
+const PROJECT_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const MAX_PROJECT_NAME_LENGTH = 64;
+
+function isValidProjectName(name: string): boolean {
+  if (!name || name.length > MAX_PROJECT_NAME_LENGTH) return false;
+  if (!PROJECT_NAME_REGEX.test(name)) return false;
+  // Reject names that could be path traversal even if regex passes
+  if (name.includes("..") || name.includes("/") || name.includes("\\")) return false;
+  return true;
+}
+
+// ============================================================================
 // Create App
 // ============================================================================
 
 export function createApp(
-  dbManager: DatabaseManager, 
-  dataPath?: string, 
-  backupManager?: BackupManager,
+  dbManager: DatabaseManager,
   apiKeyStore?: ApiKeyStore
 ): Hono {
   const app = new Hono();
+
+  // Security headers middleware
+  app.use("*", async (c, next) => {
+    await next();
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("X-Frame-Options", "DENY");
+    c.header("X-XSS-Protection", "0"); // Disabled in favor of CSP; legacy header can cause issues
+    c.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+    c.header("Referrer-Policy", "no-referrer");
+    c.header("Cache-Control", "no-store");
+    c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  });
 
   // Add auth middleware if API key store is provided
   if (apiKeyStore && apiKeyStore.hasKeys()) {
@@ -54,6 +82,17 @@ export function createApp(
 
   app.post("/query/:project", async (c) => {
     const project = c.req.param("project");
+
+    // Validate project name to prevent path traversal
+    if (!isValidProjectName(project)) {
+      return c.json(
+        {
+          success: false,
+          error: { message: "Invalid project name" },
+        },
+        400
+      );
+    }
 
     // Parse request body
     let body: QueryRequest;
@@ -80,6 +119,18 @@ export function createApp(
       );
     }
 
+    // Limit query size to prevent stack overflow / resource exhaustion
+    const MAX_QUERY_LENGTH = 100_000;
+    if (body.cypher.length > MAX_QUERY_LENGTH) {
+      return c.json(
+        {
+          success: false,
+          error: { message: `Query exceeds maximum length of ${MAX_QUERY_LENGTH} characters` },
+        },
+        400
+      );
+    }
+
     // Get database for this project
     const db = dbManager.getDatabase(project);
 
@@ -88,138 +139,23 @@ export function createApp(
     const result = executor.execute(body.cypher, body.params || {});
 
     if (!result.success) {
-      return c.json(result, 400);
+      // Sanitize internal error messages to prevent information disclosure
+      const safeMessage = result.error.message
+        .replace(/Maximum call stack size exceeded/g, "Query too complex or deeply nested")
+        .replace(/SQLITE_ERROR: /g, "")
+        .replace(/at .+\(.+\)/g, ""); // Strip stack trace fragments
+      return c.json({
+        success: false,
+        error: {
+          message: safeMessage,
+          ...(result.error.position !== undefined && { position: result.error.position }),
+          ...(result.error.line !== undefined && { line: result.error.line }),
+          ...(result.error.column !== undefined && { column: result.error.column }),
+        },
+      }, 400);
     }
 
     return c.json(result);
-  });
-
-  // ============================================================================
-  // Admin Endpoints
-  // ============================================================================
-
-  app.get("/admin/list", (c) => {
-    const projects = dbManager.listDatabases();
-
-    return c.json({
-      success: true,
-      data: { projects },
-    });
-  });
-
-  app.post("/admin/projects/:project", (c) => {
-    const project = c.req.param("project");
-
-    // Creating a database just by accessing it
-    dbManager.getDatabase(project);
-
-    return c.json({
-      success: true,
-      message: `Created database for ${project}`,
-    });
-  });
-
-  app.post("/admin/wipe/:project", (c) => {
-    const project = c.req.param("project");
-
-    const db = dbManager.getDatabase(project);
-
-    // Clear all data
-    db.execute("DELETE FROM edges");
-    db.execute("DELETE FROM nodes");
-
-    return c.json({
-      success: true,
-      message: `Wiped database for ${project}`,
-    });
-  });
-
-  // ============================================================================
-  // Backup Endpoints
-  // ============================================================================
-
-  app.get("/admin/backup", (c) => {
-    if (!backupManager) {
-      return c.json(
-        {
-          success: false,
-          error: { message: "Backup not configured. Set backupPath in server options." },
-        },
-        400
-      );
-    }
-
-    const status = backupManager.getBackupStatus();
-    return c.json({
-      success: true,
-      data: status,
-    });
-  });
-
-  app.post("/admin/backup", async (c) => {
-    if (!backupManager || !dataPath) {
-      return c.json(
-        {
-          success: false,
-          error: { message: "Backup not configured. Set backupPath in server options." },
-        },
-        400
-      );
-    }
-
-    // Get optional project param for single project backup
-    const project = c.req.query("project");
-
-    if (project) {
-      // Backup single project
-      const sourcePath = `${dataPath}/${project}.db`;
-      const result = await backupManager.backupDatabase(sourcePath, project);
-
-      if (!result.success) {
-        return c.json(
-          {
-            success: false,
-            error: { message: result.error },
-          },
-          400
-        );
-      }
-
-      return c.json({
-        success: true,
-        data: {
-          project: result.project,
-          backupPath: result.backupPath,
-          sizeBytes: result.sizeBytes,
-          durationMs: result.durationMs,
-        },
-      });
-    }
-
-    // Backup all databases
-    const results = await backupManager.backupAll(dataPath);
-    
-    const successful = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
-
-    return c.json({
-      success: failed.length === 0,
-      data: {
-        total: results.length,
-        successful: successful.length,
-        failed: failed.length,
-        backups: successful.map(r => ({
-          project: r.project,
-          backupPath: r.backupPath,
-          sizeBytes: r.sizeBytes,
-          durationMs: r.durationMs,
-        })),
-        errors: failed.map(r => ({
-          project: r.project,
-          error: r.error,
-        })),
-      },
-    });
   });
 
   return app;
@@ -240,8 +176,7 @@ export function createServer(options: ServerOptions = {}) {
   const { port = 3000, dataPath = ":memory:", backupPath, apiKeys } = options;
 
   const dbManager = new DatabaseManager(dataPath);
-  const backupManager = backupPath ? new BackupManager(backupPath) : undefined;
-  
+
   // Set up API key authentication if keys are provided
   let apiKeyStore: ApiKeyStore | undefined;
   if (apiKeys) {
@@ -249,12 +184,11 @@ export function createServer(options: ServerOptions = {}) {
     apiKeyStore.loadKeys(apiKeys);
   }
 
-  const app = createApp(dbManager, dataPath, backupManager, apiKeyStore);
+  const app = createApp(dbManager, apiKeyStore);
 
   return {
     app,
     dbManager,
-    backupManager,
     apiKeyStore,
     port,
     fetch: app.fetch,

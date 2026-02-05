@@ -481,34 +481,35 @@ export class Executor {
       const translation = translator.translate(parseResult.query);
 
       // 4. Execute SQL statements
+      // Security: inject a LIMIT into the final SELECT if one isn't present,
+      // to prevent Cartesian product explosion at the SQL layer (not just post-execution).
+      const securityLimit = MAX_RESULTS_LIMIT + 1; // +1 to detect truncation
       let rows: Record<string, unknown>[] = [];
       const returnColumns = translation.returnColumns;
 
       this.db.transaction(() => {
         for (const stmt of translation.statements) {
-          const result = this.db.execute(stmt.sql, stmt.params);
+          let sql = stmt.sql;
+          const sqlUpper = sql.trim().toUpperCase();
+
+          // Add security LIMIT to SELECT statements that don't already have one
+          if (sqlUpper.startsWith("SELECT") && !sqlUpper.includes(" LIMIT ")) {
+            sql = `${sql} LIMIT ${securityLimit}`;
+          }
+
+          const result = this.db.execute(sql, stmt.params);
 
           // If this is a SELECT or EXPLAIN (RETURN clause), capture the results
-          const sqlUpper = stmt.sql.trim().toUpperCase();
           if (result.rows.length > 0 || sqlUpper.startsWith("SELECT") || sqlUpper.startsWith("EXPLAIN")) {
             rows = result.rows;
           }
         }
       });
 
-      // 5. Format results
+      // 5. Format results (with truncation matching makeResult)
       const formattedRows = this.formatResults(rows, returnColumns);
 
-      const endTime = performance.now();
-
-      return {
-        success: true,
-        data: formattedRows,
-        meta: {
-          count: formattedRows.length,
-          time_ms: Math.round((endTime - startTime) * 100) / 100,
-        },
-      };
+      return makeResult(formattedRows);
     } catch (error) {
       return {
         success: false,

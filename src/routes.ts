@@ -61,12 +61,45 @@ interface RateLimitEntry {
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX || "10000", 10); // per minute
+const RATE_LIMIT_MAX_ENTRIES = 100_000; // Maximum tracked IPs to prevent memory exhaustion
+const RATE_LIMIT_CLEANUP_INTERVAL_MS = 5 * 60_000; // Cleanup every 5 minutes
+
+// Periodic cleanup of expired rate limit entries to prevent memory exhaustion
+// from distributed attacks using many unique IPs.
+let rateLimitCleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+function startRateLimitCleanup(): void {
+  if (rateLimitCleanupTimer) return;
+  rateLimitCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitMap) {
+      if (now > entry.resetTime) {
+        rateLimitMap.delete(key);
+      }
+    }
+  }, RATE_LIMIT_CLEANUP_INTERVAL_MS);
+  // Allow the process to exit even if the timer is running
+  if (rateLimitCleanupTimer && typeof rateLimitCleanupTimer === "object" && "unref" in rateLimitCleanupTimer) {
+    rateLimitCleanupTimer.unref();
+  }
+}
 
 function checkRateLimit(identifier: string): { allowed: boolean; retryAfter?: number } {
   const now = Date.now();
   const entry = rateLimitMap.get(identifier);
 
   if (!entry || now > entry.resetTime) {
+    // Prevent unbounded growth: if the map is too large, reject new entries
+    if (!entry && rateLimitMap.size >= RATE_LIMIT_MAX_ENTRIES) {
+      // Evict expired entries first
+      for (const [key, e] of rateLimitMap) {
+        if (now > e.resetTime) rateLimitMap.delete(key);
+      }
+      // If still at capacity after cleanup, reject to prevent memory exhaustion
+      if (rateLimitMap.size >= RATE_LIMIT_MAX_ENTRIES) {
+        return { allowed: false, retryAfter: 60 };
+      }
+    }
     // New window
     rateLimitMap.set(identifier, {
       count: 1,
@@ -133,6 +166,9 @@ export function createApp(
     maxAge: 86400, // 24 hours
   }));
 
+  // Start rate limit cleanup timer
+  startRateLimitCleanup();
+
   // Security headers middleware
   app.use("*", async (c, next) => {
     await next();
@@ -143,6 +179,8 @@ export function createApp(
     c.header("Referrer-Policy", "no-referrer");
     c.header("Cache-Control", "no-store");
     c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    // HSTS: Instruct browsers to always use HTTPS (1 year, include subdomains)
+    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   });
 
   // Add auth middleware if API key store is provided

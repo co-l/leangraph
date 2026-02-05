@@ -2193,6 +2193,11 @@ export class Parser {
     return edge;
   }
 
+  // Security: Hard cap on variable-length path depth to prevent resource exhaustion
+  // via expensive recursive CTEs. A query like MATCH (a)-[*1..10000]->(b) would
+  // generate a CTE with 10000 recursion levels, consuming extreme CPU/memory.
+  private static readonly MAX_VARIABLE_LENGTH_HOPS = 50;
+
   private parseVariableLengthSpec(edge: EdgePattern): void {
     // Patterns:
     // *       -> min=1, max=undefined (any length >= 1)
@@ -2201,6 +2206,8 @@ export class Parser {
     // *2..    -> min=2, max=undefined (min only)
     // *..3    -> min=1, max=3 (max only)
     // *0..3   -> min=0, max=3 (can include zero-length)
+
+    const MAX_HOPS = Parser.MAX_VARIABLE_LENGTH_HOPS;
 
     // Check for just * with no numbers or dots
     if (!this.check("NUMBER") && !this.check("DOT")) {
@@ -2219,6 +2226,9 @@ export class Parser {
         if (maxVal < 0) {
           throw new Error("Negative bound in variable-length pattern is not allowed");
         }
+        if (maxVal > MAX_HOPS) {
+          throw new Error(`Variable-length path depth ${maxVal} exceeds maximum of ${MAX_HOPS}`);
+        }
         edge.maxHops = maxVal;
       } else {
         edge.maxHops = undefined; // unbounded
@@ -2230,6 +2240,9 @@ export class Parser {
     const firstNum = parseInt(this.expect("NUMBER").value, 10);
     if (firstNum < 0) {
       throw new Error("Negative bound in variable-length pattern is not allowed");
+    }
+    if (firstNum > MAX_HOPS) {
+      throw new Error(`Variable-length path depth ${firstNum} exceeds maximum of ${MAX_HOPS}`);
     }
 
     // Check if this is a range or fixed
@@ -2250,6 +2263,9 @@ export class Parser {
         const maxVal = parseInt(this.advance().value, 10);
         if (maxVal < 0) {
           throw new Error("Negative bound in variable-length pattern is not allowed");
+        }
+        if (maxVal > MAX_HOPS) {
+          throw new Error(`Variable-length path depth ${maxVal} exceeds maximum of ${MAX_HOPS}`);
         }
         edge.maxHops = maxVal;
       } else {

@@ -996,6 +996,8 @@ export class Parser {
   private anonVarCounter: number = 0;
   private allowParameterMapInNodePattern: boolean = false;
   private input: string = "";
+  private recursionDepth: number = 0;
+  private static readonly MAX_RECURSION_DEPTH = 200;
 
   /**
    * Parse a number string, validating that integers are within int64 range.
@@ -2435,6 +2437,11 @@ export class Parser {
   }
 
   private parseOrCondition(): WhereCondition {
+    this.recursionDepth++;
+    if (this.recursionDepth > Parser.MAX_RECURSION_DEPTH) {
+      throw new Error("Query too deeply nested (max depth: 200)");
+    }
+    try {
     let left = this.parseAndCondition();
 
     while (this.checkKeyword("OR")) {
@@ -2444,6 +2451,9 @@ export class Parser {
     }
 
     return left;
+    } finally {
+      this.recursionDepth--;
+    }
   }
 
   private parseAndCondition(): WhereCondition {
@@ -2743,6 +2753,11 @@ export class Parser {
 
   // Handle OR (lowest precedence for logical operators)
   private parseOrExpression(): Expression {
+    this.recursionDepth++;
+    if (this.recursionDepth > Parser.MAX_RECURSION_DEPTH) {
+      throw new Error("Query too deeply nested (max depth: 200)");
+    }
+    try {
     let left = this.parseXorExpression();
 
     while (this.checkKeyword("OR")) {
@@ -2752,6 +2767,9 @@ export class Parser {
     }
 
     return left;
+    } finally {
+      this.recursionDepth--;
+    }
   }
 
   // Handle XOR (between OR and AND in precedence)

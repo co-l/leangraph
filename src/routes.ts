@@ -83,15 +83,28 @@ function checkRateLimit(identifier: string): { allowed: boolean; retryAfter?: nu
   return { allowed: true };
 }
 
+/**
+ * Trust proxy headers only when TRUST_PROXY env var is set.
+ * Without a trusted proxy, X-Forwarded-For can be spoofed to bypass rate limits.
+ */
+const TRUST_PROXY = process.env.TRUST_PROXY === "true" || process.env.TRUST_PROXY === "1";
+
 function getClientIdentifier(c: Context): string {
-  // Use X-Forwarded-For if behind a proxy, otherwise use the direct connection info
-  const forwardedFor = c.req.header("X-Forwarded-For");
-  if (forwardedFor) {
-    // Take the first IP in the chain (client IP)
-    return forwardedFor.split(",")[0].trim();
+  if (TRUST_PROXY) {
+    // Only trust proxy headers when explicitly configured
+    const forwardedFor = c.req.header("X-Forwarded-For");
+    if (forwardedFor) {
+      return forwardedFor.split(",")[0].trim();
+    }
+    const realIp = c.req.header("X-Real-Ip");
+    if (realIp) return realIp;
   }
-  // Fallback to a combination that should uniquely identify the client
-  return c.req.header("X-Real-Ip") || "unknown";
+  // Default: use remote address from the connection
+  // Hono provides this via c.env or the underlying request
+  const connInfo = c.req.raw;
+  // @ts-ignore - Node.js socket info
+  const remoteAddr = connInfo?.socket?.remoteAddress;
+  return remoteAddr || "unknown";
 }
 
 // ============================================================================
@@ -107,8 +120,9 @@ export function createApp(
   // CORS middleware - must be before other middleware
   app.use("*", cors({
     origin: (origin) => {
-      // Allow requests with no origin (e.g., curl, mobile apps)
-      if (!origin) return "*";
+      // Requests with no origin (curl, server-to-server) get no CORS header
+      // This prevents browsers from caching a wildcard Access-Control-Allow-Origin
+      if (!origin) return DEFAULT_CORS_ORIGIN;
       // Check if origin is in allowed list
       if (ALLOWED_ORIGINS.includes(origin)) return origin;
       // Default: deny

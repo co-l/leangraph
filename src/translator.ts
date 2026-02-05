@@ -56,6 +56,16 @@ function toSqliteParams(values: unknown[]): unknown[] {
 }
 
 /**
+ * Escape a string for safe interpolation inside a SQL string literal.
+ * Used for JSON path keys, label names, and other identifiers that are
+ * embedded directly in SQL rather than passed as bind parameters.
+ * Prevents SQL injection via backtick-quoted Cypher identifiers.
+ */
+function escSqlStr(s: string | undefined): string {
+  return (s || "").replace(/'/g, "''");
+}
+
+/**
  * Check if a string is an IANA timezone name (contains '/')
  */
 function isIANATimezone(tz: string): boolean {
@@ -424,8 +434,10 @@ export class Translator {
    * The :Label is optional and ignored (global index) - only used if no custom name provided.
    */
   private translateCreateIndex(clause: CreateIndexClause): SqlStatement[] {
-    const indexName = clause.indexName || `idx_${clause.property}`;
-    const sql = `CREATE INDEX IF NOT EXISTS ${indexName} ON nodes(json_extract(properties, '$.${clause.property}'))`;
+    const rawName = clause.indexName || `idx_${clause.property}`;
+    // Quote index name as a SQL identifier to prevent injection
+    const indexName = `"${rawName.replace(/"/g, '""')}"`;
+    const sql = `CREATE INDEX IF NOT EXISTS ${indexName} ON nodes(json_extract(properties, '$.${escSqlStr(clause.property)}'))`;
     return [{ sql, params: [] }];
   }
 
@@ -433,7 +445,9 @@ export class Translator {
    * Translate DROP INDEX to SQL.
    */
   private translateDropIndex(clause: DropIndexClause): SqlStatement[] {
-    const sql = `DROP INDEX IF EXISTS ${clause.indexName}`;
+    // Quote index name as a SQL identifier to prevent injection
+    const indexName = `"${clause.indexName.replace(/"/g, '""')}"`;
+    const sql = `DROP INDEX IF EXISTS ${indexName}`;
     return [{ sql, params: [] }];
   }
 
@@ -921,14 +935,14 @@ export class Translator {
     
     for (const [key, value] of Object.entries(props)) {
       if (this.isParameterRef(value)) {
-        conditions.push(`json_extract(properties, '$.${key}') = ?`);
+        conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
         params.push(this.ctx.paramValues[value.name]);
       } else if (this.isVariableRef(value)) {
         // Check if it's a WITH alias
         const varName = (value as { type: string; name: string }).name;
         if (withAliases && withAliases.has(varName)) {
           const originalExpr = withAliases.get(varName)!;
-          conditions.push(`json_extract(properties, '$.${key}') = ?`);
+          conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
           if (originalExpr.type === "literal") {
             params.push(originalExpr.value);
           } else if (originalExpr.type === "parameter") {
@@ -937,11 +951,11 @@ export class Translator {
             params.push(this.evaluateExpression(originalExpr));
           }
         } else {
-          conditions.push(`json_extract(properties, '$.${key}') = ?`);
+          conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
           params.push(value);
         }
       } else {
-        conditions.push(`json_extract(properties, '$.${key}') = ?`);
+        conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
         params.push(value);
       }
     }
@@ -1059,7 +1073,7 @@ export class Translator {
         
         if (nullKeys.length > 0) {
           // Need to merge non-null props and remove null keys
-          const removePaths = nullKeys.map(k => `'$.${k}'`).join(', ');
+          const removePaths = nullKeys.map(k => `'$.${escSqlStr(k)}'`).join(', ');
           statements.push({
             sql: `UPDATE ${table} SET properties = json_remove(json_patch(properties, ?), ${removePaths}) WHERE id = ?`,
             params: [JSON.stringify(nonNullProps), varInfo.alias],
@@ -1090,14 +1104,14 @@ export class Translator {
           // For expressions on created nodes, translate with subquery pattern
           const { sql: exprSql, params: exprParams } = this.translateExpressionForCreatedNode(assignment.value, varInfo.alias);
           statements.push({
-            sql: `UPDATE ${table} SET properties = json_set(properties, '$.${assignment.property}', ${exprSql}) WHERE id = ?`,
+            sql: `UPDATE ${table} SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', ${exprSql}) WHERE id = ?`,
             params: [...exprParams, varInfo.alias],
           });
         } else {
           const { sql: exprSql, params: exprParams } = this.translateExpression(assignment.value);
           // Use json_set with the SQL expression directly
           statements.push({
-            sql: `UPDATE ${table} SET properties = json_set(properties, '$.${assignment.property}', ${exprSql}) WHERE id = ?`,
+            sql: `UPDATE ${table} SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', ${exprSql}) WHERE id = ?`,
             params: [...exprParams, varInfo.alias],
           });
         }
@@ -1106,14 +1120,14 @@ export class Translator {
         // If value is null, remove the property instead of setting it to null
         if (value === null) {
           statements.push({
-            sql: `UPDATE ${table} SET properties = json_remove(properties, '$.${assignment.property}') WHERE id = ?`,
+            sql: `UPDATE ${table} SET properties = json_remove(properties, '$.${escSqlStr(assignment.property)}') WHERE id = ?`,
             params: [varInfo.alias],
           });
         } else {
           assertValidPropertyValue(value);
           // Use json_set to update the property
           statements.push({
-            sql: `UPDATE ${table} SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            sql: `UPDATE ${table} SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             params: [JSON.stringify(value), varInfo.alias],
           });
         }
@@ -1236,7 +1250,7 @@ export class Translator {
       } else if (item.property) {
         // Remove property
         statements.push({
-          sql: `UPDATE ${table} SET properties = json_remove(properties, '$.${item.property}') WHERE id = ?`,
+          sql: `UPDATE ${table} SET properties = json_remove(properties, '$.${escSqlStr(item.property)}') WHERE id = ?`,
           params: [varInfo.alias],
         });
       }
@@ -1648,10 +1662,10 @@ export class Translator {
             if (pattern.properties) {
               for (const [key, value] of Object.entries(pattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(value);
                 }
               }
@@ -1933,18 +1947,18 @@ export class Translator {
           for (const [key, value] of Object.entries(relPattern.edge.properties)) {
             if (this.isParameterRef(value as PropertyValue)) {
               if (isOptional) {
-                edgeOnConditions.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                edgeOnConditions.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 edgeOnParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               } else {
-                whereParts.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               }
             } else {
               if (isOptional) {
-                edgeOnConditions.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                edgeOnConditions.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 edgeOnParams.push(value);
               } else {
-                whereParts.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${relPattern.edgeAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 whereParams.push(value);
               }
             }
@@ -2160,10 +2174,10 @@ export class Translator {
           if (isOptional && targetPattern?.properties) {
             for (const [key, value] of Object.entries(targetPattern.properties)) {
               if (this.isParameterRef(value as PropertyValue)) {
-                targetOnConditions.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+                targetOnConditions.push(`json_extract(${relPattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 targetOnParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               } else {
-                targetOnConditions.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+                targetOnConditions.push(`json_extract(${relPattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 targetOnParams.push(value);
               }
             }
@@ -2234,10 +2248,10 @@ export class Translator {
           if (sourcePattern?.properties && !sourceIsOptional) {
             for (const [key, value] of Object.entries(sourcePattern.properties)) {
               if (this.isParameterRef(value as PropertyValue)) {
-                whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               } else {
-                whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${relPattern.sourceAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 whereParams.push(value);
               }
             }
@@ -2257,10 +2271,10 @@ export class Translator {
             if (targetPattern?.properties) {
               for (const [key, value] of Object.entries(targetPattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${relPattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(value);
                 }
               }
@@ -2379,10 +2393,10 @@ export class Translator {
             if (pattern.properties) {
               for (const [key, value] of Object.entries(pattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  onConditions.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  onConditions.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   onParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  onConditions.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  onConditions.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   onParams.push(value);
                 }
               }
@@ -2408,10 +2422,10 @@ export class Translator {
             if (pattern.properties) {
               for (const [key, value] of Object.entries(pattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(value);
                 }
               }
@@ -2443,10 +2457,10 @@ export class Translator {
             if (pattern.properties) {
               for (const [key, value] of Object.entries(pattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(value);
                 }
               }
@@ -2465,10 +2479,10 @@ export class Translator {
             if (pattern.properties) {
               for (const [key, value] of Object.entries(pattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  onConditions.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  onConditions.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   onParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  onConditions.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  onConditions.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   onParams.push(value);
                 }
               }
@@ -2489,10 +2503,10 @@ export class Translator {
             if (pattern.properties) {
               for (const [key, value] of Object.entries(pattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  whereParts.push(`json_extract(${info.alias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${info.alias}.properties, '$.${escSqlStr(key)}') = ?`);
                   whereParams.push(value);
                 }
               }
@@ -3559,7 +3573,7 @@ export class Translator {
     const edgePropParams: unknown[] = [];
     if (edgeProperties) {
       for (const [key, value] of Object.entries(edgeProperties)) {
-        edgePropConditions.push(`json_extract(properties, '$.${key}') = ?`);
+        edgePropConditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
         edgePropParams.push(value);
       }
     }
@@ -3584,10 +3598,10 @@ export class Translator {
     if (sourcePattern?.properties) {
       for (const [key, value] of Object.entries(sourcePattern.properties)) {
         if (this.isParameterRef(value as PropertyValue)) {
-          sourceFilterParts.push(`json_extract(src_n.properties, '$.${key}') = ?`);
+          sourceFilterParts.push(`json_extract(src_n.properties, '$.${escSqlStr(key)}') = ?`);
           sourceFilterParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
         } else {
-          sourceFilterParts.push(`json_extract(src_n.properties, '$.${key}') = ?`);
+          sourceFilterParts.push(`json_extract(src_n.properties, '$.${escSqlStr(key)}') = ?`);
           sourceFilterParams.push(value);
         }
       }
@@ -3828,10 +3842,10 @@ export class Translator {
           if (sourcePattern?.properties) {
             for (const [key, value] of Object.entries(sourcePattern.properties)) {
               if (this.isParameterRef(value as PropertyValue)) {
-                whereParts.push(`json_extract(${pattern.sourceAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${pattern.sourceAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               } else {
-                whereParts.push(`json_extract(${pattern.sourceAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${pattern.sourceAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 deferredWhereParams.push(value);
               }
             }
@@ -3947,10 +3961,10 @@ export class Translator {
       if (sourcePattern?.properties) {
         for (const [key, value] of Object.entries(sourcePattern.properties)) {
           if (this.isParameterRef(value as PropertyValue)) {
-            whereParts.push(`json_extract(${varLengthSourceAlias}.properties, '$.${key}') = ?`);
+            whereParts.push(`json_extract(${varLengthSourceAlias}.properties, '$.${escSqlStr(key)}') = ?`);
             deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
           } else {
-            whereParts.push(`json_extract(${varLengthSourceAlias}.properties, '$.${key}') = ?`);
+            whereParts.push(`json_extract(${varLengthSourceAlias}.properties, '$.${escSqlStr(key)}') = ?`);
             deferredWhereParams.push(value);
           }
         }
@@ -4010,10 +4024,10 @@ export class Translator {
             if (targetPattern?.properties) {
               for (const [key, value] of Object.entries(targetPattern.properties)) {
                 if (this.isParameterRef(value as PropertyValue)) {
-                  whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                   deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
                 } else {
-                  whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                  whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                   deferredWhereParams.push(value);
                 }
               }
@@ -4059,10 +4073,10 @@ export class Translator {
           if (targetPattern?.properties) {
             for (const [key, value] of Object.entries(targetPattern.properties)) {
               if (this.isParameterRef(value as PropertyValue)) {
-                targetOnConditions.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                targetOnConditions.push(`json_extract(${varLengthTargetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 allParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               } else {
-                targetOnConditions.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+                targetOnConditions.push(`json_extract(${varLengthTargetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 allParams.push(value);
               }
             }
@@ -4106,10 +4120,10 @@ export class Translator {
         if (targetPattern?.properties) {
           for (const [key, value] of Object.entries(targetPattern.properties)) {
             if (this.isParameterRef(value as PropertyValue)) {
-              whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+              whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
               deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
             } else {
-              whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${key}') = ?`);
+              whereParts.push(`json_extract(${varLengthTargetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
               deferredWhereParams.push(value);
             }
           }
@@ -4272,10 +4286,10 @@ export class Translator {
         if (targetPattern2?.properties) {
           for (const [key, value] of Object.entries(targetPattern2.properties)) {
             if (this.isParameterRef(value as PropertyValue)) {
-              whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${key}') = ?`);
+              whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
               deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
             } else {
-              whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${key}') = ?`);
+              whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
               deferredWhereParams.push(value);
             }
           }
@@ -4336,10 +4350,10 @@ export class Translator {
           if (afterTargetPattern?.properties) {
             for (const [key, value] of Object.entries(afterTargetPattern.properties)) {
               if (this.isParameterRef(value as PropertyValue)) {
-                whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 deferredWhereParams.push(this.ctx.paramValues[(value as ParameterRef).name]);
               } else {
-                whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${key}') = ?`);
+                whereParts.push(`json_extract(${pattern.targetAlias}.properties, '$.${escSqlStr(key)}') = ?`);
                 deferredWhereParams.push(value);
               }
             }
@@ -4549,7 +4563,7 @@ export class Translator {
       if (!varInfo) {
         throw new Error(`Unknown variable: ${clause.expression.variable}`);
       }
-      jsonExpr = `json_extract(${varInfo.alias}.properties, '$.${clause.expression.property}')`;
+      jsonExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(clause.expression.property)}')`;
     } else if (clause.expression.type === "function" || clause.expression.type === "binary") {
       // Function call like range(1, 10) or binary expression like (first + second)
       const translated = this.translateExpression(clause.expression);
@@ -5245,7 +5259,7 @@ export class Translator {
                 
                 // Access property from the result using json_extract
                 return {
-                  sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
+                  sql: `json_extract(${objectResult.sql}, '$.${escSqlStr(expr.property)}')`,
                   tables,
                   params,
                 };
@@ -5287,7 +5301,7 @@ export class Translator {
             
             // Access property from the unwound value using json_extract
             return {
-              sql: `json_extract(${baseSql}, '$.${expr.property}')`,
+              sql: `json_extract(${baseSql}, '$.${escSqlStr(expr.property)}')`,
               tables,
               params,
             };
@@ -5301,7 +5315,7 @@ export class Translator {
         tables.push(varInfo.alias);
         // Use -> operator to preserve JSON types (returns 'true'/'false' not 1/0)
         return {
-          sql: `${varInfo.alias}.properties -> '$.${expr.property}'`,
+          sql: `${varInfo.alias}.properties -> '$.${escSqlStr(expr.property)}'`,
           tables,
           params,
         };
@@ -5325,7 +5339,7 @@ export class Translator {
               }
               tables.push(varInfo.alias);
               return {
-                sql: `COUNT(${distinctKeyword}json_extract(${varInfo.alias}.properties, '$.${arg.property}'))`,
+                sql: `COUNT(${distinctKeyword}json_extract(${varInfo.alias}.properties, '$.${escSqlStr(arg.property)}'))`,
                 tables,
                 params,
               };
@@ -5482,7 +5496,7 @@ export class Translator {
                   tables.push(unwindClause.alias);
                   // UNWIND variables use the 'value' column from json_each
                   return {
-                    sql: `${expr.functionName}(${distinctKeyword}json_extract(${unwindClause.alias}.value, '$.${arg.property}'))`,
+                    sql: `${expr.functionName}(${distinctKeyword}json_extract(${unwindClause.alias}.value, '$.${escSqlStr(arg.property)}'))`,
                     tables,
                     params,
                   };
@@ -5496,7 +5510,7 @@ export class Translator {
               tables.push(varInfo.alias);
               // Use json_extract for numeric properties in aggregations
               return {
-                sql: `${expr.functionName}(${distinctKeyword}json_extract(${varInfo.alias}.properties, '$.${arg.property}'))`,
+                sql: `${expr.functionName}(${distinctKeyword}json_extract(${varInfo.alias}.properties, '$.${escSqlStr(arg.property)}'))`,
                 tables,
                 params,
               };
@@ -5664,7 +5678,7 @@ export class Translator {
                 throw new Error(`Unknown variable: ${arg.variable}`);
               }
               tables.push(varInfo.alias);
-              valueSql = `json_extract(${varInfo.alias}.properties, '$.${arg.property}')`;
+              valueSql = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(arg.property)}')`;
             } else if (arg.type === "variable") {
               // Check if this is an UNWIND variable
               const unwindClauses = (this.ctx as any).unwindClauses as Array<{
@@ -5773,7 +5787,7 @@ export class Translator {
                 throw new Error(`Unknown variable: ${valueArg.variable}`);
               }
               tables.push(varInfo.alias);
-              valueExpr = `json_extract(${varInfo.alias}.properties, '$.${valueArg.property}')`;
+              valueExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(valueArg.property)}')`;
             } else {
               const argResult = this.translateFunctionArg(valueArg);
               tables.push(...argResult.tables);
@@ -5890,7 +5904,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
                 // json_quote properly escapes strings for JSON
                 // Filter nulls: CASE WHEN value IS NULL THEN NULL ELSE json_quote(value) END
                 // GROUP_CONCAT ignores nulls
-                const extractExpr = `json_extract(${varInfo.alias}.properties, '$.${arg.property}')`;
+                const extractExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(arg.property)}')`;
                 params.push(...collectOrderParams);
                 return {
                   sql: `COALESCE(json('[' || GROUP_CONCAT(DISTINCT CASE WHEN ${extractExpr} IS NOT NULL THEN json_quote(${extractExpr}) END${collectOrderClause}) || ']'), json('[]'))`,
@@ -5900,7 +5914,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               }
               
               // Neo4j's collect() skips NULL values - use GROUP_CONCAT with null filtering
-              const extractExpr = `json_extract(${varInfo.alias}.properties, '$.${arg.property}')`;
+              const extractExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(arg.property)}')`;
               params.push(...collectOrderParams);
               return {
                 sql: `COALESCE(json('[' || GROUP_CONCAT(CASE WHEN ${extractExpr} IS NOT NULL THEN json_quote(${extractExpr}) END${collectOrderClause}) || ']'), json('[]'))`,
@@ -6460,7 +6474,7 @@ END FROM (SELECT json_group_array(${valueExpr}) as sv))`,
               tables.push(...argResult.tables);
               params.push(...argResult.params);
               return {
-                sql: `cypher_to_json_bool(json_type(${argResult.sql}, '$.${propName}') IS NOT NULL)`,
+                sql: `cypher_to_json_bool(json_type(${argResult.sql}, '$.${escSqlStr(propName)}') IS NOT NULL)`,
                 tables,
                 params,
               };
@@ -10079,7 +10093,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Use EXISTS with json_each to check if label is in the array
         // For multiple labels, all must be present (AND)
         const labelChecks = labelsToCheck.map(l => 
-          `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${l}')`
+          `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${escSqlStr(l)}')`
         ).join(' AND ');
         
         return {
@@ -10098,7 +10112,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         
         // Access property from the result using json_extract
         return {
-          sql: `json_extract(${objectResult.sql}, '$.${expr.property}')`,
+          sql: `json_extract(${objectResult.sql}, '$.${escSqlStr(expr.property)}')`,
           tables,
           params,
         };
@@ -10118,14 +10132,14 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           if (item.type === "property") {
             // .property shorthand - extract property from source
             const key = item.property!;
-            jsonParts.push(`'${key}', json_extract(${sourceResult.sql}, '$.${key}')`);
+            jsonParts.push(`'${escSqlStr(key)}', json_extract(${sourceResult.sql}, '$.${escSqlStr(key)}')`);
           } else if (item.type === "literal") {
             // key: value syntax
             const key = item.key!;
             const valueResult = this.translateExpression(item.value!);
             tables.push(...valueResult.tables);
             params.push(...valueResult.params);
-            jsonParts.push(`'${key}', ${valueResult.sql}`);
+            jsonParts.push(`'${escSqlStr(key)}', ${valueResult.sql}`);
           } else if (item.type === "allProperties") {
             // .* - project all properties (not yet fully supported, just returns the source)
             // TODO: implement proper .* support
@@ -11591,7 +11605,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     if (expr.type === "property") {
       const varInfo = this.ctx.variables.get(expr.variable!);
       if (varInfo) {
-        return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+        return `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`;
       }
     }
     return sql;
@@ -11603,7 +11617,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // Replace -> with json_extract for numeric operations
       const varInfo = this.ctx.variables.get(expr.variable!);
       if (varInfo) {
-        return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+        return `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`;
       }
     }
     return sql;
@@ -11638,7 +11652,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         const propName = expr.property!;
         params.push(nodeId);
         return {
-          sql: `(SELECT json_extract(properties, '$.${propName}') FROM nodes WHERE id = ?)`,
+          sql: `(SELECT json_extract(properties, '$.${escSqlStr(propName)}') FROM nodes WHERE id = ?)`,
           params,
         };
       }
@@ -11908,7 +11922,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     if (expr.type === "property") {
       const varInfo = this.ctx.variables.get(expr.variable!);
       if (varInfo) {
-        return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+        return `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`;
       }
     }
     return sql;
@@ -12033,7 +12047,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // For property access, use json_extract 
       const varInfo = this.ctx.variables.get(listExpr.variable!);
       if (varInfo) {
-        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${listExpr.property}')`;
+        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(listExpr.property)}')`;
       }
     }
     
@@ -12192,7 +12206,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // For property access, use json_extract 
       const varInfo = this.ctx.variables.get(listExpr.variable!);
       if (varInfo) {
-        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${listExpr.property}')`;
+        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(listExpr.property)}')`;
       }
     }
     
@@ -12235,7 +12249,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       // For property access, use json_extract 
       const varInfo = this.ctx.variables.get(listExpr.variable!);
       if (varInfo) {
-        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${listExpr.property}')`;
+        sourceExpr = `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(listExpr.property)}')`;
       }
     }
     
@@ -12284,18 +12298,18 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       case "property": {
         if (expr.variable === iterVar) {
           // Property access on the iterator variable: x.name
-          return { sql: `json_extract(${elemAlias}.value, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${elemAlias}.value, '$.${escSqlStr(expr.property)}')`, params };
         }
         if (expr.variable === accVar) {
           // Property access on accumulator (if acc is an object)
-          return { sql: `json_extract(${tableAlias}.acc, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${tableAlias}.acc, '$.${escSqlStr(expr.property)}')`, params };
         }
         // Standard property translation
         const varInfo = this.ctx.variables.get(expr.variable!);
         if (varInfo) {
-          return { sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`, params };
         }
-        return { sql: `json_extract(${expr.variable}, '$.${expr.property}')`, params };
+        return { sql: `json_extract(${expr.variable}, '$.${escSqlStr(expr.property)}')`, params };
       }
       
       case "literal": {
@@ -12814,13 +12828,13 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
       
       case "property":
         if (expr.variable === startVar) {
-          return { sql: `json_extract(${startAlias}.properties, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${startAlias}.properties, '$.${escSqlStr(expr.property)}')`, params };
         }
         if (expr.variable === edgeVar) {
-          return { sql: `json_extract(${edgeAlias}.properties, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${edgeAlias}.properties, '$.${escSqlStr(expr.property)}')`, params };
         }
         if (expr.variable === targetVar) {
-          return { sql: `json_extract(${targetAlias}.properties, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${targetAlias}.properties, '$.${escSqlStr(expr.property)}')`, params };
         }
         // Fall through to regular translation
         const propResult = this.translateExpression(expr);
@@ -12940,7 +12954,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         const scope = findScope(expr.variable!);
         if (scope) {
           // Extract property from the JSON value in the list element
-          return { sql: `json_extract(${scope.tableAlias}.value, '$.${expr.property}')`, params };
+          return { sql: `json_extract(${scope.tableAlias}.value, '$.${escSqlStr(expr.property)}')`, params };
         }
         // Fall through to regular translation for other variables
         const propResult = this.translateExpression(expr);
@@ -13382,7 +13396,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
     if (expr.type === "property") {
       const varInfo = this.ctx.variables.get(expr.variable!);
       if (varInfo) {
-        return `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`;
+        return `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`;
       }
     }
     // For literal arrays, the sql is already a json_array() call
@@ -14323,7 +14337,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           const objectResult = this.translateExpression(originalExpr);
           return {
             sql: this.buildDateTimeWithOffsetOrderBy(
-              `json_extract(${objectResult.sql}, '$.${expr.property}')`
+              `json_extract(${objectResult.sql}, '$.${escSqlStr(expr.property)}')`
             ),
             params: objectResult.params,
           };
@@ -14353,7 +14367,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
             // UNWIND variables use the 'value' column from json_each
             return {
               sql: this.buildDateTimeWithOffsetOrderBy(
-                `json_extract(${unwindClause.alias}.value, '$.${expr.property}')`
+                `json_extract(${unwindClause.alias}.value, '$.${escSqlStr(expr.property)}')`
               ),
               params: [],
             };
@@ -14366,7 +14380,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
         return {
           sql: this.buildDateTimeWithOffsetOrderBy(
-            `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`
+            `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`
           ),
           params: [],
         };
@@ -14591,7 +14605,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           throw new Error(`Unknown variable: ${expr.variable}`);
         }
         return {
-          sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+          sql: `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`,
           params: [],
         };
       }
@@ -14620,7 +14634,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           if (unwindClause) {
             // UNWIND variables use the 'value' column from json_each
             return {
-              sql: `json_extract(${unwindClause.alias}.value, '$.${expr.property}')`,
+              sql: `json_extract(${unwindClause.alias}.value, '$.${escSqlStr(expr.property)}')`,
               params: [],
             };
           }
@@ -14631,7 +14645,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
           throw new Error(`Unknown variable: ${expr.variable}`);
         }
         return {
-          sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+          sql: `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`,
           params: [],
         };
       }
@@ -14762,7 +14776,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         // Use EXISTS with json_each to check if label is in the array
         // For multiple labels, all must be present (AND)
         const labelChecks = labelsToCheck.map((l: string) => 
-          `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${l}')`
+          `EXISTS(SELECT 1 FROM json_each(${varInfo.alias}.label) WHERE value = '${escSqlStr(l)}')`
         ).join(' AND ');
         
         return {
@@ -14814,7 +14828,7 @@ SELECT COALESCE(json_group_array(CAST(n AS INTEGER)), json_array()) FROM r)`,
         }
         tables.push(varInfo.alias);
         return {
-          sql: `json_extract(${varInfo.alias}.properties, '$.${expr.property}')`,
+          sql: `json_extract(${varInfo.alias}.properties, '$.${escSqlStr(expr.property)}')`,
           tables,
           params,
         };

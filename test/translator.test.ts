@@ -2533,7 +2533,7 @@ describe("Translator", () => {
       const result = translateCypher("CREATE INDEX ON (id)");
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toBe(
-        "CREATE INDEX IF NOT EXISTS idx_id ON nodes(json_extract(properties, '$.id'))"
+        'CREATE INDEX IF NOT EXISTS "idx_id" ON nodes(json_extract(properties, \'$.id\'))'
       );
     });
 
@@ -2541,7 +2541,7 @@ describe("Translator", () => {
       const result = translateCypher("CREATE INDEX ON :User(id)");
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toBe(
-        "CREATE INDEX IF NOT EXISTS idx_id ON nodes(json_extract(properties, '$.id'))"
+        'CREATE INDEX IF NOT EXISTS "idx_id" ON nodes(json_extract(properties, \'$.id\'))'
       );
     });
 
@@ -2549,7 +2549,7 @@ describe("Translator", () => {
       const result = translateCypher("CREATE INDEX myIdx ON (email)");
       expect(result.statements).toHaveLength(1);
       expect(result.statements[0].sql).toBe(
-        "CREATE INDEX IF NOT EXISTS myIdx ON nodes(json_extract(properties, '$.email'))"
+        'CREATE INDEX IF NOT EXISTS "myIdx" ON nodes(json_extract(properties, \'$.email\'))'
       );
     });
 
@@ -2563,12 +2563,12 @@ describe("Translator", () => {
     it("generates DROP INDEX SQL", () => {
       const result = translateCypher("DROP INDEX idx_id");
       expect(result.statements).toHaveLength(1);
-      expect(result.statements[0].sql).toBe("DROP INDEX IF EXISTS idx_id");
+      expect(result.statements[0].sql).toBe('DROP INDEX IF EXISTS "idx_id"');
     });
 
     it("handles index names with underscores", () => {
       const result = translateCypher("DROP INDEX idx_user_email");
-      expect(result.statements[0].sql).toBe("DROP INDEX IF EXISTS idx_user_email");
+      expect(result.statements[0].sql).toBe('DROP INDEX IF EXISTS "idx_user_email"');
     });
   });
 });

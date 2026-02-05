@@ -1,5 +1,13 @@
 // Query Executor - Full pipeline: Cypher → Parse → Translate → Execute → Format
 
+/**
+ * Escape a string for safe interpolation inside a SQL string literal.
+ * Prevents SQL injection via backtick-quoted Cypher identifiers.
+ */
+function escSqlStr(s: string | undefined): string {
+  return (s || "").replace(/'/g, "''");
+}
+
 import {
   parse,
   ParseResult,
@@ -2170,7 +2178,7 @@ export class Executor {
     
     // Property conditions
     for (const [key, value] of Object.entries(props)) {
-      conditions.push(`json_extract(properties, '$.${key}') = ?`);
+      conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       conditionParams.push(value);
     }
     
@@ -2279,10 +2287,10 @@ export class Executor {
     for (const [key, value] of Object.entries(edgeProps)) {
       if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
         // For arrays and objects, compare JSON representations
-        propConditions += ` AND json_extract(properties, '$.${key}') = json(?)`;
+        propConditions += ` AND json_extract(properties, '$.${escSqlStr(key)}') = json(?)`;
         propParams.push(JSON.stringify(value));
       } else {
-        propConditions += ` AND json_extract(properties, '$.${key}') = ?`;
+        propConditions += ` AND json_extract(properties, '$.${escSqlStr(key)}') = ?`;
         propParams.push(value);
       }
     }
@@ -3867,7 +3875,7 @@ export class Executor {
         if (assignment.property && assignment.value) {
           const value = this.evaluateExpressionInRow(assignment.value, row, params);
           this.db.execute(
-            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), nodeId]
           );
           // Invalidate cache after UPDATE
@@ -3946,7 +3954,7 @@ export class Executor {
           
           // Try as node ID
           let result = this.db.execute(
-            `SELECT json_extract(properties, '$.${expr.property}') as value FROM nodes WHERE id = ?`,
+            `SELECT json_extract(properties, '$.${escSqlStr(expr.property)}') as value FROM nodes WHERE id = ?`,
             [varValue]
           );
           if (result.rows.length > 0) {
@@ -3955,7 +3963,7 @@ export class Executor {
           
           // Try edges
           result = this.db.execute(
-            `SELECT json_extract(properties, '$.${expr.property}') as value FROM edges WHERE id = ?`,
+            `SELECT json_extract(properties, '$.${escSqlStr(expr.property)}') as value FROM edges WHERE id = ?`,
             [varValue]
           );
           if (result.rows.length > 0) {
@@ -5602,7 +5610,7 @@ export class Executor {
             }
             
             for (const [key, value] of Object.entries(props)) {
-              whereConditions.push(`json_extract(properties, '$.${key}') = ?`);
+              whereConditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
               whereParams.push(value);
             }
             
@@ -7376,7 +7384,7 @@ export class Executor {
           }
           
           for (const [key, value] of Object.entries(matchProps)) {
-            conditions.push(`json_extract(properties, '$.${key}') = ?`);
+            conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
             conditionParams.push(value);
           }
           
@@ -7489,7 +7497,7 @@ export class Executor {
     }
     
     for (const [key, value] of Object.entries(matchProps)) {
-      conditions.push(`json_extract(properties, '$.${key}') = ?`);
+      conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       conditionParams.push(value);
     }
     
@@ -7538,7 +7546,7 @@ export class Executor {
           if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpressionWithMatchedNodes(assignment.value, params, matchedNodes);
           this.db.execute(
-            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), nodeId]
           );
           // Invalidate cache after UPDATE
@@ -7610,7 +7618,7 @@ export class Executor {
           if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpressionWithMatchedNodes(assignment.value, params, matchedNodes);
           this.db.execute(
-            `UPDATE edges SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE edges SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), edgeId]
           );
         }
@@ -7943,7 +7951,7 @@ export class Executor {
         }
         
         for (const [key, value] of Object.entries(matchProps)) {
-          conditions.push(`json_extract(properties, '$.${key}') = ?`);
+          conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
           conditionParams.push(value);
         }
         
@@ -8075,7 +8083,7 @@ export class Executor {
     }
     
     for (const [key, value] of Object.entries(matchProps)) {
-      conditions.push(`json_extract(properties, '$.${key}') = ?`);
+      conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       conditionParams.push(value);
     }
     
@@ -8145,7 +8153,7 @@ export class Executor {
           if (!assignment.value || !assignment.property) continue;
           const value = this.evaluateExpressionWithMatchedNodes(assignment.value, params, matchedNodes);
           this.db.execute(
-            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), nodeId]
           );
           // Invalidate cache after UPDATE
@@ -8253,7 +8261,7 @@ export class Executor {
     }
     
     for (const [key, value] of Object.entries(edgeProps)) {
-      findEdgeConditions.push(`json_extract(properties, '$.${key}') = ?`);
+      findEdgeConditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       findEdgeParams.push(value);
     }
     
@@ -8297,7 +8305,7 @@ export class Executor {
           if (pattern.edge.variable && assignment.variable === pattern.edge.variable) {
             const value = this.evaluateExpression(assignment.value, params);
             this.db.execute(
-              `UPDATE edges SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+              `UPDATE edges SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
               [JSON.stringify(value), edgeId]
             );
           }
@@ -8495,7 +8503,7 @@ export class Executor {
     }
     
     for (const [key, value] of Object.entries(matchProps)) {
-      conditions.push(`json_extract(properties, '$.${key}') = ?`);
+      conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       conditionParams.push(value);
     }
     
@@ -8588,7 +8596,7 @@ export class Executor {
             ? this.evaluateExpressionWithContext(assignment.value, params, resolvedIds)
             : this.evaluateExpression(assignment.value, params);
           this.db.execute(
-            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), nodeId]
           );
           // Invalidate cache after UPDATE
@@ -8694,7 +8702,7 @@ export class Executor {
     
     // Add edge property conditions if any
     for (const [key, value] of Object.entries(edgeProps)) {
-      findEdgeConditions.push(`json_extract(properties, '$.${key}') = ?`);
+      findEdgeConditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       findEdgeParams.push(value);
     }
     
@@ -8721,7 +8729,7 @@ export class Executor {
           const value = this.evaluateExpression(assignment.value, params);
           // Update target node with ON CREATE SET
           this.db.execute(
-            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), targetNodeId]
           );
           // Invalidate cache after UPDATE
@@ -8745,7 +8753,7 @@ export class Executor {
           const value = this.evaluateExpression(assignment.value, params);
           // Update target node with ON MATCH SET
           this.db.execute(
-            `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), targetNodeId]
           );
           // Invalidate cache after UPDATE
@@ -8812,7 +8820,7 @@ export class Executor {
     }
     
     for (const [key, value] of Object.entries(props)) {
-      conditions.push(`json_extract(properties, '$.${key}') = ?`);
+      conditions.push(`json_extract(properties, '$.${escSqlStr(key)}') = ?`);
       conditionParams.push(value);
     }
     
@@ -9383,7 +9391,7 @@ export class Executor {
         if (assignment.property) {
           // SET n.prop = value
           const propName = assignment.property;
-          const sql = `UPDATE ${table} SET properties = json_set(properties, '$.${propName}', json(?)) WHERE id = ?`;
+          const sql = `UPDATE ${table} SET properties = json_set(properties, '$.${escSqlStr(propName)}', json(?)) WHERE id = ?`;
           this.db.execute(sql, [JSON.stringify(newValue), nodeId]);
 
           // Update the row object so subsequent iterations see the new value
@@ -10621,7 +10629,7 @@ export class Executor {
           if (nodeId) {
             // Try nodes first
             const nodeResult = this.db.execute(
-              `SELECT json_extract(properties, '$.${property}') as value FROM nodes WHERE id = ?`,
+              `SELECT json_extract(properties, '$.${escSqlStr(property)}') as value FROM nodes WHERE id = ?`,
               [nodeId]
             );
             
@@ -10630,7 +10638,7 @@ export class Executor {
             } else {
               // Try edges
               const edgeResult = this.db.execute(
-                `SELECT json_extract(properties, '$.${property}') as value FROM edges WHERE id = ?`,
+                `SELECT json_extract(properties, '$.${escSqlStr(property)}') as value FROM edges WHERE id = ?`,
                 [nodeId]
               );
               if (edgeResult.rows.length > 0) {
@@ -10734,7 +10742,7 @@ export class Executor {
               if (nodeId) {
                 // Try nodes first
                 const nodeResult = this.db.execute(
-                  `SELECT json_extract(properties, '$.${arg.property}') as value FROM nodes WHERE id = ?`,
+                  `SELECT json_extract(properties, '$.${escSqlStr(arg.property)}') as value FROM nodes WHERE id = ?`,
                   [nodeId]
                 );
                 if (nodeResult.rows.length > 0) {
@@ -10749,7 +10757,7 @@ export class Executor {
                 } else {
                   // Try edges
                   const edgeResult = this.db.execute(
-                    `SELECT json_extract(properties, '$.${arg.property}') as value FROM edges WHERE id = ?`,
+                    `SELECT json_extract(properties, '$.${escSqlStr(arg.property)}') as value FROM edges WHERE id = ?`,
                     [nodeId]
                   );
                   if (edgeResult.rows.length > 0) {
@@ -10872,7 +10880,7 @@ export class Executor {
 
         if (nullKeys.length > 0) {
           // Need to merge non-null props and remove null keys
-          const removePaths = nullKeys.map(k => `'$.${k}'`).join(', ');
+          const removePaths = nullKeys.map(k => `'$.${escSqlStr(k)}'`).join(', ');
           const nodeResult = this.db.execute(
             `UPDATE nodes SET properties = json_remove(json_patch(properties, ?), ${removePaths}) WHERE id = ?`,
             [JSON.stringify(nonNullProps), nodeId]
@@ -10914,12 +10922,12 @@ export class Executor {
       // If value is null, remove the property instead of setting it to null
       if (value === null) {
         const nodeResult = this.db.execute(
-          `UPDATE nodes SET properties = json_remove(properties, '$.${assignment.property}') WHERE id = ?`,
+          `UPDATE nodes SET properties = json_remove(properties, '$.${escSqlStr(assignment.property)}') WHERE id = ?`,
           [nodeId]
         );
         if (nodeResult.changes === 0) {
           this.db.execute(
-            `UPDATE edges SET properties = json_remove(properties, '$.${assignment.property}') WHERE id = ?`,
+            `UPDATE edges SET properties = json_remove(properties, '$.${escSqlStr(assignment.property)}') WHERE id = ?`,
             [nodeId]
           );
         }
@@ -10928,14 +10936,14 @@ export class Executor {
         // We need to determine if it's a node or edge - for now assume node
         // Try nodes first, then edges
         const nodeResult = this.db.execute(
-          `UPDATE nodes SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+          `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
           [JSON.stringify(value), nodeId]
         );
 
         if (nodeResult.changes === 0) {
           // Try edges
           this.db.execute(
-            `UPDATE edges SET properties = json_set(properties, '$.${assignment.property}', json(?)) WHERE id = ?`,
+            `UPDATE edges SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
             [JSON.stringify(value), nodeId]
           );
         }
@@ -11087,7 +11095,7 @@ export class Executor {
         }
         // Try nodes first
         const nodeResult = this.db.execute(
-          `SELECT json_extract(properties, '$.${propName}') AS value FROM nodes WHERE id = ?`,
+          `SELECT json_extract(properties, '$.${escSqlStr(propName)}') AS value FROM nodes WHERE id = ?`,
           [entityId]
         );
         if (nodeResult.rows.length > 0) {
@@ -11105,7 +11113,7 @@ export class Executor {
         }
         // Try edges
         const edgeResult = this.db.execute(
-          `SELECT json_extract(properties, '$.${propName}') AS value FROM edges WHERE id = ?`,
+          `SELECT json_extract(properties, '$.${escSqlStr(propName)}') AS value FROM edges WHERE id = ?`,
           [entityId]
         );
         if (edgeResult.rows.length > 0) {

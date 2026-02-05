@@ -1,6 +1,7 @@
 // HTTP Routes using Hono
 
-import { Hono } from "hono";
+import { Hono, Context } from "hono";
+import { cors } from "hono/cors";
 import { DatabaseManager, GraphDatabase } from "./db.js";
 import { Executor, QueryResponse } from "./executor.js";
 import { ApiKeyStore, authMiddleware } from "./auth.js";
@@ -17,6 +18,17 @@ export interface QueryRequest {
 export interface AppContext {
   dbManager: DatabaseManager;
 }
+
+// ============================================================================
+// Security: CORS Configuration
+// ============================================================================
+
+/**
+ * Default CORS configuration - restrictive by default.
+ * In production, configure with specific allowed origins.
+ */
+const DEFAULT_CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
+const ALLOWED_ORIGINS = process.env.CORS_ORIGINS?.split(",") || [DEFAULT_CORS_ORIGIN];
 
 // ============================================================================
 // Security: Project Name Validation
@@ -38,6 +50,51 @@ function isValidProjectName(name: string): boolean {
 }
 
 // ============================================================================
+// Security: Rate Limiting
+// ============================================================================
+
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX || "10000", 10); // per minute
+
+function checkRateLimit(identifier: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(identifier);
+
+  if (!entry || now > entry.resetTime) {
+    // New window
+    rateLimitMap.set(identifier, {
+      count: 1,
+      resetTime: now + RATE_LIMIT_WINDOW_MS,
+    });
+    return { allowed: true };
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetTime - now) / 1000) };
+  }
+
+  entry.count++;
+  return { allowed: true };
+}
+
+function getClientIdentifier(c: Context): string {
+  // Use X-Forwarded-For if behind a proxy, otherwise use the direct connection info
+  const forwardedFor = c.req.header("X-Forwarded-For");
+  if (forwardedFor) {
+    // Take the first IP in the chain (client IP)
+    return forwardedFor.split(",")[0].trim();
+  }
+  // Fallback to a combination that should uniquely identify the client
+  return c.req.header("X-Real-Ip") || "unknown";
+}
+
+// ============================================================================
 // Create App
 // ============================================================================
 
@@ -46,6 +103,21 @@ export function createApp(
   apiKeyStore?: ApiKeyStore
 ): Hono {
   const app = new Hono();
+
+  // CORS middleware - must be before other middleware
+  app.use("*", cors({
+    origin: (origin) => {
+      // Allow requests with no origin (e.g., curl, mobile apps)
+      if (!origin) return "*";
+      // Check if origin is in allowed list
+      if (ALLOWED_ORIGINS.includes(origin)) return origin;
+      // Default: deny
+      return null;
+    },
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    maxAge: 86400, // 24 hours
+  }));
 
   // Security headers middleware
   app.use("*", async (c, next) => {
@@ -81,6 +153,32 @@ export function createApp(
   // ============================================================================
 
   app.post("/query/:project", async (c) => {
+    // Rate limiting check
+    const clientId = getClientIdentifier(c);
+    const rateLimit = checkRateLimit(clientId);
+    if (!rateLimit.allowed) {
+      c.header("Retry-After", String(rateLimit.retryAfter));
+      return c.json(
+        {
+          success: false,
+          error: { message: "Rate limit exceeded. Please try again later." },
+        },
+        429
+      );
+    }
+
+    // Content-Type validation
+    const contentType = c.req.header("Content-Type");
+    if (!contentType || !contentType.includes("application/json")) {
+      return c.json(
+        {
+          success: false,
+          error: { message: "Content-Type must be application/json" },
+        },
+        415
+      );
+    }
+
     const project = c.req.param("project");
 
     // Validate project name to prevent path traversal

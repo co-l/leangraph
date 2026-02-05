@@ -141,6 +141,7 @@ export interface ExecutionResult {
   meta: {
     count: number;
     time_ms: number;
+    truncated?: boolean;
   };
 }
 
@@ -384,15 +385,21 @@ export class Executor {
         this.validateOrderByVariables(parseResult.query, params);
       }
       
+      // Maximum number of results to return (security limit)
+      const MAX_RESULTS_LIMIT = 10000;
+
       // Helper to return successful result
       const makeResult = (data: Record<string, unknown>[]): QueryResponse => {
         const endTime = performance.now();
+        const truncated = data.length > MAX_RESULTS_LIMIT;
+        const limitedData = truncated ? data.slice(0, MAX_RESULTS_LIMIT) : data;
         return {
           success: true,
-          data,
+          data: limitedData,
           meta: {
-            count: data.length,
+            count: limitedData.length,
             time_ms: Math.round((endTime - startTime) * 100) / 100,
+            truncated,
           },
         };
       };

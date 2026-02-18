@@ -310,6 +310,19 @@ export interface DropIndexClause {
   indexName: string; // The index name to drop
 }
 
+export interface CreateConstraintClause {
+  type: "CREATE_CONSTRAINT";
+  constraintName: string | null; // Optional custom name
+  label: string; // The node label
+  property: string; // The property to constrain
+  constraintType: "unique"; // Currently only unique constraints supported
+}
+
+export interface DropConstraintClause {
+  type: "DROP_CONSTRAINT";
+  constraintName: string; // The constraint name to drop
+}
+
 export type Clause =
   | CreateClause
   | MatchClause
@@ -324,7 +337,9 @@ export type Clause =
   | CallClause
   | ForeachClause
   | CreateIndexClause
-  | DropIndexClause;
+  | DropIndexClause
+  | CreateConstraintClause
+  | DropConstraintClause;
 
 export interface Query {
   clauses: Clause[];
@@ -444,6 +459,9 @@ const KEYWORDS = new Set([
   "PROFILE",
   "INDEX",
   "DROP",
+  "CONSTRAINT",
+  "ASSERT",
+  "UNIQUE",
 ]);
 
 class Tokenizer {
@@ -1178,18 +1196,23 @@ export class Parser {
       case "FOREACH":
         return this.parseForeach();
       case "DROP":
-        return this.parseDropIndex();
+        return this.parseDrop();
       default:
         throw new Error(`Unexpected keyword '${token.value}'`);
     }
   }
 
-  private parseCreate(): CreateClause | CreateIndexClause {
+  private parseCreate(): CreateClause | CreateIndexClause | CreateConstraintClause {
     this.expect("KEYWORD", "CREATE");
     
     // Check if this is CREATE INDEX
     if (this.check("KEYWORD") && this.peek().value === "INDEX") {
       return this.parseCreateIndex();
+    }
+    
+    // Check if this is CREATE CONSTRAINT
+    if (this.check("KEYWORD") && this.peek().value === "CONSTRAINT") {
+      return this.parseCreateConstraint();
     }
     
     const patterns: (NodePattern | RelationshipPattern)[] = [];
@@ -1271,13 +1294,29 @@ export class Parser {
   }
 
   /**
-   * Parse DROP INDEX statement
+   * Parse DROP statement - dispatches to DROP INDEX or DROP CONSTRAINT
+   */
+  private parseDrop(): DropIndexClause | DropConstraintClause {
+    this.expect("KEYWORD", "DROP");
+    
+    if (this.check("KEYWORD") && this.peek().value === "INDEX") {
+      this.advance(); // consume INDEX
+      return this.parseDropIndexBody();
+    }
+    
+    if (this.check("KEYWORD") && this.peek().value === "CONSTRAINT") {
+      this.advance(); // consume CONSTRAINT
+      return this.parseDropConstraintBody();
+    }
+    
+    throw new Error("Expected INDEX or CONSTRAINT after DROP");
+  }
+
+  /**
+   * Parse DROP INDEX body (after DROP INDEX keywords consumed)
    * Syntax: DROP INDEX name
    */
-  private parseDropIndex(): DropIndexClause {
-    this.expect("KEYWORD", "DROP");
-    this.expect("KEYWORD", "INDEX");
-    
+  private parseDropIndexBody(): DropIndexClause {
     const nameToken = this.advance();
     if (nameToken.type !== "IDENTIFIER" && nameToken.type !== "KEYWORD") {
       throw new Error(`Expected index name, got ${nameToken.type}`);
@@ -1286,6 +1325,91 @@ export class Parser {
     return {
       type: "DROP_INDEX",
       indexName: nameToken.value,
+    };
+  }
+
+  /**
+   * Parse DROP CONSTRAINT body (after DROP CONSTRAINT keywords consumed)
+   * Syntax: DROP CONSTRAINT name
+   */
+  private parseDropConstraintBody(): DropConstraintClause {
+    const nameToken = this.advance();
+    if (nameToken.type !== "IDENTIFIER" && nameToken.type !== "KEYWORD") {
+      throw new Error(`Expected constraint name, got ${nameToken.type}`);
+    }
+    
+    return {
+      type: "DROP_CONSTRAINT",
+      constraintName: nameToken.value,
+    };
+  }
+
+  /**
+   * Parse CREATE CONSTRAINT statement
+   * Syntax: CREATE CONSTRAINT [name] ON (n:Label) ASSERT n.property IS UNIQUE
+   */
+  private parseCreateConstraint(): CreateConstraintClause {
+    this.expect("KEYWORD", "CONSTRAINT");
+    
+    let constraintName: string | null = null;
+    
+    // Check if there's a custom constraint name before ON
+    if (this.check("IDENTIFIER")) {
+      constraintName = this.advance().value;
+    }
+    
+    this.expect("KEYWORD", "ON");
+    
+    // Parse (n:Label)
+    this.expect("LPAREN");
+    
+    // Variable name (e.g., "n")
+    const varToken = this.advance();
+    if (varToken.type !== "IDENTIFIER" && varToken.type !== "KEYWORD") {
+      throw new Error(`Expected variable name, got ${varToken.type}`);
+    }
+    const varName = varToken.value;
+    
+    // :Label
+    this.expect("COLON");
+    const labelToken = this.advance();
+    if (labelToken.type !== "IDENTIFIER" && labelToken.type !== "KEYWORD") {
+      throw new Error(`Expected label name, got ${labelToken.type}`);
+    }
+    const label = labelToken.value;
+    
+    this.expect("RPAREN");
+    
+    // ASSERT
+    this.expect("KEYWORD", "ASSERT");
+    
+    // n.property
+    const propVarToken = this.advance();
+    if (propVarToken.type !== "IDENTIFIER" && propVarToken.type !== "KEYWORD") {
+      throw new Error(`Expected variable name, got ${propVarToken.type}`);
+    }
+    if (propVarToken.value !== varName) {
+      throw new Error(`Variable in ASSERT must match variable in ON clause: expected ${varName}, got ${propVarToken.value}`);
+    }
+    
+    this.expect("DOT");
+    
+    const propertyToken = this.advance();
+    if (propertyToken.type !== "IDENTIFIER" && propertyToken.type !== "KEYWORD") {
+      throw new Error(`Expected property name, got ${propertyToken.type}`);
+    }
+    const property = propertyToken.value;
+    
+    // IS UNIQUE
+    this.expect("KEYWORD", "IS");
+    this.expect("KEYWORD", "UNIQUE");
+    
+    return {
+      type: "CREATE_CONSTRAINT",
+      constraintName,
+      label,
+      property,
+      constraintType: "unique",
     };
   }
 

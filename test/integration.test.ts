@@ -3043,4 +3043,96 @@ describe("Integration Tests", () => {
       expect(timeWithIndex).toBeLessThan(timeNoIndex);
     });
   });
+
+  describe("CREATE CONSTRAINT and DROP CONSTRAINT", () => {
+    it("creates unique constraint and verifies it exists", async () => {
+      const db = client.getDatabase();
+      if (!db) return; // Skip in remote mode - requires direct SQLite access
+
+      const result = await client.execute("CREATE CONSTRAINT ON (n:User) ASSERT n.email IS UNIQUE");
+      expect(result.success).toBe(true);
+
+      // Verify constraint (unique index) was created
+      const indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='constraint_User_email_unique'"
+      );
+      expect(indexes.rows.length).toBe(1);
+    });
+
+    it("creates unique constraint with custom name", async () => {
+      const db = client.getDatabase();
+      if (!db) return;
+
+      const result = await client.execute("CREATE CONSTRAINT unique_user_id ON (u:User) ASSERT u.id IS UNIQUE");
+      expect(result.success).toBe(true);
+
+      const indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='unique_user_id'"
+      );
+      expect(indexes.rows.length).toBe(1);
+    });
+
+    it("enforces unique constraint", async () => {
+      const db = client.getDatabase();
+      if (!db) return;
+
+      // Create constraint
+      await client.execute("CREATE CONSTRAINT ON (p:Product) ASSERT p.sku IS UNIQUE");
+
+      // Create first product
+      await client.execute("CREATE (p:Product {sku: 'ABC123', name: 'Widget'})");
+
+      // Try to create duplicate - should fail
+      const result = await client.execute("CREATE (p:Product {sku: 'ABC123', name: 'Gadget'})");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.message).toMatch(/UNIQUE constraint failed/);
+      }
+    });
+
+    it("allows same property value on different labels", async () => {
+      const db = client.getDatabase();
+      if (!db) return;
+
+      // Create constraint only on Item label
+      await client.execute("CREATE CONSTRAINT ON (p:Item) ASSERT p.code IS UNIQUE");
+
+      // Create Item with code
+      await client.execute("CREATE (i:Item {code: 'X1'})");
+
+      // Create Order with same code - should succeed (different label)
+      await client.execute("CREATE (o:Order {code: 'X1'})");
+
+      // Try duplicate Item - should fail
+      const result = await client.execute("CREATE (i:Item {code: 'X1'})");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.message).toMatch(/UNIQUE constraint failed/);
+      }
+    });
+
+    it("drops constraint", async () => {
+      const db = client.getDatabase();
+      if (!db) return;
+
+      // Create first
+      await client.execute("CREATE CONSTRAINT constraint_to_drop ON (n:Test) ASSERT n.prop IS UNIQUE");
+
+      // Verify it exists
+      let indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='constraint_to_drop'"
+      );
+      expect(indexes.rows.length).toBe(1);
+
+      // Drop it
+      const result = await client.execute("DROP CONSTRAINT constraint_to_drop");
+      expect(result.success).toBe(true);
+
+      // Verify it's gone
+      indexes = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='constraint_to_drop'"
+      );
+      expect(indexes.rows.length).toBe(0);
+    });
+  });
 });

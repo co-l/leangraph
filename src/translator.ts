@@ -16,6 +16,8 @@ import {
   CallClause,
   CreateIndexClause,
   DropIndexClause,
+  CreateConstraintClause,
+  DropConstraintClause,
   NodePattern,
   RelationshipPattern,
   EdgePattern,
@@ -264,6 +266,10 @@ export class Translator {
         return { statements: this.translateCreateIndex(clause as CreateIndexClause) };
       case "DROP_INDEX":
         return { statements: this.translateDropIndex(clause as DropIndexClause) };
+      case "CREATE_CONSTRAINT":
+        return { statements: this.translateCreateConstraint(clause as CreateConstraintClause) };
+      case "DROP_CONSTRAINT":
+        return { statements: this.translateDropConstraint(clause as DropConstraintClause) };
       default:
         throw new Error(`Unknown clause type: ${(clause as Clause).type}`);
     }
@@ -448,6 +454,38 @@ export class Translator {
     // Quote index name as a SQL identifier to prevent injection
     const indexName = `"${clause.indexName.replace(/"/g, '""')}"`;
     const sql = `DROP INDEX IF EXISTS ${indexName}`;
+    return [{ sql, params: [] }];
+  }
+
+  // ============================================================================
+  // CREATE CONSTRAINT / DROP CONSTRAINT
+  // ============================================================================
+
+  /**
+   * Translate CREATE CONSTRAINT to SQL.
+   * Creates a partial unique index on a JSON property filtered by label.
+   * 
+   * Syntax: CREATE CONSTRAINT [name] ON (n:Label) ASSERT n.property IS UNIQUE
+   */
+  private translateCreateConstraint(clause: CreateConstraintClause): SqlStatement[] {
+    const rawName = clause.constraintName || `constraint_${clause.label}_${clause.property}_unique`;
+    // Quote constraint name as a SQL identifier to prevent injection
+    const constraintName = `"${rawName.replace(/"/g, '""')}"`;
+    const escapedProperty = escSqlStr(clause.property);
+    const escapedLabel = escSqlStr(clause.label);
+    
+    // Create a partial unique index: unique on (property) where primary label matches
+    const sql = `CREATE UNIQUE INDEX IF NOT EXISTS ${constraintName} ON nodes(json_extract(properties, '$.${escapedProperty}')) WHERE json_extract(label, '$[0]') = '${escapedLabel}'`;
+    return [{ sql, params: [] }];
+  }
+
+  /**
+   * Translate DROP CONSTRAINT to SQL.
+   */
+  private translateDropConstraint(clause: DropConstraintClause): SqlStatement[] {
+    // Quote constraint name as a SQL identifier to prevent injection
+    const constraintName = `"${clause.constraintName.replace(/"/g, '""')}"`;
+    const sql = `DROP INDEX IF EXISTS ${constraintName}`;
     return [{ sql, params: [] }];
   }
 

@@ -351,6 +351,10 @@ db.close(); // In-memory DB is discarded
 | `DISTINCT` | `RETURN DISTINCT n.category` |
 | `CASE/WHEN` | `RETURN CASE WHEN n.age > 18 THEN 'adult' ELSE 'minor' END` |
 | `CALL` | `CALL db.labels() YIELD label RETURN label` |
+| `CREATE INDEX` | `CREATE INDEX ON (property)` |
+| `DROP INDEX` | `DROP INDEX idx_name` |
+| `CREATE CONSTRAINT` | `CREATE CONSTRAINT ON (n:Label) ASSERT n.prop IS UNIQUE` |
+| `DROP CONSTRAINT` | `DROP CONSTRAINT constraint_name` |
 
 ### Operators
 
@@ -399,6 +403,61 @@ CALL db.relationshipTypes() YIELD type RETURN type
 
 -- List all property keys
 CALL db.propertyKeys() YIELD key RETURN key
+```
+
+### Indexes
+
+Create indexes on frequently-queried properties to improve performance:
+
+```cypher
+-- Create index (auto-named idx_email)
+CREATE INDEX ON (email)
+
+-- Create index with custom name
+CREATE INDEX idx_user_email ON (email)
+
+-- Drop index
+DROP INDEX idx_user_email
+```
+
+**Note:** The `:Label` syntax is supported for Neo4j compatibility but labels are ignored—all indexes are global across nodes.
+
+```cypher
+-- These are equivalent (label is ignored)
+CREATE INDEX ON (email)
+CREATE INDEX ON :User(email)
+```
+
+**Built-in indexes** (created automatically):
+- Node primary label lookups
+- Edge type, source, and target for traversal
+
+### Constraints
+
+Create unique constraints to enforce data integrity:
+
+```cypher
+-- Create unique constraint (auto-named constraint_User_email_unique)
+CREATE CONSTRAINT ON (n:User) ASSERT n.email IS UNIQUE
+
+-- Create constraint with custom name
+CREATE CONSTRAINT unique_user_email ON (u:User) ASSERT u.email IS UNIQUE
+
+-- Drop constraint
+DROP CONSTRAINT unique_user_email
+```
+
+Unique constraints:
+- Enforce uniqueness per label (not global)
+- Automatically create an index for the property
+- Reject duplicate values with a clear error message
+
+```typescript
+await db.execute('CREATE CONSTRAINT ON (u:User) ASSERT u.email IS UNIQUE');
+await db.execute('CREATE (u:User {email: "alice@example.com"})');
+
+// This will fail with "UNIQUE constraint failed"
+await db.execute('CREATE (u:User {email: "alice@example.com"})');
 ```
 
 ## Running the Server (Production)

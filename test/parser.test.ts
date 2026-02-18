@@ -2173,4 +2173,61 @@ describe("Parser", () => {
       });
     });
   });
+
+  describe("CREATE CONSTRAINT", () => {
+    it("parses CREATE CONSTRAINT ON (n:Label) ASSERT n.property IS UNIQUE", () => {
+      const query = expectSuccess("CREATE CONSTRAINT ON (n:User) ASSERT n.email IS UNIQUE");
+      expect(query.clauses).toHaveLength(1);
+      expect(query.clauses[0]).toEqual({
+        type: "CREATE_CONSTRAINT",
+        constraintName: null,
+        label: "User",
+        property: "email",
+        constraintType: "unique",
+      });
+    });
+
+    it("parses CREATE CONSTRAINT with custom name", () => {
+      const query = expectSuccess("CREATE CONSTRAINT unique_email ON (u:User) ASSERT u.email IS UNIQUE");
+      expect(query.clauses[0]).toEqual({
+        type: "CREATE_CONSTRAINT",
+        constraintName: "unique_email",
+        label: "User",
+        property: "email",
+        constraintType: "unique",
+      });
+    });
+
+    it("handles lowercase keywords", () => {
+      const query = expectSuccess("create constraint on (n:Person) assert n.id is unique");
+      expect(query.clauses[0].type).toBe("CREATE_CONSTRAINT");
+    });
+
+    it("rejects mismatched variable names", () => {
+      const result = parse("CREATE CONSTRAINT ON (n:User) ASSERT m.email IS UNIQUE");
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.message).toContain("must match");
+      }
+    });
+  });
+
+  describe("DROP CONSTRAINT", () => {
+    it("parses DROP CONSTRAINT name", () => {
+      const query = expectSuccess("DROP CONSTRAINT unique_email");
+      expect(query.clauses).toHaveLength(1);
+      expect(query.clauses[0]).toEqual({
+        type: "DROP_CONSTRAINT",
+        constraintName: "unique_email",
+      });
+    });
+
+    it("handles lowercase keywords", () => {
+      const query = expectSuccess("drop constraint my_constraint");
+      expect(query.clauses[0]).toEqual({
+        type: "DROP_CONSTRAINT",
+        constraintName: "my_constraint",
+      });
+    });
+  });
 });

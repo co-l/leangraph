@@ -2571,4 +2571,41 @@ describe("Translator", () => {
       expect(result.statements[0].sql).toBe('DROP INDEX IF EXISTS "idx_user_email"');
     });
   });
+
+  describe("CREATE CONSTRAINT", () => {
+    it("generates CREATE UNIQUE INDEX SQL", () => {
+      const result = translateCypher("CREATE CONSTRAINT ON (n:User) ASSERT n.email IS UNIQUE");
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toBe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "constraint_User_email_unique" ON nodes(json_extract(properties, '$.email')) WHERE json_extract(label, '$[0]') = 'User'`
+      );
+    });
+
+    it("uses custom constraint name", () => {
+      const result = translateCypher("CREATE CONSTRAINT unique_email ON (u:User) ASSERT u.email IS UNIQUE");
+      expect(result.statements[0].sql).toBe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "unique_email" ON nodes(json_extract(properties, '$.email')) WHERE json_extract(label, '$[0]') = 'User'`
+      );
+    });
+
+    it("handles different labels and properties", () => {
+      const result = translateCypher("CREATE CONSTRAINT ON (p:Product) ASSERT p.sku IS UNIQUE");
+      expect(result.statements[0].sql).toContain("constraint_Product_sku_unique");
+      expect(result.statements[0].sql).toContain("$.sku");
+      expect(result.statements[0].sql).toContain("'Product'");
+    });
+  });
+
+  describe("DROP CONSTRAINT", () => {
+    it("generates DROP INDEX SQL", () => {
+      const result = translateCypher("DROP CONSTRAINT unique_email");
+      expect(result.statements).toHaveLength(1);
+      expect(result.statements[0].sql).toBe('DROP INDEX IF EXISTS "unique_email"');
+    });
+
+    it("handles constraint names with underscores", () => {
+      const result = translateCypher("DROP CONSTRAINT constraint_User_email_unique");
+      expect(result.statements[0].sql).toBe('DROP INDEX IF EXISTS "constraint_User_email_unique"');
+    });
+  });
 });

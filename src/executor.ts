@@ -629,6 +629,10 @@ export class Executor {
         case "SET":
           flags.hasSet = true;
           flags.setClauses.push(clause);
+          // A standalone SET clause after MERGE means we need MERGE special handling
+          if (flags.hasMerge) {
+            flags.mergeHasSetClauses = true;
+          }
           break;
           
         case "DELETE":
@@ -7297,6 +7301,7 @@ export class Executor {
     let createClauses: CreateClause[] = [];
     let withClauses: WithClause[] = [];
     let mergeClauses: MergeClause[] = [];
+    let setClauses: SetClause[] = [];
     let returnClause: ReturnClause | null = null;
     
     for (const clause of clauses) {
@@ -7310,6 +7315,8 @@ export class Executor {
         createClauses.push(clause);
       } else if (clause.type === "WITH") {
         withClauses.push(clause);
+      } else if (clause.type === "SET") {
+        setClauses.push(clause);
       } else {
         // Other clause types present - don't handle
         return null;
@@ -7323,11 +7330,12 @@ export class Executor {
     // Check if any MERGE needs special handling:
     // 1. Has relationship patterns
     // 2. Has ON CREATE SET or ON MATCH SET
-    // 3. Has RETURN clause (translator can't handle MERGE + RETURN properly for new nodes)
-    // 4. Multiple MERGE clauses (need phased handling)
-    // 5. Has path expressions
+    // 3. Has standalone SET clauses after MERGE
+    // 4. Has RETURN clause (translator can't handle MERGE + RETURN properly for new nodes)
+    // 5. Multiple MERGE clauses (need phased handling)
+    // 6. Has path expressions
     const hasRelationshipPattern = mergeClauses.some(m => m.patterns.some(p => this.isRelationshipPattern(p)));
-    const hasSetClauses = mergeClauses.some(m => m.onCreateSet || m.onMatchSet);
+    const hasSetClauses = mergeClauses.some(m => m.onCreateSet || m.onMatchSet) || setClauses.length > 0;
     const hasPathExpressions = mergeClauses.some(m => m.pathExpressions && m.pathExpressions.length > 0);
     
     if (!hasRelationshipPattern && !hasSetClauses && !hasPathExpressions && !returnClause && mergeClauses.length === 1) {
@@ -7344,7 +7352,7 @@ export class Executor {
     // For single MERGE with SET clauses or relationship patterns, use the original handler
     // This preserves the existing behavior for ON CREATE SET / ON MATCH SET
     if (mergeClauses.length === 1) {
-      return this.executeMergeWithSetClauses(matchClauses, createClauses, withClauses, mergeClauses[0], returnClause, params);
+      return this.executeMergeWithSetClauses(matchClauses, createClauses, withClauses, mergeClauses[0], setClauses, returnClause, params);
     }
     
     // For multiple MERGEs without path expressions, use the multi-merge handler
@@ -7803,6 +7811,7 @@ export class Executor {
     createClauses: CreateClause[],
     withClauses: WithClause[],
     mergeClause: MergeClause,
+    setClauses: SetClause[],
     returnClause: ReturnClause | null,
     params: Record<string, unknown>
   ): Record<string, unknown>[] {
@@ -8015,6 +8024,9 @@ export class Executor {
     // Track all matched nodes and edges for aggregation
     const allMatchedNodeRows: Map<string, { id: string; label: string; properties: Record<string, unknown> }>[] = [];
     const allMatchedEdgeRows: Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>[] = [];
+    // Track merged nodes for standalone SET clauses
+    const mergedNodeVars = new Set<string>();
+    const mergedNodeIds = new Map<string, string>(); // variable -> nodeId
     
     for (const matchRow of matchRows) {
       // Convert matchRow to the format expected by executeMergeNodeForRow
@@ -8022,13 +8034,29 @@ export class Executor {
       const matchedEdges = new Map<string, { id: string; type: string; source_id: string; target_id: string; properties: Record<string, unknown> }>();
       
       if (patterns.length === 1 && !this.isRelationshipPattern(patterns[0])) {
+        const nodePattern = patterns[0] as NodePattern;
+        
         if (hasAggregate) {
           // Execute MERGE without RETURN processing - we'll aggregate later
-          this.executeMergeNodeForRow(patterns[0] as NodePattern, mergeClause, null, params, matchedNodes);
+          this.executeMergeNodeForRow(nodePattern, mergeClause, null, params, matchedNodes);
           allMatchedNodeRows.push(new Map(matchedNodes));
+          if (nodePattern.variable) {
+            const nodeInfo = matchedNodes.get(nodePattern.variable);
+            if (nodeInfo) {
+              mergedNodeIds.set(nodePattern.variable, nodeInfo.id);
+            }
+          }
         } else {
-          const rowResults = this.executeMergeNodeForRow(patterns[0] as NodePattern, mergeClause, returnClause, params, matchedNodes);
+          const rowResults = this.executeMergeNodeForRow(nodePattern, mergeClause, returnClause, params, matchedNodes);
           allResults.push(...rowResults);
+          // Track merged node for standalone SET clauses
+          if (nodePattern.variable) {
+            const nodeInfo = matchedNodes.get(nodePattern.variable);
+            if (nodeInfo) {
+              mergedNodeIds.set(nodePattern.variable, nodeInfo.id);
+              mergedNodeVars.add(nodePattern.variable);
+            }
+          }
         }
       } else if (patterns.length === 1 && this.isRelationshipPattern(patterns[0])) {
         if (hasAggregate) {
@@ -8055,6 +8083,32 @@ export class Executor {
     // If we have aggregates, process them now
     if (hasAggregate && returnClause) {
       return this.processAggregateReturn(returnClause, allMatchedNodeRows, allMatchedEdgeRows, params);
+    }
+    
+    // Apply standalone SET clauses after MERGE
+    if (setClauses.length > 0) {
+      // For each merged node, apply the SET clauses
+      for (const setClause of setClauses) {
+        for (const assignment of setClause.assignments) {
+          if (!assignment.variable || !assignment.property || !assignment.value) continue;
+          
+          // Skip if this variable wasn't merged in this query
+          if (!mergedNodeVars.has(assignment.variable)) continue;
+          
+          const nodeId = mergedNodeIds.get(assignment.variable);
+          if (!nodeId) continue;
+          
+          const value = this.evaluateExpression(assignment.value, params);
+          
+          this.db.execute(
+            `UPDATE nodes SET properties = json_set(properties, '$.${escSqlStr(assignment.property)}', json(?)) WHERE id = ?`,
+            [JSON.stringify(value), nodeId]
+          );
+          
+          // Invalidate cache after UPDATE
+          this.invalidatePropertyCache(nodeId);
+        }
+      }
     }
     
     return allResults;

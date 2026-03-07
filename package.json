@@ -1,6 +1,6 @@
 {
   "name": "leangraph",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "SQLite-based graph database with Cypher query support",
   "type": "module",
   "main": "dist/index.js",

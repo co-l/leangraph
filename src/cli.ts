@@ -257,7 +257,7 @@ program
   .option("-p, --params <json>", "Query parameters as JSON", "{}")
   .option("--json", "Output raw JSON", false)
   .action(
-    (
+    async (
       project: string,
       cypher: string,
       options: { data: string; params: string; json: boolean }
@@ -323,7 +323,7 @@ program
   .description("Wipe all data from a project database")
   .option("-d, --data <path>", "Data directory for databases", "/var/data/leangraph")
   .option("-f, --force", "Skip confirmation prompt", false)
-  .action((project: string, options: { data: string; force: boolean }) => {
+  .action(async (project: string, options: { data: string; force: boolean }) => {
     const dataPath = path.resolve(options.data);
     const dbPath = path.join(dataPath, `${project}.db`);
 

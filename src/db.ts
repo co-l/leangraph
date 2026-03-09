@@ -1,7 +1,30 @@
 // Database Wrapper for SQLite
 
-import Database from "better-sqlite3";
 import * as nodePath from "path";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+
+// Lazy-loaded better-sqlite3 to avoid requiring it in remote mode
+let BetterSqlite3: any = null;
+
+/**
+ * Get the better-sqlite3 module, loading it lazily if needed.
+ * Throws a helpful error if better-sqlite3 is not installed when needed.
+ */
+function getBetterSqlite3(): any {
+  if (BetterSqlite3 === null) {
+    try {
+      BetterSqlite3 = require("better-sqlite3");
+    } catch (err) {
+      throw new Error(
+        "better-sqlite3 is not installed. Install it with: npm install better-sqlite3\n" +
+        "Note: better-sqlite3 is only required for local/test mode. Remote mode does not need it."
+      );
+    }
+  }
+  return BetterSqlite3;
+}
 
 // ============================================================================
 // Types
@@ -372,7 +395,7 @@ function toBoolValue(x: unknown): boolean | null {
 /**
  * Register custom SQL functions for Cypher semantics on a database instance.
  */
-function registerCypherFunctions(db: Database.Database): void {
+function registerCypherFunctions(db: import("better-sqlite3").Database): void {
   // cypher_not: Proper boolean negation that works with both JSON booleans and integers
   // Converts json('true')/1 -> 0, json('false')/0 -> 1, null -> null
   // Returns integers for SQLite compatibility in WHERE clauses
@@ -644,12 +667,13 @@ function registerCypherFunctions(db: Database.Database): void {
 }
 
 export class GraphDatabase {
-  private db: Database.Database;
+  private db: import("better-sqlite3").Database;
   private initialized: boolean = false;
-  private stmtCache: Map<string, Database.Statement> = new Map();
+  private stmtCache: Map<string, import("better-sqlite3").Statement> = new Map();
   private readonly STMT_CACHE_MAX = 100;
 
   constructor(path: string = ":memory:") {
+    const Database = getBetterSqlite3();
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
@@ -675,7 +699,7 @@ export class GraphDatabase {
    * Get a cached prepared statement, or create and cache a new one
    * Uses LRU eviction: recently accessed entries are moved to end of Map
    */
-  private getCachedStatement(sql: string): Database.Statement {
+  private getCachedStatement(sql: string): import("better-sqlite3").Statement {
     let stmt = this.stmtCache.get(sql);
     if (stmt) {
       // Move to end for LRU (delete and re-add)
@@ -882,7 +906,7 @@ export class GraphDatabase {
   /**
    * Get the underlying database instance (for advanced operations)
    */
-  getRawDatabase(): Database.Database {
+  getRawDatabase(): any {
     return this.db;
   }
 

@@ -1,9 +1,29 @@
 // Backup System for LeanGraph
 // Uses SQLite's backup API for hot (online) backups
 
-import Database from "better-sqlite3";
 import * as fs from "fs";
 import * as path from "path";
+
+// Lazy-loaded better-sqlite3 to avoid requiring it in remote mode
+let BetterSqlite3: unknown | null = null;
+
+/**
+ * Get the better-sqlite3 module, loading it lazily if needed.
+ * Throws a helpful error if better-sqlite3 is not installed when needed.
+ */
+function getBetterSqlite3(): any {
+  if (BetterSqlite3 === null) {
+    try {
+      BetterSqlite3 = require("better-sqlite3");
+    } catch (err) {
+      throw new Error(
+        "better-sqlite3 is not installed. Install it with: npm install better-sqlite3\n" +
+        "Note: better-sqlite3 is only required for local/test mode. Remote mode does not need it."
+      );
+    }
+  }
+  return BetterSqlite3;
+}
 
 // ============================================================================
 // Types
@@ -73,6 +93,7 @@ export class BackupManager {
 
     try {
       // Use SQLite's backup API via better-sqlite3
+      const Database = getBetterSqlite3();
       const sourceDb = new Database(sourcePath, { readonly: true });
       
       // backup() returns a Promise - wait for it to complete
